@@ -11,25 +11,27 @@ cooldowns, discoveries and other modules' hooks behave as before.
 ## What players get
 
 **The profession window**
-- **Profession tabs** down the left edge: switch between your professions without the spellbook.
-- **Skill bar** with your rank (Apprentice ... Grand Master), and a **chat link** button that
-  shows everyone your recipes.
+- **Profession tabs** down the right edge, like the spellbook: switch between your professions without the spellbook.
+- The profession's **portrait**, a **skill bar** across the window ("Blacksmithing 24/75"; hover it
+  for your rank) and a **chat link** button that shows everyone your recipes.
 - **Search** that matches recipe names and **reagents** ("silk" finds everything made from silk).
 - **Filters**: Have materials, Has skill-up, Slot (head, chest, weapon ...), Show unlearned
   recipes, Only ones I can learn now, Count the reagent bank, plus expand / collapse all.
-- Each recipe has a **skill-up meter**: three bars for a sure skill-up (orange), two for likely
-  (yellow), one for unlikely (green), none for no skill-up (grey). The count on the right is how
-  many you can make, with what the reagent bank adds in blue.
+- Recipes sit under gold category bars that fold. Each has a **skill-up chevron** in its colour
+  (orange = sure, yellow = likely, green = unlikely, none = no more skill-ups) and how many you
+  can make in brackets, with what the reagent bank adds in blue: `Copper Bracers [3+2]`.
+- **Favorites**: the star beside a recipe's name puts it in a Favorites group at the top.
 - **Unlearned recipes**, greyed, grouped by skill tier (Journeyman, Expert ...) with the skill
   they need.
 
 **The recipe**
-- What it makes, how many, tools and cooldown.
+- A round icon, the name, a favorite star and what it **requires** (tools, a forge, a fire; red
+  when you don't have it), what it makes and any cooldown.
 - **Chance to raise your skill**, exactly as the server works it out, and a bar showing where the
   recipe turns yellow, green and grey and where you are on it. With `SkillGain.Crafting` above 1
   it says how many points a skill-up gives.
-- **Reagents** with what you have (green / red), plus what's in the reagent bank.
-- **Create**, **Create All** and an amount box. For enchants, an **Enchant** slot: drop the item
+- **Reagents** as `have/need Name` (red when short), plus what's in the reagent bank.
+- **Track Recipe**, and under the recipe **Create All [n]**, the amount and **Create**. For enchants, an **Enchant** slot: drop the item
   on it once and every cast goes straight onto that item, no clicking the item each time.
 - For a recipe you haven't learned: **where to learn it**. Trainers (nearest first, with the
   cost), vendors (price, limited stock, reputation needed), drops (creature, zone, level,
@@ -51,8 +53,9 @@ cooldowns, discoveries and other modules' hooks behave as before.
 **Other**
 - `/prof classic` switches back to the old Blizzard window, `/prof retail` returns.
 - `/prof reset` puts the windows back where they started.
-- With [DragonUI](https://github.com/NeticSoul/DragonUI) the window wears DragonUI's retail
-  art; without it, a dark style of its own.
+- The windows are stock Blizzard frames (dialog frame, buttons, checkboxes, scroll bars). With
+  [DragonUI](https://github.com/NeticSoul/DragonUI) installed they wear DragonUI's retail skin:
+  the metal frame with the round portrait, red buttons and gold category bars.
 - With [mod-reagent-bank-account](https://github.com/buildthehomelab/mod-reagent-bank-account)'s
   ReagentBankUI, its sidebar docks to this window as it does to the old one.
 

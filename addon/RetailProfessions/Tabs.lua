@@ -1,23 +1,24 @@
--- Profession tabs down the left edge of the window: one per profession you know that has a
--- window, so you can switch without the spellbook.
+-- Profession tabs down the right edge of the window, like the spellbook's: one per profession
+-- you know that has a window, so you can switch without the spellbook. ReagentBankUI's sidebar,
+-- which docks to the window's right edge, moves over to make room for them.
 
 local RPF = RetailProfessions
 local M = RPF.Model
 
 local frame = RPF.frame
 local TAB_SIZE = 40
+local TAB_COLUMN = TAB_SIZE -- room the bank sidebar makes for the tabs (they reach 38 past the edge)
 local MAX_TABS = 10
 
 local tabs = {}
 for i = 1, MAX_TABS do
 	local tab = CreateFrame("Frame", nil, frame)
 	tab:SetSize(TAB_SIZE, TAB_SIZE)
-	tab:SetPoint("TOPRIGHT", frame, "TOPLEFT", 2, -40 - (i - 1) * (TAB_SIZE + 8))
+	tab:SetPoint("TOPLEFT", frame, "TOPRIGHT", -2, -40 - (i - 1) * (TAB_SIZE + 8))
 	tab.bg = tab:CreateTexture(nil, "BACKGROUND")
 	tab.bg:SetTexture("Interface\\SpellBook\\SpellBook-SkillLineTab")
 	tab.bg:SetSize(64, 64)
-	tab.bg:SetPoint("TOPRIGHT", tab, "TOPRIGHT", 4, 11)
-	tab.bg:SetTexCoord(1, 0, 0, 1) -- the spellbook's tabs point right; ours hang off the left
+	tab.bg:SetPoint("TOPLEFT", tab, "TOPLEFT", -4, 11)
 	tab.icon = tab:CreateTexture(nil, "ARTWORK")
 	tab.icon:SetSize(TAB_SIZE - 6, TAB_SIZE - 6)
 	tab.icon:SetPoint("CENTER", tab, "CENTER")
@@ -31,7 +32,7 @@ for i = 1, MAX_TABS do
 	tab.button.onEnter = function (self)
 		local p = tab.profession
 		if not p then return end
-		GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 		GameTooltip:SetText(p.localName)
 		if tab.rank then GameTooltip:AddLine(tab.rank .. " / " .. tab.maxRank, 1, 1, 1) end
 		GameTooltip:Show()
@@ -74,3 +75,19 @@ RPF.On("SECURE_STATE", function (on)
 end)
 frame:HookScript("OnShow", refresh)
 RPF.FollowRaises(frame)
+
+-- ReagentBankUI docks its sidebar against the window's right edge, where the tabs hang now.
+-- After each dock (it re-docks from scratch every time), shift it past the tabs.
+RPF.On("LOGIN", function ()
+	local RB = _G.ReagentBankUI
+	if not (RB and RB.DockTradeSkillPanel and hooksecurefunc) then return end
+	hooksecurefunc(RB, "DockTradeSkillPanel", function (self)
+		local panel = self.tradeSkillPanel
+		local host = self.GetTradeSkillControlsHost and self:GetTradeSkillControlsHost()
+		if not (panel and host == frame) then return end
+		local point, relativeTo, relativePoint, x, y = panel:GetPoint(1)
+		if not point then return end
+		panel:ClearAllPoints()
+		panel:SetPoint(point, relativeTo, relativePoint, (x or 0) + TAB_COLUMN, y or 0)
+	end)
+end)

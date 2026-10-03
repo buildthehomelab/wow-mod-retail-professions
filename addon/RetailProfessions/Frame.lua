@@ -1,12 +1,14 @@
--- The profession window: the skill bar and chat link on top, the recipe list with its search
--- and filters on the left, the selected recipe on the right (Detail.lua) and the craft controls
--- under it. Drag it by the title bar; it remembers where it was put.
+-- The profession window, laid out like retail's (and WoW Forever's): the profession's portrait
+-- and a full-width skill bar with the chat link on top, the recipe list with its search and
+-- filter on the left, the selected recipe on the right (Detail.lua) with Create All, the amount
+-- and Create under it. A stock Blizzard dialog frame, skinned by DragonUI when it's loaded.
+-- Drag it by the title bar; it remembers where it was put.
 
 local RPF = RetailProfessions
 local M = RPF.Model
 
-local WIDTH, HEIGHT = 900, 572
-local LIST_WIDTH = 330
+local WIDTH, HEIGHT = 740, 560
+local LIST_WIDTH = 276
 local LIST_ROWS = 24
 
 local frame = CreateFrame("Frame", "RetailProfessionsFrame", UIParent)
@@ -35,80 +37,39 @@ RPF.On("RESET_POSITION", function ()
 	RPF.Fire("MOVED")
 end)
 
-local dragon = RPF.DressWindow(frame)
-
-local title = frame.chrome:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-title:SetPoint("TOP", frame, "TOP", 0, -5)
-
-local dragBar = CreateFrame("Frame", nil, frame)
-dragBar:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
-dragBar:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -28, 0)
-dragBar:SetHeight(24)
-dragBar:EnableMouse(true)
-dragBar:RegisterForDrag("LeftButton")
-dragBar:SetScript("OnDragStart", function () frame:StartMoving() end)
-dragBar:SetScript("OnDragStop", function ()
-	frame:StopMovingOrSizing()
-	local point, _, relativePoint, x, y = frame:GetPoint(1)
-	RetailProfessionsDB.position = { point, relativePoint, x, y }
-	RPF.Fire("MOVED")
-end)
-
-local close = CreateFrame("Button", "RetailProfessionsFrameCloseButton", frame, "UIPanelCloseButton")
-close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 2, 2)
-do
-	local _, CP = RPF.Dragon()
-	if CP and CP.ModernizeCloseButton then
-		CP.ModernizeCloseButton(close, frame.chrome, 1, 0)
-		close:SetFrameLevel(frame.chrome:GetFrameLevel() + 5)
-	end
-end
+local dragon, contentTop = RPF.DressWindow(frame, {
+	portrait = true,
+	closeName = "RetailProfessionsFrameCloseButton",
+	onMoved = function ()
+		local point, _, relativePoint, x, y = frame:GetPoint(1)
+		RetailProfessionsDB.position = { point, relativePoint, x, y }
+		RPF.Fire("MOVED")
+	end,
+})
+local title = frame.title
 
 local content = CreateFrame("Frame", nil, frame)
-content:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, dragon and -28 or -30)
-content:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -12, 12)
+content:SetPoint("TOPLEFT", frame, "TOPLEFT", dragon and 10 or 14, contentTop)
+content:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", dragon and -10 or -14, dragon and 10 or 14)
 
 -----------------------------------------
--- header: profession, skill bar, chat link
+-- header: the skill bar across the window, and the chat link
 
 local header = CreateFrame("Frame", nil, content)
 header:SetPoint("TOPLEFT", content, "TOPLEFT", 0, 0)
 header:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, 0)
-header:SetHeight(44)
+header:SetHeight(26)
 
+-- The stock frame has no portrait ring, so its icon sits beside the bar instead.
 local profIcon = header:CreateTexture(nil, "ARTWORK")
-profIcon:SetSize(36, 36)
-profIcon:SetPoint("LEFT", header, "LEFT", 4, 0)
+profIcon:SetSize(22, 22)
+profIcon:SetPoint("LEFT", header, "LEFT", 2, 0)
 profIcon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-
-local profName = header:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-profName:SetPoint("TOPLEFT", profIcon, "TOPRIGHT", 8, -1)
-
-local rankText = header:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-rankText:SetPoint("LEFT", profName, "RIGHT", 8, -1)
-rankText:SetTextColor(0.7, 0.7, 0.7)
-
-local skillBar = CreateFrame("StatusBar", nil, header)
-skillBar:SetSize(260, 13)
-skillBar:SetPoint("BOTTOMLEFT", profIcon, "BOTTOMRIGHT", 8, 1)
-skillBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
-skillBar:SetStatusBarColor(0.1, 0.55, 0.15)
-do
-	local bg = skillBar:CreateTexture(nil, "BACKGROUND")
-	bg:SetAllPoints(skillBar)
-	bg:SetTexture(0, 0, 0, 0.6)
-	local border = CreateFrame("Frame", nil, skillBar)
-	border:SetPoint("TOPLEFT", skillBar, "TOPLEFT", -3, 3)
-	border:SetPoint("BOTTOMRIGHT", skillBar, "BOTTOMRIGHT", 3, -3)
-	border:SetBackdrop({ edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 10 })
-	border:SetBackdropBorderColor(0.6, 0.6, 0.6, 0.9)
-end
-local skillText = skillBar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-skillText:SetPoint("CENTER", skillBar, "CENTER", 0, 1)
+if frame.portrait then profIcon:Hide() end
 
 local linkButton = CreateFrame("Button", nil, header)
-linkButton:SetSize(30, 30)
-linkButton:SetPoint("LEFT", skillBar, "RIGHT", 10, 6)
+linkButton:SetSize(28, 28)
+linkButton:SetPoint("RIGHT", header, "RIGHT", -2, 2)
 linkButton:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIcon-Chat-Up")
 linkButton:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIcon-Chat-Down")
 linkButton:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
@@ -125,29 +86,65 @@ linkButton:SetScript("OnEnter", function (self)
 end)
 linkButton:SetScript("OnLeave", function () GameTooltip:Hide() end)
 
-local linkedText = header:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-linkedText:SetPoint("RIGHT", header, "RIGHT", -8, 0)
-linkedText:SetTextColor(0.6, 0.85, 1)
+-- The stock skill bar look (the character window's skill bars).
+local skillBar = CreateFrame("StatusBar", nil, header)
+skillBar:SetHeight(15)
+skillBar:SetPoint("LEFT", header, "LEFT", frame.portrait and 54 or 30, 0)
+skillBar:SetPoint("RIGHT", linkButton, "LEFT", -6, -2)
+skillBar:SetStatusBarTexture("Interface\\PaperDollInfoFrame\\UI-Character-Skills-Bar")
+skillBar:SetStatusBarColor(0.95, 0.6, 0.1)
+do
+	local bg = skillBar:CreateTexture(nil, "BACKGROUND")
+	bg:SetAllPoints(skillBar)
+	bg:SetTexture(0, 0, 0, 0.65)
+	local border = CreateFrame("Frame", nil, skillBar)
+	border:SetPoint("TOPLEFT", skillBar, "TOPLEFT", -4, 4)
+	border:SetPoint("BOTTOMRIGHT", skillBar, "BOTTOMRIGHT", 4, -4)
+	border:SetBackdrop({ edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 12 })
+	border:SetBackdropBorderColor(0.7, 0.7, 0.7, 1)
+end
+local skillText = skillBar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+skillText:SetPoint("CENTER", skillBar, "CENTER", 0, 1)
+skillBar:EnableMouse(true)
+skillBar:SetScript("OnEnter", function (self)
+	GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+	GameTooltip:SetText((M.skillName or "") .. " - " .. RPF.RankTitle(M.maxRank))
+	GameTooltip:AddLine(string.format("Skill %d of %d", M.rank or 0, M.maxRank or 0), 1, 1, 1)
+	GameTooltip:Show()
+end)
+skillBar:SetScript("OnLeave", function () GameTooltip:Hide() end)
 
 -----------------------------------------
--- left: search, filters, list
+-- left: search, filter, list
 
 local left = RPF.CreateInset(content)
-left:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -4)
+left:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -6)
 left:SetPoint("BOTTOMLEFT", content, "BOTTOMLEFT", 0, 0)
 left:SetWidth(LIST_WIDTH)
 
-local search = RPF.CreateEditBox(left, LIST_WIDTH - 110)
+local search = RPF.CreateEditBox(left, LIST_WIDTH - 104)
 search:SetPoint("TOPLEFT", left, "TOPLEFT", 14, -8)
+search:SetTextInsets(16, 4, 0, 0)
 do
+	local glass = search:CreateTexture(nil, "OVERLAY")
+	glass:SetTexture("Interface\\Minimap\\Tracking\\None")
+	glass:SetSize(14, 14)
+	glass:SetPoint("LEFT", search, "LEFT", 0, 0)
+	glass:SetVertexColor(0.7, 0.7, 0.7)
 	local hint = search:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-	hint:SetPoint("LEFT", search, "LEFT", 2, 0)
-	hint:SetText("Search recipes or reagents")
+	hint:SetPoint("LEFT", search, "LEFT", 17, 0)
+	hint:SetText(SEARCH or "Search")
 	search.hint = hint
 end
 
-local filterButton = RPF.CreateButton(left, "Filter", 84, 22)
-filterButton:SetPoint("LEFT", search, "RIGHT", 8, 0)
+local filterButton = RPF.CreateButton(left, FILTER or "Filter", 78, 22)
+filterButton:SetPoint("LEFT", search, "RIGHT", 6, 0)
+do
+	local arrow = filterButton:CreateTexture(nil, "OVERLAY")
+	arrow:SetTexture("Interface\\ChatFrame\\ChatFrameExpandArrow")
+	arrow:SetSize(10, 12)
+	arrow:SetPoint("RIGHT", filterButton, "RIGHT", -6, 0)
+end
 
 RPF.filter = { text = "", haveMats = false, skillUp = false, slot = nil, learnableOnly = false }
 RPF.selected = nil -- the selected recipe (from the model)
@@ -168,9 +165,10 @@ list = RPF.CreateRecipeList(left, {
 	end,
 	isSelected = function (r) return RPF.selected == r end,
 	isTracked = isTracked,
+	isFavorite = function (r) return RPF.IsFavorite(r.spell) end,
 	onTrackToggle = function (r) RPF.ToggleTracked(r) end,
 })
-list:SetPoint("TOPLEFT", left, "TOPLEFT", 6, -36)
+list:SetPoint("TOPLEFT", left, "TOPLEFT", 6, -34)
 list:SetPoint("RIGHT", left, "RIGHT", -6, 0)
 RPF.list = list
 
@@ -258,33 +256,25 @@ local function filtersActive()
 end
 
 -----------------------------------------
--- right: the recipe, and the craft controls under it
+-- right: the recipe, Track recipe inside it, and Create All / amount / Create under it
 
 local right = RPF.CreateInset(content)
 right:SetPoint("TOPLEFT", left, "TOPRIGHT", 6, 0)
-right:SetPoint("BOTTOMRIGHT", content, "BOTTOMRIGHT", 0, 40)
+right:SetPoint("BOTTOMRIGHT", content, "BOTTOMRIGHT", 0, 30)
 RPF.detailPane = right
 
 local controls = CreateFrame("Frame", nil, content)
 controls:SetPoint("TOPLEFT", right, "BOTTOMLEFT", 0, -4)
 controls:SetPoint("BOTTOMRIGHT", content, "BOTTOMRIGHT", 0, 0)
 
-local createButton = RPF.CreateButton(controls, CREATE or "Create", 100, 24)
-createButton:SetPoint("RIGHT", controls, "RIGHT", -4, 0)
+local createAllButton = RPF.CreateButton(controls, CREATE_ALL or "Create All", 110, 22)
+createAllButton:SetPoint("LEFT", controls, "LEFT", 0, 0)
 
-local createAllButton = RPF.CreateButton(controls, CREATE_ALL or "Create All", 96, 24)
-createAllButton:SetPoint("RIGHT", createButton, "LEFT", -6, 0)
+local createButton = RPF.CreateButton(controls, CREATE or "Create", 110, 22)
+createButton:SetPoint("RIGHT", controls, "RIGHT", 0, 0)
 
-local plus = CreateFrame("Button", nil, controls)
-plus:SetSize(22, 22)
-plus:SetPoint("RIGHT", createAllButton, "LEFT", -8, 0)
-plus:SetNormalTexture("Interface\\Buttons\\UI-SpellbookIcon-NextPage-Up")
-plus:SetPushedTexture("Interface\\Buttons\\UI-SpellbookIcon-NextPage-Down")
-plus:SetDisabledTexture("Interface\\Buttons\\UI-SpellbookIcon-NextPage-Disabled")
-plus:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
-
-local quantity = RPF.CreateEditBox(controls, 36, true)
-quantity:SetPoint("RIGHT", plus, "LEFT", -2, 0)
+local quantity = RPF.CreateEditBox(controls, 32, true)
+quantity:SetPoint("CENTER", controls, "CENTER", 0, 0)
 quantity:SetJustifyH("CENTER")
 quantity:SetMaxLetters(3)
 quantity:SetText("1")
@@ -297,17 +287,26 @@ minus:SetPushedTexture("Interface\\Buttons\\UI-SpellbookIcon-PrevPage-Down")
 minus:SetDisabledTexture("Interface\\Buttons\\UI-SpellbookIcon-PrevPage-Disabled")
 minus:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
 
-local trackCheck = RPF.CreateCheck(controls, "Track recipe")
-trackCheck:SetPoint("LEFT", controls, "LEFT", 6, 0)
+local plus = CreateFrame("Button", nil, controls)
+plus:SetSize(22, 22)
+plus:SetPoint("LEFT", quantity, "RIGHT", 2, 0)
+plus:SetNormalTexture("Interface\\Buttons\\UI-SpellbookIcon-NextPage-Up")
+plus:SetPushedTexture("Interface\\Buttons\\UI-SpellbookIcon-NextPage-Down")
+plus:SetDisabledTexture("Interface\\Buttons\\UI-SpellbookIcon-NextPage-Disabled")
+plus:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
+
+local trackCheck = RPF.CreateCheck(right, "Track Recipe")
+trackCheck:SetPoint("BOTTOMLEFT", right, "BOTTOMLEFT", 8, 6)
 trackCheck:SetScript("OnClick", function ()
 	if RPF.selected then RPF.ToggleTracked(RPF.selected) end
 end)
 
--- Enchants: the item to put them on, picked once instead of after every cast.
-local target = RPF.CreateItemButton(controls, 30)
-target:SetPoint("RIGHT", minus, "LEFT", -16, 0)
+-- Enchants: the item to put them on, picked once instead of after every cast. It sits at the
+-- bottom right of the recipe pane.
+local target = RPF.CreateItemButton(right, 28)
+target:SetPoint("BOTTOMRIGHT", right, "BOTTOMRIGHT", -10, 8)
 target:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-target.label = controls:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+target.label = right:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 target.label:SetPoint("RIGHT", target, "LEFT", -6, 0)
 target.label:SetText("Enchant:")
 do
@@ -319,9 +318,9 @@ do
 end
 RPF.enchantTarget = nil -- { id = item id, bag, slot } or { id, inv }
 
-local status = controls:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-status:SetPoint("LEFT", trackCheck.label, "RIGHT", 12, 0)
-status:SetPoint("RIGHT", target.label, "LEFT", -10, 0)
+local status = right:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+status:SetPoint("LEFT", trackCheck.label, "RIGHT", 10, 0)
+status:SetPoint("RIGHT", right, "RIGHT", -110, 0)
 status:SetJustifyH("LEFT")
 status:SetHeight(28)
 
@@ -437,7 +436,7 @@ local function updateControls()
 	RPF.SetEnabled(minus, learned and not enchant)
 	if enchant then setQuantity(1) end
 	createButton:SetText(r and r.learned and r.altVerb or CREATE or "Create")
-	createAllButton:SetText((CREATE_ALL or "Create All") .. (bags > 1 and not enchant and (" (" .. bags .. ")") or ""))
+	createAllButton:SetText((CREATE_ALL or "Create All") .. " [" .. (enchant and 0 or bags) .. "]")
 
 	if enchant then
 		target:Show(); target.label:Show()
@@ -507,21 +506,15 @@ end
 
 local function updateHeader()
 	local p = M.profession
-	profIcon:SetTexture(p and p.texture or (GetTradeSkillTexture and GetTradeSkillTexture()) or "Interface\\Icons\\INV_Misc_QuestionMark")
-	profName:SetText(M.skillName or "")
+	local texture = p and p.texture or (GetTradeSkillTexture and GetTradeSkillTexture()) or "Interface\\Icons\\INV_Misc_QuestionMark"
+	if frame.portrait then RPF.SetPortrait(frame.portrait, texture) else profIcon:SetTexture(texture) end
+	-- Someone else's linked profession: their name in the title.
 	title:SetText(M.linked and ((M.linkedName or "") .. " - " .. (M.skillName or "")) or (M.skillName or "Professions"))
-	rankText:SetText(RPF.RankTitle(M.maxRank))
 	skillBar:SetMinMaxValues(0, math.max(1, M.maxRank or 1))
 	skillBar:SetValue(M.rank or 0)
-	skillText:SetText((M.rank or 0) .. " / " .. (M.maxRank or 0))
-	if M.linked then
-		linkedText:SetText("Viewing " .. (M.linkedName or "someone") .. "'s recipes")
-		linkButton:Hide()
-	else
-		linkedText:SetText("")
-		linkButton:Show()
-	end
-	filterButton:SetText(filtersActive() and "|cff4fc3f7Filter|r" or "Filter")
+	skillText:SetText(string.format("%s %d/%d", M.skillName or "", M.rank or 0, M.maxRank or 0))
+	if M.linked then linkButton:Hide() else linkButton:Show() end
+	filterButton:SetText(filtersActive() and ("|cff4fc3f7" .. (FILTER or "Filter") .. "|r") or (FILTER or "Filter"))
 end
 
 -- Reads the client again (unless only the view changed) and redraws.
@@ -530,7 +523,8 @@ Rebuild = function (viewOnly)
 	if not viewOnly and not M.Scan() then return end
 	local f = RPF.filter
 	local state = { text = f.text, haveMats = f.haveMats, skillUp = f.skillUp, slot = f.slot,
-		unlearned = RetailProfessionsDB.showUnlearned and not M.linked, learnableOnly = f.learnableOnly }
+		unlearned = RetailProfessionsDB.showUnlearned and not M.linked, learnableOnly = f.learnableOnly,
+		favorites = not M.linked and RetailProfessionsCharDB.favorites or nil }
 	local rows = M.Rows(state, RetailProfessionsCharDB.collapsed)
 	if M.skill and not M.hasServerData and RPF.Has(RPF.HELLO_RECIPES) then
 		list:SetEmptyText("Loading recipes...")
@@ -608,6 +602,7 @@ RPF.On("ITEM_INFO", function ()
 		if RPF.selected then RPF.Fire("SELECTED", RPF.selected) end
 	end
 end)
+RPF.On("FAVORITES", function () Rebuild(true) end)
 RPF.On("TRACKED", function ()
 	if frame:IsShown() then
 		list:Refresh()

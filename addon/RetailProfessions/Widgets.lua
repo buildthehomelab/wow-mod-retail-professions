@@ -38,17 +38,26 @@ end
 -----------------------------------------
 -- window chrome and panes
 
-local FALLBACK_BACKDROP = {
-	bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
-	edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-	tile = true, tileSize = 16, edgeSize = 16,
-	insets = { left = 4, right = 4, top = 4, bottom = 4 },
+-- Without DragonUI every window is a stock Blizzard dialog frame: the dialog-box border and
+-- background with the gold header plate for its title.
+local DIALOG_BACKDROP = {
+	bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+	edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+	tile = true, tileSize = 32, edgeSize = 32,
+	insets = { left = 11, right = 12, top = 12, bottom = 11 },
 }
 
--- The outer window: DragonUI's metal frame (the one without a portrait ring) on rock, or a dark
--- bordered box.
-function RPF.DressWindow(frame)
-	local D = RPF.Dragon()
+-- Dresses a window and gives it a title (frame.title), a close button (frame.closeButton) and a
+-- title bar to drag it by. DragonUI's metal frame on rock when DragonUI is loaded, otherwise the
+-- stock dialog frame. opts = { portrait = round portrait top-left (frame.portrait, DragonUI only;
+-- set it with RPF.SetPortrait), closeName = global name for the close button, onMoved = fn }.
+-- Returns true with DragonUI, and the y offset content starts at.
+function RPF.DressWindow(frame, opts)
+	opts = opts or {}
+	local D, CP = RPF.Dragon()
+	local close = CreateFrame("Button", opts.closeName, frame, "UIPanelCloseButton")
+	frame.closeButton = close
+
 	if D then
 		local rock = tiled(frame, "BACKGROUND", -8, D._dir .. "UI\\ui-background-rock")
 		rock:SetPoint("TOPLEFT", frame, "TOPLEFT", 2, -21)
@@ -69,25 +78,60 @@ function RPF.DressWindow(frame)
 		chrome:SetAllPoints(frame)
 		chrome:SetFrameLevel(frame:GetFrameLevel() + 30)
 		chrome:EnableMouse(false)
-		NineSliceUtils.ApplyLayout(chrome, NineSliceUtils.GetLayout("NoPortraitFrameTemplate")
-			or NineSliceUtils.GetLayout("PortraitFrameTemplate"))
+		local layout = opts.portrait and NineSliceUtils.GetLayout("PortraitFrameTemplate")
+			or NineSliceUtils.GetLayout("NoPortraitFrameTemplate") or NineSliceUtils.GetLayout("PortraitFrameTemplate")
+		NineSliceUtils.ApplyLayout(chrome, layout)
 		frame.chrome = chrome
-		return true
+		if opts.portrait then
+			-- Where DragonUI's spellbook puts its portrait, under the frame's ring.
+			frame.portrait = chrome:CreateTexture(nil, "ARTWORK")
+			frame.portrait:SetSize(58, 58)
+			frame.portrait:SetPoint("TOPLEFT", frame, "TOPLEFT", -2, 6)
+		end
+
+		frame.title = chrome:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+		frame.title:SetPoint("TOP", frame, "TOP", 0, -5)
+		close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 2, 2)
+		if CP.ModernizeCloseButton then
+			CP.ModernizeCloseButton(close, chrome, 1, 0)
+			close:SetFrameLevel(chrome:GetFrameLevel() + 5)
+		end
+	else
+		frame:SetBackdrop(DIALOG_BACKDROP)
+		frame.chrome = frame
+		local header = frame:CreateTexture(nil, "ARTWORK")
+		header:SetTexture("Interface\\DialogFrame\\UI-DialogBox-Header")
+		header:SetSize(320, 64)
+		header:SetPoint("TOP", frame, "TOP", 0, 12)
+		frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+		frame.title:SetPoint("TOP", header, "TOP", 0, -14)
+		close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -4, -4)
 	end
 
-	frame:SetBackdrop(FALLBACK_BACKDROP)
-	frame:SetBackdropColor(0.05, 0.05, 0.06, 0.96)
-	frame:SetBackdropBorderColor(0.55, 0.55, 0.6, 1)
-	local band = solid(frame, "BORDER", 0.12, 0.12, 0.14, 1)
-	band:SetPoint("TOPLEFT", frame, "TOPLEFT", 4, -4)
-	band:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -4, -4)
-	band:SetHeight(20)
-	local rule = solid(frame, "BORDER", 1, 0.82, 0, 0.35)
-	rule:SetHeight(1)
-	rule:SetPoint("TOPLEFT", band, "BOTTOMLEFT")
-	rule:SetPoint("TOPRIGHT", band, "BOTTOMRIGHT")
-	frame.chrome = frame
-	return false
+	local dragBar = CreateFrame("Frame", nil, frame)
+	dragBar:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, D and 0 or 12)
+	dragBar:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -30, 0)
+	dragBar:SetHeight(D and 24 or 36)
+	dragBar:EnableMouse(true)
+	dragBar:RegisterForDrag("LeftButton")
+	dragBar:SetScript("OnDragStart", function () frame:StartMoving() end)
+	dragBar:SetScript("OnDragStop", function ()
+		frame:StopMovingOrSizing()
+		if opts.onMoved then opts.onMoved() end
+	end)
+
+	return D and true or false, D and -28 or -32
+end
+
+-- A round picture of an icon, as portraits and retail's recipe icons are drawn.
+function RPF.SetPortrait(texture, path)
+	if not texture then return end
+	if path and SetPortraitToTexture then
+		texture:SetTexCoord(0, 1, 0, 1)
+		SetPortraitToTexture(texture, path)
+	else
+		texture:SetTexture(path)
+	end
 end
 
 -- A recessed pane (retail's InsetFrameTemplate).
@@ -105,25 +149,21 @@ function RPF.CreateInset(parent)
 			tile = true, tileSize = 16, edgeSize = 12,
 			insets = { left = 3, right = 3, top = 3, bottom = 3 },
 		})
-		pane:SetBackdropColor(0.03, 0.03, 0.04, 0.9)
-		pane:SetBackdropBorderColor(0.35, 0.35, 0.4, 0.9)
+		pane:SetBackdropColor(0, 0, 0, 0.5)
+		pane:SetBackdropBorderColor(0.6, 0.6, 0.6, 1)
 	end
 	return pane
 end
 
--- A FauxScrollFrame's bar: DragonUI's thin one, or a dark track behind the stock one.
+-- A FauxScrollFrame's bar: DragonUI's thin one, or the stock one.
 function RPF.SkinScrollBar(scroll, scrollName)
 	local bar = _G[scrollName .. "ScrollBar"]
 	if not bar then return end
 	local _, CP = RPF.Dragon()
 	if CP and CP.ReskinScrollBar then
 		pcall(CP.ReskinScrollBar, scroll, scroll, -7, 18, -7, true)
-		return
 	end
-	-- The stock arrows sit just outside the slider.
-	local track = solid(bar, "BACKGROUND", 0, 0, 0, 0.45)
-	track:SetPoint("TOPLEFT", bar, "TOPLEFT", 0, 18)
-	track:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", 0, -18)
+	-- Otherwise the stock scroll bar stays as it is.
 end
 
 -----------------------------------------
