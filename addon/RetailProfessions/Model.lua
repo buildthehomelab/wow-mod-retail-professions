@@ -276,13 +276,11 @@ end
 -----------------------------------------
 -- filtering into display rows
 
--- state = { text, haveMats, skillUp, slot, unlearned, learnableOnly, favorites = { [spell] = true } }
--- rows = { { header = name, key, count, collapsed } | { recipe = r } }
-function M.Rows(state, collapsed)
+-- Whether a recipe passes the search and the filters in `state` (see M.Rows).
+function M.Matcher(state)
 	local text = state.text and state.text ~= "" and state.text:lower() or nil
 	local rank = M.rank or 0
-
-	local function matches(r)
+	return function (r)
 		if state.slot and r.slot ~= state.slot then return false end
 		if state.skillUp and M.DifficultyAt(r, rank) == "trivial" then return false end
 		if state.haveMats then
@@ -299,6 +297,14 @@ function M.Rows(state, collapsed)
 		end
 		return true
 	end
+end
+
+-- state = { text, haveMats, skillUp, slot, unlearned, learnableOnly, favorites = { [spell] = true } }
+-- rows = { { header = name, key, count, collapsed } | { recipe = r } }
+function M.Rows(state, collapsed)
+	local text = state.text and state.text ~= "" and state.text:lower() or nil
+	local rank = M.rank or 0
+	local matches = M.Matcher(state)
 
 	local rows = {}
 	local function addGroup(name, key, list, extra)
