@@ -127,6 +127,7 @@ namespace RetailProfessions::Index
             uint32 invType = 0;
             uint32 quality = 1;
             std::string reagents = "-";
+            bool targetsItem = false; // cast on an item: enchants, sockets, buckles, linings, embroidery
             uint8 sources = 0;
             uint8 teams = 0;
             std::vector<AutoRow> autoRows;
@@ -335,6 +336,11 @@ namespace RetailProfessions::Index
                     recipe.grey = ability->TrivialSkillLineRankHigh;
                     recipe.raceMask = ability->RaceMask;
                     recipe.classMask = ability->ClassMask;
+
+                    for (SpellEffectInfo const& effect : info->GetEffects())
+                        if (effect.Effect == SPELL_EFFECT_ENCHANT_ITEM || effect.Effect == SPELL_EFFECT_ENCHANT_ITEM_TEMPORARY
+                            || effect.Effect == SPELL_EFFECT_ENCHANT_ITEM_PRISMATIC || effect.Effect == SPELL_EFFECT_ENCHANT_HELD_ITEM)
+                            recipe.targetsItem = true;
 
                     for (SpellEffectInfo const& effect : info->GetEffects())
                     {
@@ -845,9 +851,9 @@ namespace RetailProfessions::Index
 
         std::string ListRow(Recipe const& recipe, uint32 recipeItem)
         {
-            return Acore::StringFormat("{},{},{},{},{},{},{},{},{},{},{},{}", recipe.spell, recipe.reqSkill, recipe.yellow,
+            return Acore::StringFormat("{},{},{},{},{},{},{},{},{},{},{},{},{}", recipe.spell, recipe.reqSkill, recipe.yellow,
                 recipe.grey, recipe.item, recipe.madeMin, recipe.madeMax, uint32(recipe.sources), recipe.reagents,
-                recipe.invType, recipe.quality, recipeItem);
+                recipe.invType, recipe.quality, recipeItem, recipe.targetsItem ? 1 : 0);
         }
 
         // FNV-1a over everything an L row can carry, so the addon's cache follows the data.
@@ -1114,7 +1120,8 @@ namespace RetailProfessions::Index
 
     // L:<req>:<skill> -> every recipe of the profession the player could learn or already knows.
     // Row: spell, required skill, yellow, grey, product item, made min, made max, source bits,
-    // reagents ("id*n/id*n" or "-"), product inventory type, product quality, recipe item.
+    // reagents ("id*n/id*n" or "-"), product inventory type, product quality, recipe item,
+    // 1 when it's cast on an item (an enchant, socket, buckle, lining...).
     void HandleList(Player* player, std::string const& req, std::vector<std::string_view> const& args)
     {
         uint32 skill = 0;

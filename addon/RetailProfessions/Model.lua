@@ -133,6 +133,7 @@ local function attachServerData(recipe, info)
 	recipe.slot = INVTYPES[info.invType]
 	recipe.quality = info.quality
 	recipe.madeMin, recipe.madeMax = info.madeMin, info.madeMax
+	if info.targetsItem ~= nil then recipe.isEnchant = info.targetsItem end
 	if not recipe.item or recipe.item == 0 then recipe.item = info.item end
 	-- The client names reagents it hasn't cached as nil; the server always knows the ids.
 	if #recipe.reagents == 0 and #info.reagents > 0 then
@@ -189,8 +190,11 @@ function M.Scan()
 				item = RPF.ItemIdFromLink(itemLink), icon = GetTradeSkillIcon(i), learned = true,
 				header = header.name, reagents = readReagents(i),
 			}
-			-- An enchant makes no item: its link is the spell, and it's cast on something.
-			recipe.isEnchant = itemLink and not itemLink:find("item:") and true or false
+			-- Cast on an item (enchants): makes nothing, and its link is the spell. Plenty of other
+			-- recipes make no item either (research, discoveries), so without the server's word
+			-- only Enchanting's and Runeforging's count.
+			local makesNothing = not (itemLink and itemLink:find("item:"))
+			recipe.isEnchant = makesNothing and (M.skill == 333 or M.skill == 776) or false
 			table.insert(recipes, recipe)
 			table.insert(header.recipes, recipe)
 			if recipe.spell then bySpell[recipe.spell] = recipe end
@@ -211,7 +215,7 @@ function M.Scan()
 					local r = {
 						spell = spell, name = sname, learned = false, numAvailable = 0, reagents = {},
 						item = info.item, icon = (info.item > 0 and RPF.ItemIcon(info.item)) or sicon,
-						isEnchant = info.item == 0,
+						isEnchant = info.item == 0 and (M.skill == 333 or M.skill == 776),
 					}
 					attachServerData(r, info)
 					table.insert(unlearned, r)

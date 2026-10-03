@@ -363,6 +363,8 @@ local function draw(r)
 		sub = "|cffffd200Requires:|r " .. table.concat(names, ", ")
 	elseif r.isEnchant then
 		sub = "Enchants an item"
+	elseif not (r.item and r.item > 0) then
+		sub = ""
 	else
 		local lo, hi = r.madeMin or 1, r.madeMax or 1
 		sub = lo == hi and ("Makes " .. lo) or string.format("Makes %d-%d", lo, hi)
