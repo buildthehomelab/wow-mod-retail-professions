@@ -515,7 +515,33 @@ end
 
 local craftNow
 
-local function craft(count)
+-- Shift-click Enchant with an item in the Enchant slot: the game's "replace the enchant?" and
+-- "this binds the item to you" questions for that one cast are answered yes. They come as the
+-- REPLACE_ENCHANT and BIND_ENCHANT events, which UIParent turns into popups.
+local confirmUntil = 0
+
+local confirmEvents = CreateFrame("Frame")
+confirmEvents:RegisterEvent("REPLACE_ENCHANT")
+confirmEvents:RegisterEvent("BIND_ENCHANT")
+confirmEvents:SetScript("OnEvent", function (self, event, ...)
+	if GetTime() > confirmUntil then return end
+	confirmUntil = 0
+	local popup = event
+	local a1, a2 = ...
+	if event == "REPLACE_ENCHANT" then ReplaceEnchant() else BindEnchant() end
+	-- UIParent may show its popup after us; close it either way.
+	StaticPopup_Hide(popup)
+	RPF.After(0, function () StaticPopup_Hide(popup) end)
+	-- Should the game want a real click for the answer, the cast won't have started: put the
+	-- question back so it can be answered by hand.
+	RPF.After(0.5, function ()
+		if not UnitCastingInfo("player") and not SpellIsTargeting() then
+			StaticPopup_Show(popup, a1, a2)
+		end
+	end)
+end)
+
+local function craft(count, noConfirm)
 	local r = RPF.selected
 	if not (r and r.learned) then return end
 	if r.isEnchant then count = 1 end
@@ -526,7 +552,7 @@ local function craft(count)
 			setQuantity(count)
 			local ok = pcall(_G.ReagentBankUI.WithdrawNeededForSelectedRecipe, _G.ReagentBankUI)
 			if ok then
-				pendingCraft = { spell = r.spell, count = count, untilTime = GetTime() + 10 }
+				pendingCraft = { spell = r.spell, count = count, untilTime = GetTime() + 10, noConfirm = noConfirm }
 				RPF.Status("Taking the reagents out of the reagent bank...")
 				updateControls()
 				RPF.After(10.1, function ()
@@ -540,10 +566,10 @@ local function craft(count)
 			end
 		end
 	end
-	craftNow(r, count)
+	craftNow(r, count, noConfirm)
 end
 
-craftNow = function (r, count)
+craftNow = function (r, count, noConfirm)
 	local index = M.IndexOf(r)
 	if not index then
 		RPF.Status("That recipe moved in the list; try again.", true)
@@ -554,6 +580,7 @@ craftNow = function (r, count)
 		local t = targetLink(RPF.enchantTarget) and RPF.enchantTarget or nil
 		DoTradeSkill(index, 1)
 		if t and SpellIsTargeting() then
+			if noConfirm then confirmUntil = GetTime() + 3 end
 			if t.inv then PickupInventoryItem(t.inv) else PickupContainerItem(t.bag, t.slot) end
 		end
 		return
@@ -563,7 +590,16 @@ craftNow = function (r, count)
 	quantity:ClearFocus()
 end
 
-createButton:SetScript("OnClick", function () craft(getQuantity()) end)
+createButton:SetScript("OnClick", function () craft(getQuantity(), IsShiftKeyDown()) end)
+createButton:SetScript("OnEnter", function (self)
+	local r = RPF.selected
+	if not (r and r.isEnchant and r.learned) then return end
+	GameTooltip:SetOwner(self, "ANCHOR_TOP")
+	GameTooltip:SetText(self:GetText())
+	GameTooltip:AddLine("Shift-click with an item in the Enchant slot to skip the \"replace enchant\" and \"bind to you\" questions.", 1, 1, 1, true)
+	GameTooltip:Show()
+end)
+createButton:SetScript("OnLeave", function () GameTooltip:Hide() end)
 createAllButton:SetScript("OnClick", function ()
 	local r = RPF.selected
 	if not r then return end
@@ -676,7 +712,7 @@ RPF.On("BAGS", function ()
 	if p and RPF.selected and RPF.selected.spell == p.spell and bagsCover(RPF.selected, p.count) then
 		pendingCraft = nil
 		local r = RPF.selected
-		craftNow(r, p.count)
+		craftNow(r, p.count, p.noConfirm)
 		RPF.After(0.6, function ()
 			if not UnitCastingInfo("player") and RPF.selected == r and bagsCover(r, p.count) then
 				RPF.Status("The reagents are in your bags. Press " .. (r.altVerb or CREATE or "Create") .. ".")

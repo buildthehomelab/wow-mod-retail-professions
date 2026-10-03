@@ -34,7 +34,8 @@ cooldowns, discoveries and other modules' hooks behave as before.
 - **Reagents** as `have/need Name` (red when short), plus what's in the reagent bank.
 - **Track Recipe**, and under the recipe **Create All [n]**, the amount and **Create**. For
   enchants, an **Enchant** slot: drop the item on it once and every cast goes straight onto that
-  item, no clicking the item each time.
+  item, no clicking the item each time. **Shift-click** Enchant to also skip the "replace the
+  enchant?" and "binds it to you" questions for that cast (handy for enchanting skill-ups).
 - **Use reagent bank** (with ReagentBankUI, on by default): Create and Create All count the bank
   and take whatever your bags are missing out of it before crafting, through ReagentBankUI's
   Withdraw Needed (so its *Auto-deposit leftovers* puts the rest back when you close the window).

@@ -152,6 +152,8 @@ function CloseTradeSkill() closedTradeSkill = closedTradeSkill + 1 end
 function TradeSkillFrame_LoadUI() loadedClassic = loadedClassic + 1 end
 function HideUIPanel(f) f:Hide() end
 function AbandonSkill() end
+function PickupContainerItem() end
+function PickupInventoryItem() end
 function ExpandSkillHeader() end
 function CollapseSkillHeader() end
 
@@ -548,6 +550,42 @@ step("the reagent bank sidebar moves past the tabs", function ()
 	ReagentBankUI:DockTradeSkillPanel()
 	local _, _, _, x = bankPanel:GetPoint(1)
 	assert(x == -33 + 40, "bank sidebar not shifted: " .. tostring(x))
+end)
+
+step("shift-click Enchant answers the replace-enchant question", function ()
+	RetailProfessionsDB.autoWithdraw = false
+	local r = M.bySpell[2963]
+	RPF.Select(r)
+	r.isEnchant = true
+	local replaced, hidden, shown = 0, 0, 0
+	function ReplaceEnchant() replaced = replaced + 1 end
+	function BindEnchant() end
+	local oldHide, oldShow = StaticPopup_Hide, StaticPopup_Show
+	StaticPopup_Hide = function () hidden = hidden + 1 end
+	StaticPopup_Show = function (...) shown = shown + 1 return oldShow(...) end
+	local oldLink, oldTargeting, oldShift = GetContainerItemLink, SpellIsTargeting, IsShiftKeyDown
+	GetContainerItemLink = function (bag, slot) if bag == 0 and slot == 1 then return itemLink(2589) end end
+	SpellIsTargeting = function () return true end
+	RPF.enchantTarget = { id = 2589, bag = 0, slot = 1 }
+
+	-- A plain click leaves the question to the player.
+	buttonWithText("Create").__scripts.OnClick()
+	fire("REPLACE_ENCHANT", "Old", "New")
+	assert(replaced == 0, "answered without Shift")
+
+	IsShiftKeyDown = function () return true end
+	buttonWithText("Create").__scripts.OnClick()
+	fire("REPLACE_ENCHANT", "Old", "New")
+	assert(replaced == 1 and hidden >= 1, "Shift-click didn't answer it")
+	UnitCastingInfo = function () return "Enchant" end
+	tick(1)
+	assert(shown == 0, "popup came back although the cast started")
+
+	r.isEnchant = false
+	RPF.enchantTarget = nil
+	GetContainerItemLink, SpellIsTargeting, IsShiftKeyDown = oldLink, oldTargeting, oldShift
+	StaticPopup_Hide, StaticPopup_Show = oldHide, oldShow
+	UnitCastingInfo = function () return nil end
 end)
 
 step("closing the window closes the trade skill", function ()
