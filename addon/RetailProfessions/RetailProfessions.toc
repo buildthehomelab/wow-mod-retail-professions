@@ -1,0 +1,19 @@
+## Interface: 30300
+## Title: Retail Professions
+## Notes: A retail-style profession window: search, filters, skill-up odds, unlearned recipes and where to learn them, a recipe tracker and a professions book (K). Backed by the mod-retail-professions server module.
+## Author: buildthehomelab
+## Version: 1.0.0
+## OptionalDeps: DragonUI, ReagentBankUI
+## SavedVariables: RetailProfessionsDB
+## SavedVariablesPerCharacter: RetailProfessionsCharDB
+
+Core.lua
+Widgets.lua
+Model.lua
+RecipeList.lua
+Frame.lua
+Detail.lua
+Secure.lua
+Tabs.lua
+Book.lua
+Tracker.lua

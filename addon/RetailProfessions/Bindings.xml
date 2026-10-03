@@ -1,0 +1,5 @@
+<Bindings>
+	<Binding name="RETAILPROFESSIONS_BOOK" header="RETAILPROFESSIONS">
+		RetailProfessions.ToggleBook()
+	</Binding>
+</Bindings>

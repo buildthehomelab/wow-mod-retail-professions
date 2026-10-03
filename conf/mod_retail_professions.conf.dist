@@ -1,0 +1,69 @@
+[worldserver]
+
+########################################
+# mod-retail-professions
+#
+# Server half of the retail-style profession window. Players with the RetailProfessions addon
+# see every recipe of their professions, including the ones they haven't learned, with exact
+# skill-up thresholds and where to learn each one. Crafting itself is unchanged.
+########################################
+
+#
+#    RetailProfessions.Enable
+#        Description: Master switch. With 0 the addon still replaces the profession window, but
+#                     without unlearned recipes, thresholds or sources.
+#        Default:     1
+#
+
+RetailProfessions.Enable = 1
+
+#
+#    RetailProfessions.SkillCapByEra
+#        Description: With mod-individual-progression (IndividualProgression.Enable = 1), only
+#                     list unlearned recipes a player's era allows: up to skill 300 before
+#                     Outland opens, 375 before Northrend. Recipes are gated by skill tier,
+#                     never by profession.
+#        Default:     1
+#
+
+RetailProfessions.SkillCapByEra = 1
+
+#
+#    RetailProfessions.HideLockedContinents
+#        Description: Leave out trainers, vendors and drops on a continent (or in a dungeon of an
+#                     expansion) mod-individual-progression hasn't opened for the player yet.
+#        Default:     1
+#
+
+RetailProfessions.HideLockedContinents = 1
+
+#
+#    RetailProfessions.MaxSourcesPerKind
+#        Description: Most trainers, vendors, drops, chests and containers listed for one recipe,
+#                     per kind. Trainers and vendors nearest the player come first, drops by
+#                     chance. 1-20.
+#        Default:     6
+#
+
+RetailProfessions.MaxSourcesPerKind = 6
+
+#
+#    RetailProfessions.WorldDropThreshold
+#        Description: A recipe that drops from more creatures than this through a shared loot
+#                     table is shown as a world drop (with a level range) instead of a list of
+#                     creatures. Minimum 5.
+#        Default:     25
+#
+
+RetailProfessions.WorldDropThreshold = 25
+
+#
+#    RetailProfessions.SaveZoneData
+#        Description: Most creature and gameobject rows have no zoneId in the world database.
+#                     At startup the module works zones out from the map files for the spawns it
+#                     needs and, with 1, writes them back (creature.zoneId/areaId), so later
+#                     starts are faster. mod-npc-finder does the same.
+#        Default:     1
+#
+
+RetailProfessions.SaveZoneData = 1
