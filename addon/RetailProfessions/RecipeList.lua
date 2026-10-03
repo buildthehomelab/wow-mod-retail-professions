@@ -122,10 +122,7 @@ function RPF.CreateRecipeList(parent, spec)
 			elseif r.spell then
 				GameTooltip:SetHyperlink("spell:" .. r.spell)
 			end
-			if not r.learned then
-				GameTooltip:AddLine(" ")
-				GameTooltip:AddLine(string.format("Not learned yet. Requires %s (%d).", M.skillName or "skill", r.reqSkill or 0), 1, 0.3, 0.3, true)
-			end
+			RPF.AddSkillUpLines(GameTooltip, r)
 			GameTooltip:AddLine("Right-click to track.", 0.5, 0.5, 0.5)
 			GameTooltip:Show()
 		end)

@@ -122,7 +122,7 @@ left:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -6)
 left:SetPoint("BOTTOMLEFT", content, "BOTTOMLEFT", 0, 0)
 left:SetWidth(LIST_WIDTH)
 
-local search = RPF.CreateEditBox(left, LIST_WIDTH - 104)
+local search = RPF.CreateEditBox(left, LIST_WIDTH - 108)
 search:SetPoint("TOPLEFT", left, "TOPLEFT", 14, -8)
 search:SetTextInsets(16, 4, 0, 0)
 do
@@ -131,10 +131,21 @@ do
 	glass:SetSize(14, 14)
 	glass:SetPoint("LEFT", search, "LEFT", 0, 0)
 	glass:SetVertexColor(0.7, 0.7, 0.7)
-	local hint = search:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+	local hint = search:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	hint:SetPoint("LEFT", search, "LEFT", 17, 0)
-	hint:SetText(SEARCH or "Search")
+	hint:SetText("Search recipes or reagents")
+	hint:SetTextColor(0.6, 0.6, 0.6)
 	search.hint = hint
+	-- DragonUI's skin turns the input border into a plain dark field; give the box an edge so
+	-- it reads as something to type in.
+	if dragon then
+		local edge = CreateFrame("Frame", nil, search)
+		edge:SetPoint("TOPLEFT", search, "TOPLEFT", -6, 3)
+		edge:SetPoint("BOTTOMRIGHT", search, "BOTTOMRIGHT", 2, -3)
+		edge:SetBackdrop({ edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 12 })
+		edge:SetBackdropBorderColor(0.75, 0.6, 0.25, 1)
+		edge:EnableMouse(false)
+	end
 end
 
 local filterButton = RPF.CreateButton(left, FILTER or "Filter", 78, 22)
@@ -301,6 +312,32 @@ trackCheck:SetScript("OnClick", function ()
 	if RPF.selected then RPF.ToggleTracked(RPF.selected) end
 end)
 
+-- With ReagentBankUI: craft straight from the reagent bank. Create takes what the bags lack
+-- out of the bank first (ReagentBankUI's Withdraw Needed, which also puts leftovers back when
+-- the window closes, if that's ticked there), then crafts once it has arrived.
+local bankCheck = RPF.CreateCheck(right, "Use reagent bank")
+bankCheck:SetPoint("LEFT", trackCheck.label, "RIGHT", 14, 0)
+bankCheck:SetScript("OnClick", function (self)
+	RetailProfessionsDB.autoWithdraw = self:GetChecked() and true or false
+	RPF.Fire("BAGS")
+end)
+bankCheck:SetScript("OnEnter", function (self)
+	GameTooltip:SetOwner(self, "ANCHOR_TOP")
+	GameTooltip:SetText("Use reagent bank")
+	GameTooltip:AddLine("Create and Create All take whatever your bags are missing out of the reagent bank, then craft.", 1, 1, 1, true)
+	GameTooltip:Show()
+end)
+bankCheck:SetScript("OnLeave", function () GameTooltip:Hide() end)
+
+local function bankWithdrawAvailable()
+	local RB = _G.ReagentBankUI
+	return RB and RB.WithdrawNeededForSelectedRecipe and RPF.HasReagentBank() and true or false
+end
+
+local function usingBank()
+	return bankWithdrawAvailable() and RetailProfessionsDB.autoWithdraw ~= false
+end
+
 -- Enchants: the item to put them on, picked once instead of after every cast. It sits at the
 -- bottom right of the recipe pane.
 local target = RPF.CreateItemButton(right, 28)
@@ -319,7 +356,7 @@ end
 RPF.enchantTarget = nil -- { id = item id, bag, slot } or { id, inv }
 
 local status = right:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-status:SetPoint("LEFT", trackCheck.label, "RIGHT", 10, 0)
+status:SetPoint("LEFT", bankCheck.label, "RIGHT", 10, 0)
 status:SetPoint("RIGHT", right, "RIGHT", -110, 0)
 status:SetJustifyH("LEFT")
 status:SetHeight(28)
@@ -423,10 +460,16 @@ target:SetScript("OnLeave", function () GameTooltip:Hide() end)
 -----------------------------------------
 -- crafting
 
+local pendingCraft -- { spell, count, untilTime }: waiting for reagents from the bank
+
 local function updateControls()
 	local r = RPF.selected
 	local learned = r and r.learned and not M.linked
-	local bags = learned and M.Craftable(r) or 0
+	local bags, withBank = 0, 0
+	if learned then bags, withBank = M.Craftable(r) end
+	-- With the bank in use, what the bank holds counts as if it were in the bags.
+	if usingBank() then bags = math.max(bags, withBank) end
+	if pendingCraft then bags = 0 end
 	local onCooldown = learned and r.cooldown and r.cooldown > 0
 	local enchant = learned and r.isEnchant
 
@@ -451,14 +494,56 @@ local function updateControls()
 		trackCheck:Show()
 		minus:Show(); plus:Show(); quantity:Show(); createButton:Show(); createAllButton:Show()
 	end
+	if bankWithdrawAvailable() and not M.linked then
+		bankCheck:Show()
+		bankCheck:SetChecked(RetailProfessionsDB.autoWithdraw ~= false)
+	else
+		bankCheck:Hide()
+	end
 	trackCheck:SetChecked(r and isTracked(r))
 	RPF.SetEnabled(trackCheck, r ~= nil)
 end
 RPF.UpdateControls = updateControls
 
+-- Whether the bags hold every reagent for `count` crafts.
+local function bagsCover(r, count)
+	for _, rg in ipairs(r.reagents) do
+		if rg.id and (GetItemCount(rg.id) or 0) < rg.n * count then return false end
+	end
+	return true
+end
+
+local craftNow
+
 local function craft(count)
 	local r = RPF.selected
 	if not (r and r.learned) then return end
+	if r.isEnchant then count = 1 end
+	-- Short in the bags but the bank has it: fetch it first, craft when it lands.
+	if usingBank() and not bagsCover(r, count) then
+		local _, withBank = M.Craftable(r)
+		if withBank >= count then
+			setQuantity(count)
+			local ok = pcall(_G.ReagentBankUI.WithdrawNeededForSelectedRecipe, _G.ReagentBankUI)
+			if ok then
+				pendingCraft = { spell = r.spell, count = count, untilTime = GetTime() + 10 }
+				RPF.Status("Taking the reagents out of the reagent bank...")
+				updateControls()
+				RPF.After(10.1, function ()
+					if pendingCraft and pendingCraft.untilTime <= GetTime() then
+						pendingCraft = nil
+						RPF.Status("The reagents didn't arrive from the bank. Is there room in your bags?", true)
+						updateControls()
+					end
+				end)
+				return
+			end
+		end
+	end
+	craftNow(r, count)
+end
+
+craftNow = function (r, count)
 	local index = M.IndexOf(r)
 	if not index then
 		RPF.Status("That recipe moved in the list; try again.", true)
@@ -482,7 +567,8 @@ createButton:SetScript("OnClick", function () craft(getQuantity()) end)
 createAllButton:SetScript("OnClick", function ()
 	local r = RPF.selected
 	if not r then return end
-	local bags = M.Craftable(r)
+	local bags, withBank = M.Craftable(r)
+	if usingBank() then bags = math.max(bags, withBank) end
 	if bags > 0 then
 		setQuantity(bags)
 		craft(bags)
@@ -585,6 +671,20 @@ RPF.On("RECIPES", function (skill) if skill == M.skill then Rebuild() end end)
 RPF.On("READY", function () if frame:IsShown() then Rebuild() end end)
 RPF.On("BAGS", function ()
 	if not frame:IsShown() then return end
+	-- The bank's reagents arrived: craft. If the game wants a click for that, say so.
+	local p = pendingCraft
+	if p and RPF.selected and RPF.selected.spell == p.spell and bagsCover(RPF.selected, p.count) then
+		pendingCraft = nil
+		local r = RPF.selected
+		craftNow(r, p.count)
+		RPF.After(0.6, function ()
+			if not UnitCastingInfo("player") and RPF.selected == r and bagsCover(r, p.count) then
+				RPF.Status("The reagents are in your bags. Press " .. (r.altVerb or CREATE or "Create") .. ".")
+			end
+		end)
+	elseif p and RPF.selected and RPF.selected.spell ~= p.spell then
+		pendingCraft = nil
+	end
 	list:Refresh()
 	if RPF.selected then RPF.Fire("SELECTED", RPF.selected) end
 	updateControls()

@@ -163,6 +163,10 @@ NUM_BAG_SLOTS = 4
 UIParent = newObject("Frame", "UIParent")
 WorldFrame = newObject("Frame", "WorldFrame")
 GameTooltip = newObject("GameTooltip", "GameTooltip")
+local tipLines = {}
+function GameTooltip:SetOwner() tipLines = {} end
+function GameTooltip:AddLine(text) table.insert(tipLines, tostring(text)) end
+function UnitCastingInfo() return nil end
 DEFAULT_CHAT_FRAME = { AddMessage = function (_, m) print("  [chat] " .. m) end }
 GameFontHighlightSmall, GameFontNormalSmall = {}, {}
 StaticPopupDialogs, SlashCmdList, UISpecialFrames = {}, {}, {}
@@ -260,12 +264,16 @@ end
 function SetPortraitToTexture(tex, path) tex.__portrait = path end
 
 -- ReagentBankUI, as far as we use it.
-local provider
+local provider, withdrawn
 ReagentBankUI = {
 	GetCachedBankItemCount = function (_, id) return id == 2589 and 30 or 0 end,
 	RegisterRecipeProvider = function (_, p) provider = p return true end,
 	RequestBankSnapshot = function () end,
 	NotifyRecipeProviderChanged = function () end,
+	WithdrawNeededForSelectedRecipe = function (self)
+		local name, reagents = provider.GetRecipe()
+		withdrawn = { name = name, count = provider.GetRepeatCount(), reagents = reagents }
+	end,
 	GetTradeSkillControlsHost = function () return provider and provider.frame end,
 }
 local bankPanel
@@ -436,6 +444,7 @@ step("slot filter", function ()
 end)
 
 step("create and create all", function ()
+	RetailProfessionsDB.autoWithdraw = false
 	RPF.Select(M.bySpell[2963])
 	buttonWithText("Create").__scripts.OnClick()
 	assert(crafted[#crafted][1] == 2 and crafted[#crafted][2] == 1, "Create did the wrong thing")
@@ -456,7 +465,7 @@ step("unlearned recipe: where to learn, map pin", function ()
 	map.__scripts.OnClick(map)
 	tick(0.5)
 	assert(textShown("Elwynn Forest %(44, 65%)"), "map answer not shown")
-	assert(textShown("Learn at 130"), "skill requirement not shown")
+	assert(textShown("Not learned %- needs 130"), "skill requirement not shown")
 end)
 
 step("where-to-learn is asked once, however often the recipe redraws", function ()
@@ -478,6 +487,32 @@ step("favorites go to the top", function ()
 	RPF.ToggleFavorite(2385)
 	tick(0.2)
 	assert(RPF.list.rows[1].header ~= "Favorites", "favorites group stayed")
+end)
+
+step("skill-up odds live in the tooltip", function ()
+	local vest = M.bySpell[2385]
+	RPF.AddSkillUpLines(GameTooltip, vest)
+	local text = table.concat(tipLines, "\n")
+	-- Skill 120 is past the vest's grey (70).
+	assert(text:find("No more skill%-ups"), "no skill-up line: " .. text)
+	assert(text:find("yellow 45") and text:find("grey 70"), "no thresholds: " .. text)
+end)
+
+step("use reagent bank: withdraw, then craft when it arrives", function ()
+	RetailProfessionsDB.autoWithdraw = true
+	RPF.Select(M.bySpell[2963])
+	RPF.SetQuantity(5)
+	local before = #crafted
+	buttonWithText("Create").__scripts.OnClick()
+	assert(withdrawn and withdrawn.count == 5 and withdrawn.name == "Bolt of Linen Cloth", "no withdraw for 5")
+	assert(#crafted == before, "crafted before the reagents arrived")
+	bags[2589] = 10
+	fire("BAG_UPDATE")
+	tick(0.5)
+	assert(#crafted == before + 1 and crafted[#crafted][2] == 5, "didn't craft 5 after the withdraw")
+	local all = find(function (f) return f.__kind == "Button" and f.__text:find("^Create All") end)
+	assert(all.__text == "Create All [20]", "Create All doesn't count the bank: " .. all.__text)
+	bags[2589] = 4
 end)
 
 step("track a recipe", function ()

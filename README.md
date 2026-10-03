@@ -14,7 +14,8 @@ cooldowns, discoveries and other modules' hooks behave as before.
 - **Profession tabs** down the right edge, like the spellbook: switch between your professions without the spellbook.
 - The profession's **portrait**, a **skill bar** across the window ("Blacksmithing 24/75"; hover it
   for your rank) and a **chat link** button that shows everyone your recipes.
-- **Search** that matches recipe names and **reagents** ("silk" finds everything made from silk).
+- **Search** (the box at the top of the list) matches recipe names and **reagents** ("silk" finds
+  everything made from silk).
 - **Filters**: Have materials, Has skill-up, Slot (head, chest, weapon ...), Show unlearned
   recipes, Only ones I can learn now, Count the reagent bank, plus expand / collapse all.
 - Recipes sit under gold category bars that fold. Each has a **skill-up chevron** in its colour
@@ -27,12 +28,17 @@ cooldowns, discoveries and other modules' hooks behave as before.
 **The recipe**
 - A round icon, the name, a favorite star and what it **requires** (tools, a forge, a fire; red
   when you don't have it), what it makes and any cooldown.
-- **Chance to raise your skill**, exactly as the server works it out, and a bar showing where the
-  recipe turns yellow, green and grey and where you are on it. With `SkillGain.Crafting` above 1
-  it says how many points a skill-up gives.
+- Hover a recipe (in the list, or its icon) for the **chance to raise your skill**, exactly as the
+  server works it out, and the skill where it turns yellow, green and grey. With
+  `SkillGain.Crafting` above 1 it says how many points a skill-up gives.
 - **Reagents** as `have/need Name` (red when short), plus what's in the reagent bank.
-- **Track Recipe**, and under the recipe **Create All [n]**, the amount and **Create**. For enchants, an **Enchant** slot: drop the item
-  on it once and every cast goes straight onto that item, no clicking the item each time.
+- **Track Recipe**, and under the recipe **Create All [n]**, the amount and **Create**. For
+  enchants, an **Enchant** slot: drop the item on it once and every cast goes straight onto that
+  item, no clicking the item each time.
+- **Use reagent bank** (with ReagentBankUI, on by default): Create and Create All count the bank
+  and take whatever your bags are missing out of it before crafting, through ReagentBankUI's
+  Withdraw Needed (so its *Auto-deposit leftovers* puts the rest back when you close the window).
+  If the game insists on a click to start the craft once the reagents have arrived, it says so.
 - For a recipe you haven't learned: **where to learn it**. Trainers (nearest first, with the
   cost), vendors (price, limited stock, reputation needed), drops (creature, zone, level,
   chance), world drops (how many creatures, level range), chests, containers, quests and

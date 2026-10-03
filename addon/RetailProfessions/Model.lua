@@ -56,6 +56,45 @@ function M.DifficultyAt(recipe, skill)
 	return "optimal"
 end
 
+local function hex(c)
+	return string.format("|cff%02x%02x%02x", math.floor(c[1] * 255), math.floor(c[2] * 255), math.floor(c[3] * 255))
+end
+
+local DIFFICULTY_TEXT = {
+	optimal = "Guaranteed skill-up", medium = "Likely skill-up", easy = "Unlikely skill-up", trivial = "No skill-up",
+}
+
+-- The skill-up lines of a recipe's tooltip: the chance this craft raises the skill (as the
+-- server works it out, with how many points a skill-up gives) and where the recipe turns
+-- yellow, green and grey. For a recipe not learned yet, the skill it needs first.
+function RPF.AddSkillUpLines(tip, r)
+	local rank = M.rank or 0
+	local C = M.DIFFICULTY_COLOR
+	tip:AddLine(" ")
+	if not r.learned then
+		local need = r.reqSkill or 0
+		tip:AddLine(string.format("Not learned. Needs %s %d (you have %d).", M.skillName or "skill", need, rank),
+			1, need > rank and 0.3 or 0.82, need > rank and 0.3 or 0, true)
+	end
+	local difficulty = M.DifficultyAt(r, rank) or "trivial"
+	local chance = not M.linked and r.grey and r.grey > 0 and RPF.SkillUpChance(rank, r.yellow, r.grey)
+	if chance and r.learned then
+		if chance > 0 then
+			local gain = (RPF.skillGain or 1) > 1 and string.format(" |cffb0b0b0(+%d skill)|r", RPF.skillGain) or ""
+			tip:AddLine(string.format("Skill-up chance: %s%d%%|r%s", hex(C[difficulty] or C.easy), chance, gain), 1, 1, 1)
+		else
+			tip:AddLine("No more skill-ups from this recipe.", 0.6, 0.6, 0.6)
+		end
+	elseif r.learned then
+		local c = C[difficulty] or C.trivial
+		tip:AddLine(DIFFICULTY_TEXT[difficulty] or "", c[1], c[2], c[3])
+	end
+	if r.grey and r.grey > 0 then
+		tip:AddLine(string.format("Turns %syellow %d|r, %sgreen %d|r, %sgrey %d|r",
+			hex(C.medium), r.yellow, hex(C.easy), r.green, hex(C.trivial), r.grey), 0.8, 0.8, 0.8)
+	end
+end
+
 -----------------------------------------
 -- reading the client
 
