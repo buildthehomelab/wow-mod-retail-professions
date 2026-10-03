@@ -272,9 +272,12 @@ ReagentBankUI = {
 	RegisterRecipeProvider = function (_, p) provider = p return true end,
 	RequestBankSnapshot = function () end,
 	NotifyRecipeProviderChanged = function () end,
+	-- Like the real one: Withdraw Needed fetches for ReagentBankUI's own "Crafts" count.
+	prepareCount = 1,
+	SetTradeSkillPrepareCount = function (self, n) self.prepareCount = n end,
 	WithdrawNeededForSelectedRecipe = function (self)
 		local name, reagents = provider.GetRecipe()
-		withdrawn = { name = name, count = provider.GetRepeatCount(), reagents = reagents }
+		withdrawn = { name = name, count = self.prepareCount, reagents = reagents }
 	end,
 	GetTradeSkillControlsHost = function () return provider and provider.frame end,
 }
@@ -586,6 +589,29 @@ step("shift-click Enchant answers the replace-enchant question", function ()
 	GetContainerItemLink, SpellIsTargeting, IsShiftKeyDown = oldLink, oldTargeting, oldShift
 	StaticPopup_Hide, StaticPopup_Show = oldHide, oldShow
 	UnitCastingInfo = function () return nil end
+end)
+
+step("the amount follows ReagentBankUI's Crafts box both ways", function ()
+	RPF.SetQuantity(7)
+	assert(ReagentBankUI.prepareCount == 7, "our amount didn't reach ReagentBankUI")
+	provider.SetRepeatCount(3)
+	assert(RPF.GetQuantity() == 3, "ReagentBankUI's count didn't reach us")
+	assert(ReagentBankUI.prepareCount == 7 or ReagentBankUI.prepareCount == 3, "loop")
+end)
+
+step("the search box doesn't keep the keyboard", function ()
+	local search = find(function (f) return f.__kind == "EditBox" and rawget(f, "hint") end)
+	local cleared = 0
+	search.ClearFocus = function () cleared = cleared + 1 end
+	RetailProfessionsFrame.__scripts.OnShow(RetailProfessionsFrame)
+	assert(cleared >= 1, "opening the window left the search focused")
+	local before = cleared
+	local row
+	for _, f in ipairs(allFrames) do
+		if f.__kind == "Button" and rawget(f, "row") and f.row.recipe then row = f break end
+	end
+	row.__scripts.OnClick(row, "LeftButton")
+	assert(cleared > before, "clicking a recipe left the search focused")
 end)
 
 step("closing the window closes the trade skill", function ()

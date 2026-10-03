@@ -169,7 +169,11 @@ end
 
 list = RPF.CreateRecipeList(left, {
 	rows = LIST_ROWS,
-	onSelect = function (r) RPF.Select(r) end,
+	onSelect = function (r)
+		-- Picking a recipe hands the keyboard back to the game (C for the character window...).
+		search:ClearFocus()
+		RPF.Select(r)
+	end,
 	onToggle = function (key)
 		RetailProfessionsCharDB.collapsed[key] = not RetailProfessionsCharDB.collapsed[key] or nil
 		Rebuild(true)
@@ -374,15 +378,49 @@ local function getQuantity()
 	return math.max(1, math.min(999, tonumber(quantity:GetText()) or 1))
 end
 
+-- ReagentBankUI keeps its own "Crafts" count and withdraws for that, not for ours, so the two
+-- are kept equal: ours goes to it on every change, and it sets ours through the provider.
+local fromBank = false
+local function pushToBank(n)
+	local RB = _G.ReagentBankUI
+	if fromBank or not (RB and RB.SetTradeSkillPrepareCount) then return end
+	pcall(RB.SetTradeSkillPrepareCount, RB, n, false)
+end
+
 local function setQuantity(n)
 	n = math.max(1, math.min(999, math.floor(tonumber(n) or 1)))
 	quantity:SetText(tostring(n))
+	pushToBank(n)
 end
 RPF.GetQuantity, RPF.SetQuantity = getQuantity, setQuantity
+
+local function setQuantityFromBank(n)
+	fromBank = true
+	setQuantity(n)
+	fromBank = false
+end
 
 plus:SetScript("OnClick", function () setQuantity(getQuantity() + (IsShiftKeyDown() and 10 or 1)) end)
 minus:SetScript("OnClick", function () setQuantity(getQuantity() - (IsShiftKeyDown() and 10 or 1)) end)
 quantity:SetScript("OnEditFocusLost", function () setQuantity(getQuantity()) end)
+quantity:SetScript("OnTextChanged", function (self, userInput)
+	local n = tonumber(self:GetText())
+	if userInput and n and n > 0 then pushToBank(math.min(999, math.floor(n))) end
+end)
+
+-- The search box and the amount only take the keyboard when clicked: InputBoxTemplate's boxes
+-- grab focus by default, and clicking anywhere else in the window lets go of it.
+local function releaseKeyboard()
+	search:ClearFocus()
+	quantity:ClearFocus()
+end
+search:ClearFocus()
+quantity:ClearFocus()
+frame:HookScript("OnMouseDown", releaseKeyboard)
+left:EnableMouse(true)
+left:SetScript("OnMouseDown", releaseKeyboard)
+right:EnableMouse(true)
+right:SetScript("OnMouseDown", releaseKeyboard)
 
 -----------------------------------------
 -- enchant target
@@ -550,6 +588,10 @@ local function craft(count, noConfirm)
 		local _, withBank = M.Craftable(r)
 		if withBank >= count then
 			setQuantity(count)
+			-- Withdraw Needed fetches for ReagentBankUI's own count; make sure it's this one.
+			if _G.ReagentBankUI.SetTradeSkillPrepareCount then
+				pcall(_G.ReagentBankUI.SetTradeSkillPrepareCount, _G.ReagentBankUI, count, false)
+			end
 			local ok = pcall(_G.ReagentBankUI.WithdrawNeededForSelectedRecipe, _G.ReagentBankUI)
 			if ok then
 				pendingCraft = { spell = r.spell, count = count, untilTime = GetTime() + 10, noConfirm = noConfirm }
@@ -748,6 +790,7 @@ end)
 
 frame:SetScript("OnShow", function ()
 	PlaySound("igCharacterInfoOpen")
+	releaseKeyboard()
 	placeFrame()
 	status:SetText("")
 	RPF.Fire("MOVED")
@@ -784,7 +827,7 @@ RPF.On("LOGIN", function ()
 			return r.name, reagents
 		end,
 		GetRepeatCount = getQuantity,
-		SetRepeatCount = setQuantity,
+		SetRepeatCount = setQuantityFromBank,
 	})
 end)
 
