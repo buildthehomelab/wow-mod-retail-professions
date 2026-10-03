@@ -9,7 +9,7 @@ local M = RPF.Model
 
 local pane = RPF.detailPane
 local PAD = 14
-local GAUGE_WIDTH = 360
+local REAGENT_TEXT_WIDTH = 320
 local MAX_REAGENTS = 8
 local MAX_SOURCES = 9
 
@@ -53,7 +53,13 @@ icon.glow:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
 icon.glow:SetBlendMode("ADD")
 icon.glow:SetSize(84, 84)
 icon.glow:SetPoint("CENTER", icon, "CENTER")
-icon:SetScript("OnEnter", function (self) itemTooltip(self, self.link) end)
+icon:SetScript("OnEnter", function (self)
+	itemTooltip(self, self.link)
+	if RPF.selected then
+		RPF.AddSkillUpLines(GameTooltip, RPF.selected)
+		GameTooltip:Show()
+	end
+end)
 icon:SetScript("OnLeave", function () GameTooltip:Hide() end)
 icon:SetScript("OnClick", function (self) linkOrNothing(self.link) end)
 
@@ -90,133 +96,7 @@ local empty = label(pane, "GameFontDisable")
 empty:SetPoint("CENTER", pane, "CENTER")
 empty:SetText("Pick a recipe on the left.")
 
------------------------------------------
--- skill-up
-
-local skillLine = label(pane, "GameFontHighlightSmall")
-skillLine:SetPoint("TOPLEFT", description, "BOTTOMLEFT", 0, -10)
-skillLine:SetPoint("RIGHT", pane, "RIGHT", -PAD, 0)
-
-local gauge = CreateFrame("Frame", nil, pane)
-gauge:SetSize(GAUGE_WIDTH, 10)
-gauge:SetPoint("TOPLEFT", skillLine, "BOTTOMLEFT", 0, -16)
-gauge.bg = gauge:CreateTexture(nil, "BACKGROUND")
-gauge.bg:SetAllPoints(gauge)
-gauge.bg:SetTexture(0, 0, 0, 0.6)
-gauge.segments = {}
-for i = 1, 4 do
-	local seg = gauge:CreateTexture(nil, "ARTWORK")
-	seg:SetHeight(10)
-	gauge.segments[i] = seg
-end
-gauge.ticks = {}
-for i = 1, 4 do
-	local t = label(gauge, "GameFontHighlightSmall")
-	t:SetJustifyH("CENTER")
-	gauge.ticks[i] = t
-end
-gauge.marker = gauge:CreateTexture(nil, "OVERLAY")
-gauge.marker:SetTexture(1, 1, 1, 1)
-gauge.marker:SetSize(2, 18)
-gauge.you = label(gauge, "GameFontHighlightSmall")
-gauge.you:SetJustifyH("CENTER")
-
-local SEGMENT_COLORS = {
-	M.DIFFICULTY_COLOR.optimal, M.DIFFICULTY_COLOR.medium, M.DIFFICULTY_COLOR.easy, M.DIFFICULTY_COLOR.trivial,
-}
-
-local function hexColor(c)
-	return string.format("|cff%02x%02x%02x", math.floor(c[1] * 255), math.floor(c[2] * 255), math.floor(c[3] * 255))
-end
-
--- Bars from the skill the recipe needs up to a bit past grey, split where its colour changes.
-local function drawGauge(r, rank)
-	local lo = math.min(r.reqSkill or r.yellow, r.yellow)
-	local hi = r.grey + math.max(10, math.floor((r.grey - lo) * 0.2))
-	if hi <= lo then hi = lo + 1 end
-	local function x(v) return math.max(0, math.min(GAUGE_WIDTH, (v - lo) / (hi - lo) * GAUGE_WIDTH)) end
-
-	local bounds = { lo, r.yellow, r.green, r.grey, hi }
-	for i, seg in ipairs(gauge.segments) do
-		local from, to = x(bounds[i]), x(bounds[i + 1])
-		local c = SEGMENT_COLORS[i]
-		if to - from >= 1 then
-			seg:ClearAllPoints()
-			seg:SetPoint("LEFT", gauge, "LEFT", from, 0)
-			seg:SetWidth(to - from)
-			seg:SetTexture(c[1], c[2], c[3], 0.85)
-			seg:Show()
-		else
-			seg:Hide()
-		end
-	end
-
-	local tickValues = { lo, r.yellow, r.green, r.grey }
-	local lastX = -100
-	for i, t in ipairs(gauge.ticks) do
-		local px = x(tickValues[i])
-		-- Thresholds that sit on top of each other share one label.
-		if px - lastX >= 26 then
-			t:ClearAllPoints()
-			t:SetPoint("TOP", gauge, "TOPLEFT", px, -12)
-			t:SetText((i == 1 and "|cffffffff" or hexColor(SEGMENT_COLORS[i])) .. tickValues[i] .. "|r")
-			t:Show()
-			lastX = px
-		else
-			t:Hide()
-		end
-	end
-
-	local mx = x(rank)
-	gauge.marker:ClearAllPoints()
-	gauge.marker:SetPoint("CENTER", gauge, "LEFT", mx, 0)
-	gauge.you:ClearAllPoints()
-	gauge.you:SetPoint("BOTTOM", gauge, "TOPLEFT", mx, 4)
-	gauge.you:SetText("you " .. rank)
-	gauge:Show()
-end
-
-local DIFFICULTY_TEXT = {
-	optimal = "|cffff8040Guaranteed skill-up|r",
-	medium = "|cffffff00Likely skill-up|r",
-	easy = "|cff40c040Unlikely skill-up|r",
-	trivial = "|cff808080No skill-up|r",
-}
-
-local function drawSkill(r)
-	local rank = M.rank or 0
-	local hasThresholds = r.grey and r.grey > 0
-	if not r.learned then
-		local need = r.reqSkill or 0
-		if need > rank then
-			skillLine:SetText(string.format("|cffff4040Learn at %d|r - you have %d.", need, rank))
-		else
-			skillLine:SetText(string.format("You can learn this now (needs %d).", need))
-		end
-	elseif M.linked then
-		skillLine:SetText(DIFFICULTY_TEXT[r.difficulty] or "")
-	else
-		local chance = hasThresholds and RPF.SkillUpChance(rank, r.yellow, r.grey)
-		local difficulty = M.DifficultyAt(r, rank)
-		if chance then
-			if chance <= 0 then
-				skillLine:SetText("|cff808080No more skill-ups from this recipe.|r")
-			else
-				local c = M.DIFFICULTY_COLOR[difficulty] or M.DIFFICULTY_COLOR.easy
-				local gain = (RPF.skillGain or 1) > 1 and string.format("  |cffb0b0b0(+%d skill each time)|r", RPF.skillGain) or ""
-				skillLine:SetText(string.format("Chance to raise your skill: %s%d%%|r%s", hexColor(c), chance, gain))
-			end
-		else
-			skillLine:SetText(DIFFICULTY_TEXT[difficulty] or "")
-		end
-	end
-	if hasThresholds then drawGauge(r, rank) else gauge:Hide() end
-end
-
------------------------------------------
--- tools and cooldown
-
--- Where the reagents start: under the gauge, or under the skill line when there's no gauge.
+-- Where the reagents start: under the description.
 local reagentAnchor = CreateFrame("Frame", nil, pane)
 reagentAnchor:SetSize(1, 1)
 
@@ -234,7 +114,7 @@ for i = 1, MAX_REAGENTS do
 	slot:SetPoint("TOPLEFT", reagentTitle, "BOTTOMLEFT", 0, -6 - (i - 1) * 34)
 	slot.name = label(pane, "GameFontHighlightSmall")
 	slot.name:SetPoint("LEFT", slot, "RIGHT", 8, 0)
-	slot.name:SetWidth(GAUGE_WIDTH - 40)
+	slot.name:SetWidth(REAGENT_TEXT_WIDTH)
 	slot.have = slot.name -- one line holds both
 	slot:SetScript("OnEnter", function (self) itemTooltip(self, self.link) end)
 	slot:SetScript("OnLeave", function () GameTooltip:Hide() end)
@@ -435,12 +315,11 @@ end
 
 -----------------------------------------
 
-local parts = { icon, nameText, star, subText, description, skillLine, reagentTitle, watermark }
+local parts = { icon, nameText, star, subText, description, reagentTitle, watermark }
 
 local function showParts(on)
 	for _, p in ipairs(parts) do if on then p:Show() else p:Hide() end end
 	if not on then
-		gauge:Hide()
 		noReagents:Hide()
 		for _, slot in ipairs(reagentSlots) do slot:Hide2() end
 		hideSources()
@@ -491,17 +370,15 @@ local function draw(r)
 	if r.cooldown and r.cooldown > 0 then
 		sub = sub .. "   |cffff4040Cooldown: " .. RPF.Duration(r.cooldown) .. "|r"
 	end
-	if not r.learned then sub = sub .. "   |cffff4040Not learned|r" end
+	if not r.learned then
+		local need = r.reqSkill or 0
+		sub = sub .. string.format("   %sNot learned - needs %d|r", need > (M.rank or 0) and "|cffff4040" or "|cffffd200", need)
+	end
 	subText:SetText(sub)
 	description:SetText(r.description or "")
 
-	drawSkill(r)
 	reagentAnchor:ClearAllPoints()
-	if gauge:IsShown() then
-		reagentAnchor:SetPoint("TOPLEFT", gauge, "BOTTOMLEFT", 0, -26)
-	else
-		reagentAnchor:SetPoint("TOPLEFT", skillLine, "BOTTOMLEFT", 0, -12)
-	end
+	reagentAnchor:SetPoint("TOPLEFT", description, "BOTTOMLEFT", 0, (r.description or "") ~= "" and -12 or 0)
 
 	local rows = drawReagents(r)
 	if r.learned then
