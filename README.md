@@ -45,6 +45,32 @@ cooldowns, discoveries and other modules' hooks behave as before.
   chance), world drops (how many creatures, level range), chests, containers, quests and
   discoveries. **Map** puts a flag on the trainer or vendor.
 
+**Craft for profit** (with [mod-retail-ah](https://github.com/buildthehomelab/wow-mod-retail-ah)'s server)
+- The **coin button** beside Filter turns the list into a ranking of the recipes you know, in the
+  spirit of TradeSkillMaster: what the item sells for on the auction house (after the house cut)
+  minus what the materials cost, best first.
+  - **Craft now**: you have the materials, in your bags or the reagent bank (when it's counted).
+  - **Buy materials and craft**: still worth it when you buy everything.
+  - **Not worth it** and **No price** start folded.
+- The search and the filters work as usual, and every row shows its profit per craft. Hover a
+  row for the sale price, the materials, the profit and how much you make crafting everything
+  you can.
+- The recipe pane gets an **Auction house** block: what it sells for and where that price comes
+  from, how many are listed and how many sold in the last 14 days, the materials (hover for each
+  reagent's price and source) and the profit. It shows for recipes you haven't learned too, so
+  you can see whether one is worth learning.
+- How it prices:
+  - **Selling**: the lowest buyout, or with nothing listed, what it sold for lately. When the AH
+    bot buyer pays more (it buys every time it looks), that instead. A vendor's price when that's
+    more still. Items that bind on pickup are worth their vendor price only. Your own auctions
+    aren't counted.
+  - **Materials**: the cheaper of a vendor and the lowest buyout. Materials you already have
+    count at that price too, since crafting has to beat selling them as they are. A material
+    nothing sells counts at its vendor price if you have enough of it.
+- Prices are the auction house of your own faction (the neutral one with two-side trading), from
+  anywhere: no need to stand at an auctioneer. They stay good for 3 minutes; Shift-click the coin
+  to ask again. Enchants aren't listed, since they make no item.
+
 **Tracking**
 - Right-click a recipe (or tick **Track recipe**) to put it on a list on your screen, like a
   tracked quest. It shows every reagent you still need for the number of crafts you want (right-
@@ -92,6 +118,10 @@ profession's list per data version, so the list travels once.
 
 Without the module the window still works, minus unlearned recipes, exact odds and sources.
 
+The profit view asks mod-retail-ah's server for prices under that module's `RAH` prefix (its `K`
+request, which needs no auctioneer). Without it, or with `RetailAH.CraftPrices = 0`, the view
+says there are no auction prices on the realm.
+
 ## Install
 
 Server:
@@ -118,7 +148,8 @@ continents, how many sources per kind, the world-drop threshold and saving zones
 
 `lua tools/addon_smoke_test.lua addon/RetailProfessions` loads the addon against a stubbed
 3.3.5a API and a fake server and walks through opening a profession, filters, crafting, where to
-learn a recipe, tracking, the book, combat and the classic switch.
+learn a recipe, tracking, the book, combat, the profit view (with a fake mod-retail-ah price
+server) and the classic switch.
 
 ## License
 

@@ -122,7 +122,7 @@ left:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -6)
 left:SetPoint("BOTTOMLEFT", content, "BOTTOMLEFT", 0, 0)
 left:SetWidth(LIST_WIDTH)
 
-local search = RPF.CreateEditBox(left, LIST_WIDTH - 108)
+local search = RPF.CreateEditBox(left, LIST_WIDTH - 136)
 search:SetPoint("TOPLEFT", left, "TOPLEFT", 14, -8)
 search:SetTextInsets(16, 4, 0, 0)
 do
@@ -148,8 +148,19 @@ do
 	end
 end
 
+-- The profit view (Profit.lua): the list ranked by what crafting and selling each recipe earns.
+local profitButton = RPF.CreateButton(left, "", 26, 22)
+profitButton:SetPoint("LEFT", search, "RIGHT", 6, 0)
+do
+	local coin = profitButton:CreateTexture(nil, "OVERLAY")
+	coin:SetTexture("Interface\\Icons\\INV_Misc_Coin_01")
+	coin:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	coin:SetSize(16, 16)
+	coin:SetPoint("CENTER", profitButton, "CENTER", 0, 0)
+end
+
 local filterButton = RPF.CreateButton(left, FILTER or "Filter", 78, 22)
-filterButton:SetPoint("LEFT", search, "RIGHT", 6, 0)
+filterButton:SetPoint("LEFT", profitButton, "RIGHT", 4, 0)
 do
 	local arrow = filterButton:CreateTexture(nil, "OVERLAY")
 	arrow:SetTexture("Interface\\ChatFrame\\ChatFrameExpandArrow")
@@ -264,6 +275,42 @@ end
 filterButton:SetScript("OnClick", function (self)
 	EasyMenu(filterMenu(), menu, self, 0, 0, "MENU")
 end)
+
+local function profitView()
+	return RetailProfessionsDB.profitView and not M.linked
+end
+
+profitButton:SetScript("OnClick", function ()
+	-- Shift-click asks for every price again.
+	if profitView() and IsShiftKeyDown() then
+		RPF.Profit.Fetch(RPF.Profit.ProfessionEntries(), true)
+	else
+		RetailProfessionsDB.profitView = not RetailProfessionsDB.profitView or nil
+	end
+	search:ClearFocus()
+	Rebuild(true)
+end)
+profitButton:SetScript("OnEnter", function (self)
+	local P = RPF.Profit
+	GameTooltip:SetOwner(self, "ANCHOR_TOP")
+	GameTooltip:SetText("Craft for profit")
+	GameTooltip:AddLine("Ranks the recipes you know by what the item sells for on the auction house, after the house cut, "
+		.. "minus what the materials cost: Craft now (you have the materials, bags and reagent bank), Buy materials "
+		.. "and craft, and the rest.", 1, 1, 1, true)
+	GameTooltip:AddLine("Materials are priced at the cheaper of a vendor and the lowest buyout, even the ones you have: "
+		.. "crafting has to beat selling them as they are.", 0.7, 0.7, 0.7, true)
+	if profitView() then
+		local age = P.Age(P.ProfessionEntries())
+		if P.Fetching() then
+			GameTooltip:AddLine("Looking up prices...", 0.6, 0.6, 0.6)
+		elseif age then
+			GameTooltip:AddLine(string.format("Prices from %s ago. Shift-click to look again.", RPF.Duration(age)), 0.6, 0.6, 0.6)
+		end
+		GameTooltip:AddLine("Click to go back to the recipe list.", 0.5, 0.5, 0.5)
+	end
+	GameTooltip:Show()
+end)
+profitButton:SetScript("OnLeave", function () GameTooltip:Hide() end)
 
 local function filtersActive()
 	local f = RPF.filter
@@ -677,7 +724,8 @@ local function updateHeader()
 	skillBar:SetMinMaxValues(0, math.max(1, M.maxRank or 1))
 	skillBar:SetValue(M.rank or 0)
 	skillText:SetText(string.format("%s %d/%d", M.skillName or "", M.rank or 0, M.maxRank or 0))
-	if M.linked then linkButton:Hide() else linkButton:Show() end
+	if M.linked then linkButton:Hide(); profitButton:Hide() else linkButton:Show(); profitButton:Show() end
+	if profitView() then profitButton:LockHighlight() else profitButton:UnlockHighlight() end
 	filterButton:SetText(filtersActive() and ("|cff4fc3f7" .. (FILTER or "Filter") .. "|r") or (FILTER or "Filter"))
 end
 
@@ -689,8 +737,16 @@ Rebuild = function (viewOnly)
 	local state = { text = f.text, haveMats = f.haveMats, skillUp = f.skillUp, slot = f.slot,
 		unlearned = RetailProfessionsDB.showUnlearned and not M.linked, learnableOnly = f.learnableOnly,
 		favorites = not M.linked and RetailProfessionsCharDB.favorites or nil }
-	local rows = M.Rows(state, RetailProfessionsCharDB.collapsed)
-	if M.skill and not M.hasServerData and RPF.Has(RPF.HELLO_RECIPES) then
+	local rows
+	if profitView() then
+		RPF.Profit.Fetch(RPF.Profit.ProfessionEntries())
+		rows = RPF.Profit.Rows(state, RetailProfessionsCharDB.collapsed)
+	else
+		rows = M.Rows(state, RetailProfessionsCharDB.collapsed)
+	end
+	if profitView() and #rows == 0 and not ((filtersActive() or f.text ~= "") and RPF.Profit.state == "ok") then
+		list:SetEmptyText(RPF.Profit.EmptyText())
+	elseif M.skill and not M.hasServerData and RPF.Has(RPF.HELLO_RECIPES) then
 		list:SetEmptyText("Loading recipes...")
 	else
 		list:SetEmptyText((filtersActive() or f.text ~= "") and "No recipes match. Clear the search or filters." or "No recipes.")
@@ -763,7 +819,8 @@ RPF.On("BAGS", function ()
 	elseif p and RPF.selected and RPF.selected.spell ~= p.spell then
 		pendingCraft = nil
 	end
-	list:Refresh()
+	-- What's craftable decides the profit view's groups.
+	if profitView() then Rebuild(true) else list:Refresh() end
 	if RPF.selected then RPF.Fire("SELECTED", RPF.selected) end
 	updateControls()
 end)
@@ -781,6 +838,15 @@ RPF.On("ITEM_INFO", function ()
 	end
 end)
 RPF.On("FAVORITES", function () Rebuild(true) end)
+RPF.On("PRICES", function ()
+	if not frame:IsShown() then return end
+	-- A rebuild redraws the selected recipe too.
+	if profitView() then
+		Rebuild(true)
+	elseif RPF.selected then
+		RPF.Fire("SELECTED", RPF.selected)
+	end
+end)
 RPF.On("TRACKED", function ()
 	if frame:IsShown() then
 		list:Refresh()

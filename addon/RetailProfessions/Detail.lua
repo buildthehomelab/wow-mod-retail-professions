@@ -162,6 +162,105 @@ local function drawReagents(r)
 end
 
 -----------------------------------------
+-- auction house: what it sells for, what the materials cost, the profit (Profit.lua)
+
+local priceTitle = label(pane, "GameFontNormalSmall")
+priceTitle:SetText("Auction house:")
+
+local priceLines = {}
+for i = 1, 3 do
+	local line = CreateFrame("Button", nil, pane)
+	line:SetHeight(15)
+	line:SetPoint("TOPLEFT", i == 1 and priceTitle or priceLines[i - 1], "BOTTOMLEFT", 0, i == 1 and -4 or 0)
+	line:SetPoint("RIGHT", pane, "RIGHT", -PAD, 0)
+	line.text = label(line, "GameFontHighlightSmall")
+	line.text:SetAllPoints(line)
+	line:SetScript("OnEnter", function (self)
+		if not self.tip then return end
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		self.tip(GameTooltip)
+		GameTooltip:Show()
+	end)
+	line:SetScript("OnLeave", function () GameTooltip:Hide() end)
+	priceLines[i] = line
+end
+
+local function hidePrices()
+	priceTitle:Hide()
+	for _, line in ipairs(priceLines) do line:Hide() end
+end
+
+-- Each reagent: amount, price and where that price comes from.
+local function materialsTip(a)
+	return function (tip)
+		tip:SetText("Materials per craft")
+		for _, part in ipairs(a.parts) do
+			local name = M.ReagentName(part.rg) or ("Item #" .. tostring(part.rg.id or "?"))
+			local right = part.unit and (RPF.Profit.Short(part.unit * part.rg.n) .. " |cff9d9d9d(" .. RPF.Profit.HowBuy(part.how) .. ")|r")
+				or "|cffff4040no price|r"
+			tip:AddDoubleLine(part.rg.n .. " x " .. name, right, 1, 1, 1, 1, 1, 1)
+		end
+		tip:AddLine("Materials you have count at their price too: crafting has to beat selling them.", 0.6, 0.6, 0.6, true)
+	end
+end
+
+-- Draws under `anchor` and returns what comes next should hang from.
+local function drawPrices(r, anchor)
+	local P = RPF.Profit
+	if r.isEnchant or not r.item or r.item == 0 or P.state == "missing" or M.linked then
+		hidePrices()
+		return anchor
+	end
+	P.Fetch(P.EntriesOf(r))
+	priceTitle:ClearAllPoints()
+	priceTitle:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -12)
+	priceTitle:Show()
+	for _, line in ipairs(priceLines) do line:Hide(); line.tip = nil end
+
+	local a = P.Of(r)
+	if not a then
+		priceLines[1].text:SetText(P.Get(r.item) and "|cff9d9d9dNo price: it can't be sold on the auction house or to a vendor.|r"
+			or "|cff9d9d9dLooking up prices...|r")
+		priceLines[1]:Show()
+		return priceLines[1]
+	end
+
+	local sells = string.format("|cffffd200Sells for|r  %s each |cff9d9d9d(%s)|r", P.Short(a.unitValue), P.HowSell(a.valueHow))
+	if a.made ~= 1 then sells = sells .. string.format("  x%s", a.made % 1 == 0 and tostring(a.made) or string.format("%.1f", a.made)) end
+	local market = P.MarketText(r.item)
+	if market ~= "" then sells = sells .. "  |cff9d9d9d- " .. market .. "|r" end
+	priceLines[1].text:SetText(sells)
+	priceLines[1].tip = function (tip)
+		local p = P.Get(r.item)
+		tip:SetText("Sells for")
+		if p and p.soulbound then tip:AddLine("Binds when picked up: only a vendor buys it.", 1, 1, 1, true) end
+		if p and p.lowest > 0 then tip:AddDoubleLine("Lowest buyout", P.Short(p.lowest), 1, 1, 1, 1, 1, 1) end
+		if p and p.bot > 0 then tip:AddDoubleLine("The AH bot pays", P.Short(p.bot), 1, 1, 1, 1, 1, 1) end
+		if p and p.soldUnits > 0 then
+			tip:AddDoubleLine(string.format("Sold lately (%d days)", P.days), P.Short(math.floor(p.soldCopper / p.soldUnits)) .. " avg", 1, 1, 1, 1, 1, 1)
+		end
+		if p and p.sell > 0 then tip:AddDoubleLine("A vendor pays", P.Short(p.sell), 1, 1, 1, 1, 1, 1) end
+		tip:AddLine(string.format("Counted after the %d%% house cut, except the vendor price.", P.cut), 0.6, 0.6, 0.6, true)
+	end
+	priceLines[1]:Show()
+
+	priceLines[2].text:SetText("|cffffd200Materials|r  " .. (a.costKnown and P.Short(a.cost) or "|cffff4040?|r")
+		.. (a.costKnown and "" or " |cff9d9d9d(something has no price)|r") .. " |cff9d9d9dper craft|r")
+	priceLines[2].tip = materialsTip(a)
+	priceLines[2]:Show()
+
+	if a.costKnown then
+		local text = "|cffffd200Profit|r  " .. P.Signed(a.profit) .. " |cff9d9d9dper craft|r"
+		local n = r.learned and P.CanMake(r) or 0
+		if n > 1 and a.profit > 0 then text = text .. string.format("  |cff9d9d9d- %s for the %d you can make|r", P.Signed(a.profit * n), n) end
+		priceLines[3].text:SetText(text)
+		priceLines[3]:Show()
+		return priceLines[3]
+	end
+	return priceLines[2]
+end
+
+-----------------------------------------
 -- where to learn it
 
 local sourceTitle = label(pane, "GameFontNormalSmall")
@@ -323,6 +422,7 @@ local function showParts(on)
 		noReagents:Hide()
 		for _, slot in ipairs(reagentSlots) do slot:Hide2() end
 		hideSources()
+		hidePrices()
 	end
 end
 
@@ -383,10 +483,11 @@ local function draw(r)
 	reagentAnchor:SetPoint("TOPLEFT", description, "BOTTOMLEFT", 0, (r.description or "") ~= "" and -12 or 0)
 
 	local rows = drawReagents(r)
+	local below = drawPrices(r, #r.reagents > 0 and reagentSlots[rows] or noReagents)
 	if r.learned then
 		hideSources()
 	else
-		drawSources(r, reagentSlots[rows])
+		drawSources(r, below)
 	end
 end
 

@@ -1,6 +1,6 @@
 -- Smoke test for the RetailProfessions addon outside the game: stubs just enough of the 3.3.5a
 -- API (frames, skills, the trade skill window), loads the addon in .toc order and answers its
--- requests with a fake mod-retail-professions server.
+-- requests with a fake mod-retail-professions server (and mod-retail-ah's price lookups).
 -- Usage (any Lua 5.3+): lua tools/addon_smoke_test.lua addon/RetailProfessions
 
 local dir = arg[1] or "addon/RetailProfessions"
@@ -297,9 +297,9 @@ end
 
 local outbox = {}
 function SendAddonMessage(prefix, msg, channel)
-	assert(prefix == "RPR" and channel == "WHISPER", "bad addon message")
+	assert((prefix == "RPR" or prefix == "RAH") and channel == "WHISPER", "bad addon message")
 	assert(#prefix + 1 + #msg <= 254, "addon message too long")
-	table.insert(outbox, msg)
+	table.insert(outbox, { prefix, msg })
 end
 
 local eventFrames = {}
@@ -313,6 +313,28 @@ local function fire(event, ...)
 end
 
 local function reply(msg) fire("CHAT_MSG_ADDON", "RPR", msg, "WHISPER", "Tester") end
+
+-- mod-retail-ah's K: per item lowest buyout, units, AH bot pays, vendor price, vendor pays,
+-- units sold, copper sold, flags.
+local ahPrices = {
+	[2589] = "10,200,8,0,1,100,1200,0", [2320] = "0,0,0,10,2,0,0,0", [2996] = "60,20,40,0,10,0,0,0",
+	[2568] = "300,3,150,0,70,5,1400,0", [4308] = "0,0,0,0,50,0,0,2", [2321] = "0,0,0,30,5,0,0,0",
+}
+local rahSent, rahDown = {}, false
+local function serveAH(msg)
+	local cmd, req, rest = msg:match("^([^:]+):([^:]*):?(.*)$")
+	table.insert(rahSent, msg)
+	print("  RAH -> " .. msg)
+	if rahDown then return end
+	assert(cmd == "K", "unexpected RAH request " .. msg)
+	local rows = {}
+	for entry in rest:gmatch("%d+") do
+		if ahPrices[tonumber(entry)] then table.insert(rows, entry .. "," .. ahPrices[tonumber(entry)]) end
+	end
+	fire("CHAT_MSG_ADDON", "RAH", "KR:" .. req .. ":5:14", "WHISPER", "Tester")
+	fire("CHAT_MSG_ADDON", "RAH", "KD:" .. req .. ":" .. table.concat(rows, ";"), "WHISPER", "Tester")
+	fire("CHAT_MSG_ADDON", "RAH", "KE:" .. req, "WHISPER", "Tester")
+end
 
 local sent = {}
 local function serve(msg)
@@ -342,7 +364,10 @@ local function tick(seconds)
 				if not ok then report("OnUpdate", err) end
 			end
 		end
-		while #outbox > 0 do serve(table.remove(outbox, 1)) end
+		while #outbox > 0 do
+			local m = table.remove(outbox, 1)
+			if m[1] == "RAH" then serveAH(m[2]) else serve(m[2]) end
+		end
 	end
 end
 
@@ -597,6 +622,60 @@ step("the amount follows ReagentBankUI's Crafts box both ways", function ()
 	provider.SetRepeatCount(3)
 	assert(RPF.GetQuantity() == 3, "ReagentBankUI's count didn't reach us")
 	assert(ReagentBankUI.prepareCount == 7 or ReagentBankUI.prepareCount == 3, "loop")
+end)
+
+step("craft for profit: ranked by auction prices", function ()
+	local thread = bags[2320]
+	bags[2320] = nil
+	RetailProfessionsDB.profitView = true
+	RPF.Rebuild(true)
+	tick(0.5)
+	assert(#rahSent >= 1 and rahSent[#rahSent]:find("^K:p%d+:"), "no price request")
+	assert(RPF.Profit.state == "ok", "prices not taken: " .. RPF.Profit.state)
+	local rows = RPF.list.rows
+	-- Bolt: sells 60 -5% = 57, two linen at 10 = 20, so +37c, and the bags make 2.
+	assert(rows[1].header == "Craft now" and rows[2].recipe.spell == 2963, "craft-now group: " .. tostring(rows[1].header))
+	assert(rows[2].right:find("+37c", 1, true), "bolt profit: " .. tostring(rows[2].right))
+	-- Vest: 300 -5% = 285, three linen 30 + coarse thread from a vendor 10 = 40; no thread in the bags.
+	assert(rows[3].header == "Buy materials and craft" and rows[4].recipe.spell == 2385, "buy group: " .. tostring(rows[3].header))
+	assert(rows[4].right:find("+2s 45c", 1, true), "vest profit: " .. tostring(rows[4].right))
+	RPF.Select(M.bySpell[2385])
+	tick(0.2)
+	assert(textShown("Sells for"), "price block missing")
+	assert(textShown("3 listed, 5 sold in 14 days"), "market line missing")
+	assert(textShown("Profit"), "profit line missing")
+	local a = RPF.Profit.Of(M.bySpell[2385])
+	assert(a.parts[2].how == "vendor" and a.cost == 40, "thread should come from the vendor")
+	-- The unlearned bracers bind on pickup: worth their vendor price only.
+	RPF.Profit.Fetch({ 4308 })
+	tick(0.2)
+	local value, how = RPF.Profit.SellValue(4308)
+	assert(value == 50 and how == "vendor", "soulbound item valued at " .. tostring(value) .. " " .. tostring(how))
+	-- Fresh prices aren't asked for again on every redraw.
+	local before = #rahSent
+	for _ = 1, 3 do fire("BAG_UPDATE"); tick(0.5) end
+	assert(#rahSent == before, "prices asked again: " .. (#rahSent - before))
+	-- With a thread in the bags the vest moves up to Craft now, ahead of the bolt.
+	bags[2320] = 1
+	fire("BAG_UPDATE")
+	tick(0.5)
+	assert(RPF.list.rows[2].recipe.spell == 2385 and RPF.list.rows[3].recipe.spell == 2963, "vest not in Craft now")
+	bags[2320] = thread
+end)
+
+step("craft for profit without mod-retail-ah", function ()
+	rahDown = true
+	-- As on first contact: a realm that answered once isn't given up on for one lost request.
+	RPF.Profit.state = "unknown"
+	RPF.Profit.Fetch(RPF.Profit.ProfessionEntries(), true)
+	tick(7)
+	assert(RPF.Profit.state == "missing", "no-server state: " .. RPF.Profit.state)
+	RPF.Rebuild(true)
+	tick(0.2)
+	assert(textShown("needs mod%-retail%-ah"), "no-server note missing")
+	rahDown = false
+	RetailProfessionsDB.profitView = nil
+	RPF.Rebuild(true)
 end)
 
 step("the search box doesn't keep the keyboard", function ()

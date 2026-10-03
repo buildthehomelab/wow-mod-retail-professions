@@ -123,6 +123,7 @@ function RPF.CreateRecipeList(parent, spec)
 				GameTooltip:SetHyperlink("spell:" .. r.spell)
 			end
 			RPF.AddSkillUpLines(GameTooltip, r)
+			if row.right then RPF.Profit.AddTooltipLines(GameTooltip, r) end
 			GameTooltip:AddLine("Right-click to track.", 0.5, 0.5, 0.5)
 			GameTooltip:Show()
 		end)
@@ -230,7 +231,9 @@ function RPF.CreateRecipeList(parent, spec)
 					b.text:SetTextColor(1, 1, 1)
 				end
 
-				if r.learned then
+				if row.right then
+					b.count:SetText(row.right)
+				elseif r.learned then
 					b.count:SetText("")
 				else
 					local need = r.reqSkill or 0
