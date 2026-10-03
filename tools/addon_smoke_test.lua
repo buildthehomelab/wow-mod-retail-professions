@@ -86,7 +86,11 @@ function methods:SetAttribute(k, v)
 	self.__attrs[k] = v
 end
 function methods:GetAttribute(k) return self.__attrs[k] end
-function methods:GetPoint() return "TOPLEFT", UIParent, "TOPLEFT", 10, -10 end
+function methods:GetPoint()
+	if rawget(self, "__point") then return table.unpack(self.__point) end
+	return "TOPLEFT", UIParent, "TOPLEFT", 10, -10
+end
+function methods:SetPoint(...) self.__point = { ... } end
 frameMeta.__index = function (t, k)
 	if methods[k] then return methods[k] end
 	-- Unknown widget methods (capitalized) are no-ops; unset fields are nil, as in the game.
@@ -243,6 +247,18 @@ function TradeSkillOnlyShowSkillUps() end
 function IsTradeSkillLinked() return nil end
 function GetTradeSkillListLink() return "|Htrade:3908:120:150|h[Tailoring]|h" end
 
+-- With DRAGON=1, a DragonUI stand-in, so the skinned branches run too.
+if os.getenv("DRAGON") == "1" then
+	NineSliceUtils = { GetLayout = function () return {} end, ApplyLayout = function () end }
+	DragonUI = {
+		_dir = "Interface\\AddOns\\DragonUI\\Textures\\", atlasinfo = {},
+		SafeSetAtlas = function () return true end, SkinRedButton = function () end,
+		CharacterPanel = { ReskinTab = function () end, ModernizeCloseButton = function () end,
+			SkinCheckbox = function () end, ReskinScrollBar = function () end },
+	}
+end
+function SetPortraitToTexture(tex, path) tex.__portrait = path end
+
 -- ReagentBankUI, as far as we use it.
 local provider
 ReagentBankUI = {
@@ -250,7 +266,18 @@ ReagentBankUI = {
 	RegisterRecipeProvider = function (_, p) provider = p return true end,
 	RequestBankSnapshot = function () end,
 	NotifyRecipeProviderChanged = function () end,
+	GetTradeSkillControlsHost = function () return provider and provider.frame end,
 }
+local bankPanel
+function ReagentBankUI:DockTradeSkillPanel()
+	bankPanel = bankPanel or CreateFrame("Frame")
+	bankPanel.__point = { "TOPLEFT", self:GetTradeSkillControlsHost(), "TOPRIGHT", -33, -12 }
+	self.tradeSkillPanel = bankPanel
+end
+function hooksecurefunc(t, name, fn)
+	local orig = t[name]
+	t[name] = function (...) local r = orig(...) fn(...) return r end
+end
 
 -----------------------------------------
 -- events and the fake server
@@ -443,6 +470,16 @@ step("where-to-learn is asked once, however often the recipe redraws", function 
 	assert(before == 1 and after == 1, "W sent " .. before .. " then " .. after .. " times")
 end)
 
+step("favorites go to the top", function ()
+	RPF.ToggleFavorite(2385)
+	tick(0.2)
+	local first = RPF.list.rows[1]
+	assert(first.header == "Favorites" and RPF.list.rows[2].recipe.spell == 2385, "favorites group missing")
+	RPF.ToggleFavorite(2385)
+	tick(0.2)
+	assert(RPF.list.rows[1].header ~= "Favorites", "favorites group stayed")
+end)
+
 step("track a recipe", function ()
 	RPF.ToggleTracked(M.bySpell[2385])
 	assert(RetailProfessionsTracker:IsShown(), "tracker hidden")
@@ -470,6 +507,12 @@ step("combat hides the secure buttons first, then they come back", function ()
 	combat = false
 	fire("PLAYER_REGEN_ENABLED")
 	assert(RetailProfessionsTab1.__shown, "tab button not back after combat")
+end)
+
+step("the reagent bank sidebar moves past the tabs", function ()
+	ReagentBankUI:DockTradeSkillPanel()
+	local _, _, _, x = bankPanel:GetPoint(1)
+	assert(x == -33 + 40, "bank sidebar not shifted: " .. tostring(x))
 end)
 
 step("closing the window closes the trade skill", function ()

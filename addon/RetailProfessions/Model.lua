@@ -233,7 +233,7 @@ end
 -----------------------------------------
 -- filtering into display rows
 
--- state = { text, haveMats, skillUp, slot, unlearned, learnableOnly }
+-- state = { text, haveMats, skillUp, slot, unlearned, learnableOnly, favorites = { [spell] = true } }
 -- rows = { { header = name, key, count, collapsed } | { recipe = r } }
 function M.Rows(state, collapsed)
 	local text = state.text and state.text ~= "" and state.text:lower() or nil
@@ -270,6 +270,13 @@ function M.Rows(state, collapsed)
 		if not isCollapsed then
 			for _, r in ipairs(shown) do table.insert(rows, { recipe = r }) end
 		end
+	end
+
+	if state.favorites then
+		local favorites = {}
+		for _, r in ipairs(M.recipes) do if state.favorites[r.spell] then table.insert(favorites, r) end end
+		for _, r in ipairs(M.unlearned) do if state.favorites[r.spell] then table.insert(favorites, r) end end
+		addGroup(FAVORITES or "Favorites", "fav", favorites)
 	end
 
 	for _, h in ipairs(M.headers) do

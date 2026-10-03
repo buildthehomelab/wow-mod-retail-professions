@@ -35,39 +35,19 @@ RPF.On("RESET_POSITION", function ()
 	RPF.SyncSpellButtons()
 end)
 
-local dragon = RPF.DressWindow(book)
-
-local title = book.chrome:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-title:SetPoint("TOP", book, "TOP", 0, -5)
-title:SetText(TRADE_SKILLS or "Professions")
-
-local dragBar = CreateFrame("Frame", nil, book)
-dragBar:SetPoint("TOPLEFT", book, "TOPLEFT", 0, 0)
-dragBar:SetPoint("TOPRIGHT", book, "TOPRIGHT", -28, 0)
-dragBar:SetHeight(24)
-dragBar:EnableMouse(true)
-dragBar:RegisterForDrag("LeftButton")
-dragBar:SetScript("OnDragStart", function () book:StartMoving() end)
-dragBar:SetScript("OnDragStop", function ()
-	book:StopMovingOrSizing()
-	local point, _, relativePoint, x, y = book:GetPoint(1)
-	RetailProfessionsDB.bookPosition = { point, relativePoint, x, y }
-	RPF.SyncSpellButtons()
-end)
-
-local close = CreateFrame("Button", "RetailProfessionsBookCloseButton", book, "UIPanelCloseButton")
-close:SetPoint("TOPRIGHT", book, "TOPRIGHT", 2, 2)
-do
-	local _, CP = RPF.Dragon()
-	if CP and CP.ModernizeCloseButton then
-		CP.ModernizeCloseButton(close, book.chrome, 1, 0)
-		close:SetFrameLevel(book.chrome:GetFrameLevel() + 5)
-	end
-end
+local dragon, contentTop = RPF.DressWindow(book, {
+	closeName = "RetailProfessionsBookCloseButton",
+	onMoved = function ()
+		local point, _, relativePoint, x, y = book:GetPoint(1)
+		RetailProfessionsDB.bookPosition = { point, relativePoint, x, y }
+		RPF.SyncSpellButtons()
+	end,
+})
+book.title:SetText(TRADE_SKILLS or "Professions")
 
 local inset = RPF.CreateInset(book)
-inset:SetPoint("TOPLEFT", book, "TOPLEFT", 10, dragon and -28 or -30)
-inset:SetPoint("BOTTOMRIGHT", book, "BOTTOMRIGHT", -10, 30)
+inset:SetPoint("TOPLEFT", book, "TOPLEFT", dragon and 10 or 14, contentTop)
+inset:SetPoint("BOTTOMRIGHT", book, "BOTTOMRIGHT", dragon and -10 or -14, 30)
 
 local hint = book:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 hint:SetPoint("BOTTOM", book, "BOTTOM", 0, 12)
@@ -251,7 +231,7 @@ local function refresh()
 	end
 
 	if n == 0 then empty:Show() else empty:Hide() end
-	book:SetHeight(math.max(140, -y + 8 + (dragon and 28 or 30) + 30))
+	book:SetHeight(math.max(140, -y + 8 - contentTop + 30))
 	local key = GetBindingKey and GetBindingKey("RETAILPROFESSIONS_BOOK")
 	hint:SetText(RPF.InCombat() and "|cffff4040Opening professions works again after combat.|r"
 		or (key and ("Press " .. key .. " to open or close this window.") or "Type /prof to open or close this window."))

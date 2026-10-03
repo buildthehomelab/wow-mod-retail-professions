@@ -1,13 +1,15 @@
--- The selected recipe: what it makes, how likely it is to raise your skill (a bar showing where
--- it turns yellow, green and grey and where you are), tools and cooldown, the reagents with
--- what you have, and for a recipe you haven't learned, where to learn it.
+-- The selected recipe, laid out like retail's: a round icon with the name, a favorite star and
+-- what it requires (tools, a fire, a forge) beside it, how likely it is to raise your skill (a
+-- bar showing where it turns yellow, green and grey and where you are), the reagents with what
+-- you have, and for a recipe you haven't learned, where to learn it. A faint picture of the
+-- profession sits behind it all.
 
 local RPF = RetailProfessions
 local M = RPF.Model
 
 local pane = RPF.detailPane
 local PAD = 14
-local GAUGE_WIDTH = 470
+local GAUGE_WIDTH = 360
 local MAX_REAGENTS = 8
 local MAX_SOURCES = 9
 
@@ -15,18 +17,6 @@ local function label(parent, font, r, g, b)
 	local fs = parent:CreateFontString(nil, "OVERLAY", font or "GameFontHighlightSmall")
 	fs:SetJustifyH("LEFT")
 	if r then fs:SetTextColor(r, g, b) end
-	return fs
-end
-
-local function sectionTitle(parent, text)
-	local fs = label(parent, "GameFontNormal")
-	fs:SetText(text)
-	local rule = parent:CreateTexture(nil, "ARTWORK")
-	rule:SetTexture(1, 0.82, 0, 0.25)
-	rule:SetHeight(1)
-	rule:SetPoint("LEFT", fs, "RIGHT", 8, 0)
-	rule:SetPoint("RIGHT", parent, "RIGHT", -PAD, 0)
-	fs.rule = rule
 	return fs
 end
 
@@ -45,22 +35,55 @@ end
 -----------------------------------------
 -- top: icon, name, what it makes
 
-local icon = RPF.CreateItemButton(pane, 42)
+-- The profession's picture, very faint, behind the recipe.
+local watermark = pane:CreateTexture(nil, "BACKGROUND", nil, 2)
+watermark:SetSize(170, 170)
+watermark:SetPoint("BOTTOMRIGHT", pane, "BOTTOMRIGHT", -30, 40)
+watermark:SetDesaturated(true)
+watermark:SetAlpha(0.07)
+
+-- Round icon with a glow in the item's quality colour.
+local icon = CreateFrame("Button", nil, pane)
+icon:SetSize(46, 46)
 icon:SetPoint("TOPLEFT", pane, "TOPLEFT", PAD, -PAD)
+icon.texture = icon:CreateTexture(nil, "ARTWORK")
+icon.texture:SetAllPoints(icon)
+icon.glow = icon:CreateTexture(nil, "OVERLAY")
+icon.glow:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
+icon.glow:SetBlendMode("ADD")
+icon.glow:SetSize(84, 84)
+icon.glow:SetPoint("CENTER", icon, "CENTER")
 icon:SetScript("OnEnter", function (self) itemTooltip(self, self.link) end)
 icon:SetScript("OnLeave", function () GameTooltip:Hide() end)
 icon:SetScript("OnClick", function (self) linkOrNothing(self.link) end)
 
 local nameText = label(pane, "GameFontNormalLarge")
-nameText:SetPoint("TOPLEFT", icon, "TOPRIGHT", 10, -2)
-nameText:SetPoint("RIGHT", pane, "RIGHT", -PAD, 0)
+nameText:SetPoint("TOPLEFT", icon, "TOPRIGHT", 12, -4)
+
+-- Favorites go to the top of the list.
+local star = CreateFrame("Button", nil, pane)
+star:SetSize(16, 16)
+star:SetPoint("LEFT", nameText, "RIGHT", 6, 0)
+star.texture = star:CreateTexture(nil, "ARTWORK")
+star.texture:SetAllPoints(star)
+star.texture:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcon_1")
+star:SetScript("OnClick", function ()
+	local r = RPF.selected
+	if r and r.spell then RPF.ToggleFavorite(r.spell) end
+end)
+star:SetScript("OnEnter", function (self)
+	GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+	GameTooltip:SetText(RPF.selected and RPF.IsFavorite(RPF.selected.spell) and "Remove from favorites" or "Add to favorites")
+	GameTooltip:Show()
+end)
+star:SetScript("OnLeave", function () GameTooltip:Hide() end)
 
 local subText = label(pane, "GameFontHighlightSmall")
-subText:SetPoint("TOPLEFT", nameText, "BOTTOMLEFT", 0, -4)
+subText:SetPoint("TOPLEFT", nameText, "BOTTOMLEFT", 0, -5)
 subText:SetPoint("RIGHT", pane, "RIGHT", -PAD, 0)
 
-local description = label(pane, "GameFontHighlightSmall", 0.85, 0.85, 0.85)
-description:SetPoint("TOPLEFT", icon, "BOTTOMLEFT", 0, -8)
+local description = label(pane, "GameFontHighlightSmall", 0.8, 0.8, 0.8)
+description:SetPoint("TOPLEFT", icon, "BOTTOMLEFT", 0, -10)
 description:SetPoint("RIGHT", pane, "RIGHT", -PAD, 0)
 
 local empty = label(pane, "GameFontDisable")
@@ -70,16 +93,13 @@ empty:SetText("Pick a recipe on the left.")
 -----------------------------------------
 -- skill-up
 
-local skillTitle = sectionTitle(pane, "Skill-up")
-skillTitle:SetPoint("TOPLEFT", description, "BOTTOMLEFT", 0, -10)
-
-local skillLine = label(pane, "GameFontHighlight")
-skillLine:SetPoint("TOPLEFT", skillTitle, "BOTTOMLEFT", 0, -6)
+local skillLine = label(pane, "GameFontHighlightSmall")
+skillLine:SetPoint("TOPLEFT", description, "BOTTOMLEFT", 0, -10)
 skillLine:SetPoint("RIGHT", pane, "RIGHT", -PAD, 0)
 
 local gauge = CreateFrame("Frame", nil, pane)
 gauge:SetSize(GAUGE_WIDTH, 10)
-gauge:SetPoint("TOPLEFT", skillLine, "BOTTOMLEFT", 0, -18)
+gauge:SetPoint("TOPLEFT", skillLine, "BOTTOMLEFT", 0, -16)
 gauge.bg = gauge:CreateTexture(nil, "BACKGROUND")
 gauge.bg:SetAllPoints(gauge)
 gauge.bg:SetTexture(0, 0, 0, 0.6)
@@ -196,30 +216,31 @@ end
 -----------------------------------------
 -- tools and cooldown
 
-local requires = label(pane, "GameFontHighlightSmall")
-requires:SetPoint("TOPLEFT", gauge, "BOTTOMLEFT", 0, -24)
-requires:SetPoint("RIGHT", pane, "RIGHT", -PAD, 0)
+-- Where the reagents start: under the gauge, or under the skill line when there's no gauge.
+local reagentAnchor = CreateFrame("Frame", nil, pane)
+reagentAnchor:SetSize(1, 1)
 
 -----------------------------------------
 -- reagents: two columns of icon, name and have/need
 
-local reagentTitle = sectionTitle(pane, "Reagents")
+local reagentTitle = label(pane, "GameFontNormalSmall")
+reagentTitle:SetText((SPELL_REAGENTS or "Reagents:"):gsub("%s+$", ""))
+reagentTitle:SetPoint("TOPLEFT", reagentAnchor, "TOPLEFT", 0, 0)
 
+-- One column: icon, then "have/need Name", and what the reagent bank holds.
 local reagentSlots = {}
 for i = 1, MAX_REAGENTS do
-	local slot = RPF.CreateItemButton(pane, 34)
-	local col, row = (i - 1) % 2, math.floor((i - 1) / 2)
-	slot:SetPoint("TOPLEFT", reagentTitle, "BOTTOMLEFT", col * 250, -6 - row * 40)
+	local slot = RPF.CreateItemButton(pane, 30)
+	slot:SetPoint("TOPLEFT", reagentTitle, "BOTTOMLEFT", 0, -6 - (i - 1) * 34)
 	slot.name = label(pane, "GameFontHighlightSmall")
-	slot.name:SetPoint("TOPLEFT", slot, "TOPRIGHT", 6, -3)
-	slot.name:SetWidth(200)
-	slot.have = label(pane, "GameFontHighlightSmall")
-	slot.have:SetPoint("BOTTOMLEFT", slot, "BOTTOMRIGHT", 6, 3)
+	slot.name:SetPoint("LEFT", slot, "RIGHT", 8, 0)
+	slot.name:SetWidth(GAUGE_WIDTH - 40)
+	slot.have = slot.name -- one line holds both
 	slot:SetScript("OnEnter", function (self) itemTooltip(self, self.link) end)
 	slot:SetScript("OnLeave", function () GameTooltip:Hide() end)
 	slot:SetScript("OnClick", function (self) linkOrNothing(self.link) end)
-	slot.Hide2 = function (self) self:Hide(); self.name:Hide(); self.have:Hide() end
-	slot.Show2 = function (self) self:Show(); self.name:Show(); self.have:Show() end
+	slot.Hide2 = function (self) self:Hide(); self.name:Hide() end
+	slot.Show2 = function (self) self:Show(); self.name:Show() end
 	reagentSlots[i] = slot
 end
 
@@ -236,33 +257,35 @@ local function drawReagents(r)
 			local info = rg.id and RPF.Item(rg.id)
 			local link = rg.link or (info and info.link) or (rg.id and ("item:" .. rg.id))
 			slot.link = link
-			slot:SetItem(rg.texture or (info and info.texture) or RPF.ItemIcon(rg.id), info and info.quality, rg.n)
-			slot.name:SetText(M.ReagentName(rg) or ("Item #" .. tostring(rg.id or "?")))
+			slot:SetItem(rg.texture or (info and info.texture) or RPF.ItemIcon(rg.id), info and info.quality)
+			local reagentName = M.ReagentName(rg) or ("Item #" .. tostring(rg.id or "?"))
 			local bags = rg.id and GetItemCount(rg.id) or 0
 			local bank = rg.id and RPF.BankCount(rg.id) or 0
 			local text
 			if bags >= rg.n then
-				text = string.format("|cff40ff40%d|r / %d", bags, rg.n)
+				text = string.format("|cffffffff%d/%d|r", bags, rg.n)
 			elseif bags + bank >= rg.n and RetailProfessionsDB.countBank then
-				text = string.format("|cffffd200%d|r / %d", bags, rg.n)
+				text = string.format("|cffffd200%d/%d|r", bags, rg.n)
 			else
-				text = string.format("|cffff4040%d|r / %d", bags, rg.n)
+				text = string.format("|cffff4040%d/%d|r", bags, rg.n)
 			end
-			if bank > 0 then text = text .. string.format("  |cff4fc3f7+%d bank|r", bank) end
-			slot.have:SetText(text)
+			text = text .. " " .. reagentName
+			if bank > 0 then text = text .. string.format("  |cff4fc3f7+%d in bank|r", bank) end
+			slot.name:SetText(text)
 			slot:Show2()
 		else
 			slot:Hide2()
 		end
 	end
 	if shown == 0 then noReagents:Show() else noReagents:Hide() end
-	return math.max(1, math.ceil(shown / 2))
+	return math.max(1, shown)
 end
 
 -----------------------------------------
 -- where to learn it
 
-local sourceTitle = sectionTitle(pane, "Where to learn")
+local sourceTitle = label(pane, "GameFontNormalSmall")
+sourceTitle:SetText("Learn it from:")
 
 local recipeItemButton = CreateFrame("Button", nil, pane)
 recipeItemButton:SetHeight(16)
@@ -350,7 +373,7 @@ end
 local whereToken = 0
 
 local function hideSources()
-	sourceTitle:Hide(); sourceTitle.rule:Hide()
+	sourceTitle:Hide()
 	recipeItemButton:Hide()
 	sourceNote:Hide()
 	for _, row in ipairs(sourceRows) do row:Hide() end
@@ -359,7 +382,7 @@ end
 local function drawSources(r, anchor)
 	sourceTitle:ClearAllPoints()
 	sourceTitle:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -12)
-	sourceTitle:Show(); sourceTitle.rule:Show()
+	sourceTitle:Show()
 	for _, row in ipairs(sourceRows) do row:Hide() end
 	recipeItemButton:Hide()
 
@@ -412,8 +435,7 @@ end
 
 -----------------------------------------
 
-local parts = { icon, nameText, subText, description, skillTitle, skillTitle.rule, skillLine, requires, reagentTitle,
-	reagentTitle.rule }
+local parts = { icon, nameText, star, subText, description, skillLine, reagentTitle, watermark }
 
 local function showParts(on)
 	for _, p in ipairs(parts) do if on then p:Show() else p:Hide() end end
@@ -438,52 +460,54 @@ local function draw(r)
 	local itemLink = r.itemLink and r.itemLink:find("item:") and r.itemLink or nil
 	local info = r.item and r.item > 0 and RPF.Item(r.item)
 	icon.link = itemLink or (info and info.link) or (r.spell and GetSpellLink and GetSpellLink(r.spell)) or r.recipeLink
-	icon:SetItem(r.icon or (info and info.texture), info and info.quality or r.quality)
-	local _, _, _, hex = RPF.QualityColor(info and info.quality or r.quality or 1)
+	RPF.SetPortrait(icon.texture, (info and info.texture) or r.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
+	local quality = info and info.quality or r.quality or 1
+	if quality >= 2 and not r.isEnchant then
+		local qr, qg, qb = RPF.QualityColor(quality)
+		icon.glow:SetVertexColor(qr, qg, qb)
+		icon.glow:Show()
+	else
+		icon.glow:Hide()
+	end
+	local _, _, _, hex = RPF.QualityColor(quality)
 	nameText:SetText((r.isEnchant and "|cffffffff" or hex) .. r.name .. "|r")
+	star.texture:SetDesaturated(not RPF.IsFavorite(r.spell))
+	star.texture:SetAlpha(RPF.IsFavorite(r.spell) and 1 or 0.45)
+	local p = M.profession
+	watermark:SetTexture(p and p.texture or nil)
 
+	-- Under the name: what it needs (red when you don't have it), else what it makes.
 	local sub
-	if r.isEnchant then
+	if r.tools and #r.tools > 0 then
+		local names = {}
+		for _, t in ipairs(r.tools) do table.insert(names, (t.has and "|cffffffff" or "|cffff2020") .. t.name .. "|r") end
+		sub = "|cffffd200Requires:|r " .. table.concat(names, ", ")
+	elseif r.isEnchant then
 		sub = "Enchants an item"
 	else
 		local lo, hi = r.madeMin or 1, r.madeMax or 1
-		sub = lo == hi and (lo > 1 and ("Makes " .. lo) or "Makes 1") or string.format("Makes %d-%d", lo, hi)
+		sub = lo == hi and ("Makes " .. lo) or string.format("Makes %d-%d", lo, hi)
 	end
-	if not r.learned then
-		sub = sub .. "  |cffff4040Not learned|r"
-	elseif r.header then
-		sub = sub .. "  |cff9d9d9d" .. r.header .. "|r"
+	if r.cooldown and r.cooldown > 0 then
+		sub = sub .. "   |cffff4040Cooldown: " .. RPF.Duration(r.cooldown) .. "|r"
 	end
+	if not r.learned then sub = sub .. "   |cffff4040Not learned|r" end
 	subText:SetText(sub)
 	description:SetText(r.description or "")
 
 	drawSkill(r)
-
-	-- Tools, cooldown, craftable counts.
-	local bits = {}
-	if r.tools and #r.tools > 0 then
-		local names = {}
-		for _, t in ipairs(r.tools) do table.insert(names, (t.has and "|cffffffff" or "|cffff4040") .. t.name .. "|r") end
-		table.insert(bits, "Requires: " .. table.concat(names, ", "))
+	reagentAnchor:ClearAllPoints()
+	if gauge:IsShown() then
+		reagentAnchor:SetPoint("TOPLEFT", gauge, "BOTTOMLEFT", 0, -26)
+	else
+		reagentAnchor:SetPoint("TOPLEFT", skillLine, "BOTTOMLEFT", 0, -12)
 	end
-	if r.cooldown and r.cooldown > 0 then
-		table.insert(bits, "|cffff4040Cooldown: " .. RPF.Duration(r.cooldown) .. "|r")
-	end
-	if r.learned and not M.linked then
-		local bags, withBank = M.Craftable(r)
-		local text = "You can make " .. bags
-		if withBank > bags then text = text .. string.format(" |cff4fc3f7(%d with the reagent bank)|r", withBank) end
-		table.insert(bits, text)
-	end
-	requires:SetText(table.concat(bits, "     "))
-	reagentTitle:ClearAllPoints()
-	reagentTitle:SetPoint("TOPLEFT", requires, "BOTTOMLEFT", 0, requires:GetText() ~= "" and -12 or 0)
 
 	local rows = drawReagents(r)
 	if r.learned then
 		hideSources()
 	else
-		drawSources(r, rows > 0 and reagentSlots[(rows - 1) * 2 + 1] or reagentTitle)
+		drawSources(r, reagentSlots[rows])
 	end
 end
 

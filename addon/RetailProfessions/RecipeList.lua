@@ -1,11 +1,13 @@
--- The recipe list on the left: collapsible groups, and per recipe a skill-up meter (three bars,
--- like signal strength: three = a sure skill-up, none = no skill-up), its name and how many
--- you can make.
+-- The recipe list on the left, as retail draws it: gold category bars that fold, and per recipe
+-- a skill-up chevron in the recipe's colour (orange, yellow, green; none when it gives no more
+-- skill-ups), its name and how many you can make in brackets.
 
 local RPF = RetailProfessions
 local M = RPF.Model
 
 local ROW_HEIGHT = 18
+
+local dragon = RPF.Dragon() and true or false
 
 local function solid(host, layer, r, g, b, a)
 	local tex = host:CreateTexture(nil, layer)
@@ -38,35 +40,46 @@ function RPF.CreateRecipeList(parent, spec)
 		b:SetPoint("RIGHT", scroll, "RIGHT", 0, 0)
 		b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
-		b.band = solid(b, "BACKGROUND", 0, 0, 0, 0.45)
+		-- category bar: DragonUI gets retail's gold-edged bar, the stock look the plain heading
+		-- with a plus or minus button the Blizzard trade skill window has.
+		b.band = solid(b, "BACKGROUND", 0.2, 0.14, 0.04, dragon and 0.9 or 0)
 		b.band:SetAllPoints(b)
-		b.rule = solid(b, "BORDER", 1, 0.82, 0, 0.25)
+		b.ruleTop = solid(b, "BORDER", 1, 0.82, 0, dragon and 0.55 or 0)
+		b.ruleTop:SetHeight(1)
+		b.ruleTop:SetPoint("TOPLEFT", b, "TOPLEFT")
+		b.ruleTop:SetPoint("TOPRIGHT", b, "TOPRIGHT")
+		b.rule = solid(b, "BORDER", 1, 0.82, 0, dragon and 0.55 or 0)
 		b.rule:SetHeight(1)
 		b.rule:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT")
 		b.rule:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT")
-		b.selected = solid(b, "BORDER", 0.25, 0.55, 1, 0.3)
-		b.selected:SetAllPoints(b)
-		local hl = b:CreateTexture(nil, "HIGHLIGHT")
-		hl:SetAllPoints(b)
-		hl:SetTexture(1, 1, 1, 0.08)
-
-		-- group header parts
+		b.fold = b:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+		b.fold:SetPoint("RIGHT", b, "RIGHT", -6, 1)
 		b.toggle = b:CreateTexture(nil, "ARTWORK")
 		b.toggle:SetSize(14, 14)
-		b.toggle:SetPoint("LEFT", b, "LEFT", 4, 0)
+		b.toggle:SetPoint("LEFT", b, "LEFT", 2, 0)
 
-		-- recipe parts: the meter
-		b.bars = {}
-		for k = 1, 3 do
-			local bar = b:CreateTexture(nil, "ARTWORK")
-			bar:SetSize(3, 3 + k * 3)
-			bar:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", 10 + (k - 1) * 4, 4)
-			b.bars[k] = bar
+		-- the stock trade skill highlight, for the selection and on hover
+		b.selected = b:CreateTexture(nil, "BORDER")
+		b.selected:SetTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
+		b.selected:SetBlendMode("ADD")
+		b.selected:SetVertexColor(1, 0.82, 0, 0.75)
+		b.selected:SetAllPoints(b)
+		local hl = b:CreateTexture(nil, "HIGHLIGHT")
+		hl:SetTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
+		hl:SetBlendMode("ADD")
+		hl:SetVertexColor(1, 1, 1, 0.35)
+		hl:SetAllPoints(b)
+
+		-- skill-up chevron: two arrows, stacked
+		b.chevrons = {}
+		for k = 1, 2 do
+			local c = b:CreateTexture(nil, "ARTWORK")
+			c:SetTexture("Interface\\ChatFrame\\ChatFrameExpandArrow")
+			c:SetTexCoord(1, 0, 0, 0, 1, 1, 0, 1) -- the arrow points right; turn it up
+			c:SetSize(10, 8)
+			c:SetPoint("CENTER", b, "LEFT", 12, 3 - (k - 1) * 5)
+			b.chevrons[k] = c
 		end
-		b.icon = b:CreateTexture(nil, "ARTWORK")
-		b.icon:SetSize(ROW_HEIGHT - 3, ROW_HEIGHT - 3)
-		b.icon:SetPoint("LEFT", b, "LEFT", 26, 0)
-		b.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
 
 		b.count = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 		b.count:SetPoint("RIGHT", b, "RIGHT", -4, 0)
@@ -161,45 +174,57 @@ function RPF.CreateRecipeList(parent, spec)
 			if not row then
 				b:Hide()
 			elseif row.header then
-				b.band:Show(); b.rule:Show(); b.selected:Hide()
-				b.toggle:Show()
-				b.toggle:SetTexture(row.collapsed and "Interface\\Buttons\\UI-PlusButton-Up" or "Interface\\Buttons\\UI-MinusButton-Up")
-				for _, bar in ipairs(b.bars) do bar:Hide() end
-				b.icon:Hide(); b.tracked:Hide()
+				b.band:Show(); b.ruleTop:Show(); b.rule:Show(); b.selected:Hide()
+				for _, c in ipairs(b.chevrons) do c:Hide() end
+				b.tracked:Hide()
 				b.text:ClearAllPoints()
-				b.text:SetPoint("LEFT", b.toggle, "RIGHT", 4, 0)
+				if dragon then
+					b.toggle:Hide()
+					b.fold:SetText(row.collapsed and "+" or "-")
+					b.fold:Show()
+					b.text:SetPoint("LEFT", b, "LEFT", 6, 0)
+				else
+					b.fold:Hide()
+					b.toggle:SetTexture(row.collapsed and "Interface\\Buttons\\UI-PlusButton-Up" or "Interface\\Buttons\\UI-MinusButton-Up")
+					b.toggle:Show()
+					b.text:SetPoint("LEFT", b.toggle, "RIGHT", 4, 0)
+				end
 				b.text:SetPoint("RIGHT", b.count, "LEFT", -4, 0)
-				b.text:SetFontObject(GameFontNormalSmall)
+				b.text:SetFontObject(GameFontNormal)
 				b.text:SetText(row.header)
 				b.text:SetTextColor(1, 0.82, 0)
-				b.count:SetText("|cff9d9d9d" .. (row.extra and (row.extra .. "  ") or "") .. row.count .. "|r")
+				b.count:ClearAllPoints()
+				b.count:SetPoint("RIGHT", b, "RIGHT", dragon and -20 or -4, 0)
+				b.count:SetText(row.extra and ("|cff9d9d9d" .. row.extra .. "|r") or "")
 				b:Show()
 			else
 				local r = row.recipe
-				b.band:Hide(); b.rule:Hide(); b.toggle:Hide()
+				b.band:Hide(); b.ruleTop:Hide(); b.rule:Hide(); b.toggle:Hide(); b.fold:Hide()
 				if spec.isSelected(r) then b.selected:Show() else b.selected:Hide() end
+				b.count:ClearAllPoints()
+				b.count:SetPoint("RIGHT", b, "RIGHT", -4, 0)
 
 				local difficulty = M.DifficultyAt(r, rank) or "trivial"
 				local color = M.DIFFICULTY_COLOR[difficulty] or M.DIFFICULTY_COLOR.trivial
-				local lit = M.ARROWS[difficulty] or 0
-				local dim = not r.learned and 0.45 or 1
-				for k, bar in ipairs(b.bars) do
-					if k <= lit then
-						bar:SetTexture(color[1], color[2], color[3], dim)
-					else
-						bar:SetTexture(0.3, 0.3, 0.3, 0.5 * dim)
-					end
-					bar:Show()
+				local showChevron = difficulty ~= "trivial"
+				for _, c in ipairs(b.chevrons) do
+					c:SetVertexColor(color[1], color[2], color[3], r.learned and 1 or 0.5)
+					if showChevron then c:Show() else c:Hide() end
 				end
 
-				b.icon:SetTexture(r.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
-				b.icon:SetDesaturated(not r.learned)
-				b.icon:Show()
-
+				-- name [can make], with what the reagent bank adds in blue
+				local name = r.name
+				if r.learned then
+					local bags, withBank = M.Craftable(r)
+					local extra = RetailProfessionsDB.countBank and withBank - bags or 0
+					if bags > 0 or extra > 0 then
+						name = name .. " [" .. bags .. (extra > 0 and ("|cff4fc3f7+" .. extra .. "|r") or "") .. "]"
+					end
+				end
 				b.text:ClearAllPoints()
-				b.text:SetPoint("LEFT", b.icon, "RIGHT", 4, 0)
+				b.text:SetPoint("LEFT", b, "LEFT", 24, 0)
 				b.text:SetFontObject(GameFontHighlightSmall)
-				b.text:SetText(r.name)
+				b.text:SetText(name)
 				if not r.learned then
 					b.text:SetTextColor(0.55, 0.55, 0.55)
 				elseif difficulty == "trivial" then
@@ -209,28 +234,25 @@ function RPF.CreateRecipeList(parent, spec)
 				end
 
 				if r.learned then
-					local bags, withBank = M.Craftable(r)
-					local extra = RetailProfessionsDB.countBank and withBank - bags or 0
-					if bags > 0 or extra > 0 then
-						b.count:SetText((bags > 0 and ("|cffffffff" .. bags .. "|r") or "|cff9d9d9d0|r")
-							.. (extra > 0 and (" |cff4fc3f7+" .. extra .. "|r") or ""))
-					else
-						b.count:SetText("")
-					end
+					b.count:SetText("")
 				else
 					local need = r.reqSkill or 0
 					b.count:SetText((need > rank and "|cffff4040" or "|cff9d9d9d") .. need .. "|r")
 				end
 
+				local anchor = b.count
 				if spec.isTracked and spec.isTracked(r) then
 					b.tracked:ClearAllPoints()
 					b.tracked:SetPoint("RIGHT", b.count, "LEFT", -3, 0)
 					b.tracked:Show()
-					b.text:SetPoint("RIGHT", b.tracked, "LEFT", -2, 0)
+					anchor = b.tracked
 				else
 					b.tracked:Hide()
-					b.text:SetPoint("RIGHT", b.count, "LEFT", -4, 0)
 				end
+				if spec.isFavorite and spec.isFavorite(r) then
+					b.text:SetText("|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_1:12|t " .. b.text:GetText())
+				end
+				b.text:SetPoint("RIGHT", anchor, "LEFT", -2, 0)
 				b:Show()
 			end
 		end

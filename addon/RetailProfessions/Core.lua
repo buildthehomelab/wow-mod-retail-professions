@@ -237,6 +237,19 @@ function RPF.KnownProfessions()
 end
 
 -----------------------------------------
+-- favorites (per character): the star beside a recipe's name puts it at the top of the list
+
+function RPF.IsFavorite(spell)
+	return spell and RetailProfessionsCharDB and RetailProfessionsCharDB.favorites[spell] and true or false
+end
+
+function RPF.ToggleFavorite(spell)
+	if not spell then return end
+	RetailProfessionsCharDB.favorites[spell] = not RetailProfessionsCharDB.favorites[spell] or nil
+	RPF.Fire("FAVORITES")
+end
+
+-----------------------------------------
 -- items
 
 local scanTip = CreateFrame("GameTooltip", "RetailProfessionsScanTooltip", nil, "GameTooltipTemplate")
@@ -659,6 +672,7 @@ events:SetScript("OnEvent", function (self, event, ...)
 			RetailProfessionsCharDB = RetailProfessionsCharDB or {}
 			RetailProfessionsCharDB.tracked = RetailProfessionsCharDB.tracked or {}
 			RetailProfessionsCharDB.collapsed = RetailProfessionsCharDB.collapsed or {}
+			RetailProfessionsCharDB.favorites = RetailProfessionsCharDB.favorites or {}
 		end
 	elseif event == "PLAYER_LOGIN" then
 		indexProfessions()
