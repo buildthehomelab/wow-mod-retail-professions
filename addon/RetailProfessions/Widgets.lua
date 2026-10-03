@@ -200,7 +200,9 @@ end
 function RPF.CreateEditBox(parent, width, numeric)
 	local eb = CreateFrame("EditBox", uniqueName("EditBox"), parent, "InputBoxTemplate")
 	eb:SetSize(width or 120, 20)
+	-- InputBoxTemplate's boxes take the keyboard as soon as they exist; ours only when clicked.
 	eb:SetAutoFocus(false)
+	eb:ClearFocus()
 	if numeric then eb:SetNumeric(true) end
 	eb:SetScript("OnEscapePressed", function (self) self:ClearFocus() end)
 	eb:SetScript("OnEnterPressed", function (self) self:ClearFocus() end)
