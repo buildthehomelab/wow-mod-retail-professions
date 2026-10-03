@@ -505,7 +505,8 @@ local function listKey(skill)
 end
 
 -- L row: spell, required skill, yellow, grey, product item, made min, made max, source bits,
--- reagents ("id*n/id*n" or "-"), product inventory type, product quality, recipe item.
+-- reagents ("id*n/id*n" or "-"), product inventory type, product quality, recipe item, and
+-- 1 when it's cast on an item (missing from older servers).
 local function buildList(rows)
 	local list = {}
 	for _, r in ipairs(rows) do
@@ -519,6 +520,8 @@ local function buildList(rows)
 				reagents = parseReagents(r[9]), invType = tonumber(r[10]) or 0, quality = tonumber(r[11]) or 1,
 				recipeItem = tonumber(r[12]) or 0,
 			}
+			-- nil from older servers: the addon falls back to its own guess.
+			if r[13] ~= nil then list[spell].targetsItem = tonumber(r[13]) == 1 end
 		end
 	end
 	return list

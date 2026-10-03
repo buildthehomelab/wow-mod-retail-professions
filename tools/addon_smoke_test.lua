@@ -322,7 +322,7 @@ local function serve(msg)
 	if cmd == "HELLO" then reply("HELLO:" .. req .. ":1:3:777:300:100:0:3")
 	elseif cmd == "L" then
 		reply("LR:" .. req .. ":197:3:0")
-		reply("LD:" .. req .. ":2963,1,25,50,2996,1,1,1,2589*2,0,1,0;2385,10,45,70,2568,1,1,1,2589*3/2320*1,5,1,0")
+		reply("LD:" .. req .. ":2963,1,25,50,2996,1,1,1,2589*2,0,1,0,0;2385,10,45,70,2568,1,1,1,2589*3/2320*1,5,1,0")
 		reply("LD:" .. req .. ":3914,130,155,175,4308,1,1,2,2996*2/2321*1,9,2,4355")
 		reply("LE:" .. req)
 	elseif cmd == "W" then
@@ -614,9 +614,32 @@ step("the search box doesn't keep the keyboard", function ()
 	assert(cleared > before, "clicking a recipe left the search focused")
 end)
 
+step("a recipe that makes no item isn't an enchant outside Enchanting", function ()
+	assert(RPF.RecipeList(197)[2963].targetsItem == false, "server's item-target flag not read")
+	-- Like Minor Inscription Research: no item to make, cast on nothing.
+	local old = GetTradeSkillItemLink
+	GetTradeSkillItemLink = function (i) if i == 2 then return "|cffffd000|Henchant:2963|h[Bolt]|h|r" end return old(i) end
+	RPF.ForgetRecipeLists()
+	RPF.Rebuild()
+	tick(0.2)
+	local r = M.bySpell[2963]
+	assert(not r.isEnchant, "a no-item Tailoring recipe was taken for an enchant")
+	RPF.Select(r)
+	local all = find(function (f) return f.__kind == "Button" and f.__text:find("^Create All") end)
+	assert(not all.__text:find("%[0%]"), "Create All still says 0: " .. all.__text)
+	GetTradeSkillItemLink = old
+	RPF.Rebuild()
+end)
+
 step("closing the window closes the trade skill", function ()
 	local before = closedTradeSkill
+	RPF.enchantTarget = { id = 2589, bag = 0, slot = 1 }
+	local search = find(function (f) return f.__kind == "EditBox" and rawget(f, "hint") end)
+	search:SetText("linen")
+	RPF.filter.text = "linen"
 	RetailProfessionsFrame:Hide()
+	assert(RPF.enchantTarget == nil, "the Enchant slot kept its item after closing")
+	assert(search:GetText() == "" and RPF.filter.text == "", "the search kept its text after closing")
 	assert(closedTradeSkill == before + 1, "CloseTradeSkill not called")
 	fire("TRADE_SKILL_CLOSE")
 end)

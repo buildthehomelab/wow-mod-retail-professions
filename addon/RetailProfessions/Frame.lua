@@ -798,6 +798,11 @@ end)
 
 frame:SetScript("OnHide", function ()
 	PlaySound("igCharacterInfoClose")
+	-- The item picked to enchant and the search are for this visit only.
+	RPF.enchantTarget = nil
+	RPF.filter.text = ""
+	search:SetText("")
+	search:ClearFocus()
 	RPF.Fire("HIDDEN")
 	-- Closing the window ends the trade skill session, unless we're handing over to the classic window.
 	if RPF.active and not RPF.IsSwitchingToClassic() then
