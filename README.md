@@ -122,6 +122,15 @@ The profit view asks mod-retail-ah's server for prices under that module's `RAH`
 request, which needs no auctioneer). Without it, or with `RetailAH.CraftPrices = 0`, the view
 says there are no auction prices on the realm.
 
+## Requirements
+
+- An [AzerothCore](https://github.com/azerothcore/azerothcore-wotlk) WotLK (master) server.
+- A WoW 3.3.5a (12340) client with the `RetailProfessions` addon installed.
+- Optional: [mod-individual-progression](https://github.com/ZhengPeiRu21/mod-individual-progression)
+  (era skill caps and locked continents), [mod-retail-ah](https://github.com/buildthehomelab/wow-mod-retail-ah)
+  (craft-for-profit prices), [mod-reagent-bank-account](https://github.com/buildthehomelab/mod-reagent-bank-account)
+  with its ReagentBankUI, and [DragonUI](https://github.com/NeticSoul/DragonUI) (skin).
+
 ## Install
 
 Server:
@@ -151,6 +160,23 @@ continents, how many sources per kind, the world-drop threshold and saving zones
 learn a recipe, tracking, the book, combat, the profit view (with a fake mod-retail-ah price
 server) and the classic switch.
 
+## Troubleshooting
+
+- **The window shows no unlearned recipes or skill-up odds**: the server module isn't running.
+  Check that the folder is named `mod-retail-professions`, that CMake was re-run and the server
+  rebuilt, and that `RetailProfessions.Enable = 1` in `mod_retail_professions.conf`. Without the
+  module the addon only shows what the client knows.
+- **The profit view says there are no auction prices**: it needs mod-retail-ah on the same
+  server, and `RetailAH.CraftPrices` must not be `0`.
+- **K does nothing**: the addon only binds K if it was free. Set a key under Key Bindings >
+  Retail Professions, or type `/prof`.
+- **You want the old window back**: `/prof classic` switches to it, `/prof retail` returns.
+- **A window ended up off screen**: `/prof reset` puts the windows back.
+
+## Credits
+
+Author: [buildthehomelab](https://github.com/buildthehomelab)
+
 ## License
 
-MIT
+MIT, see [LICENSE](LICENSE).
