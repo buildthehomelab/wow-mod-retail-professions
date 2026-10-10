@@ -332,6 +332,83 @@ function RPF.RequestBankSnapshot()
 	if RB and RB.RequestBankSnapshot then pcall(RB.RequestBankSnapshot, RB) end
 end
 
+-- ReagentBankUI's "put unused reagents back when the profession window closes".
+function RPF.DepositLeftovers()
+	local RB = _G.ReagentBankUI
+	if RB and RB.GetAutoDepositLeftovers then return RB:GetAutoDepositLeftovers() end
+	return ReagentBankUIDB and ReagentBankUIDB.autoDepositLeftovers and true or false
+end
+
+function RPF.SetDepositLeftovers(on)
+	local RB = _G.ReagentBankUI
+	if RB and RB.SetAutoDepositLeftovers then
+		RB:SetAutoDepositLeftovers(on)
+	elseif RB and ReagentBankUIDB then
+		-- A ReagentBankUI from before it had the setter.
+		ReagentBankUIDB.autoDepositLeftovers = on and true or false
+		if not on then RB.pendingAutoDepositLeftovers, RB.pendingAutoDepositAt = nil, nil end
+	end
+end
+
+-- False while ReagentBankUI is still waiting to hear what the bank holds (counts read as 0).
+function RPF.BankCountsKnown()
+	local RB = _G.ReagentBankUI
+	if not (RB and RB.HasFreshBankSnapshot) then return true end
+	local ok, fresh = pcall(RB.HasFreshBankSnapshot, RB)
+	return not ok or fresh and true or false
+end
+
+-----------------------------------------
+-- the auction house shopping list (ReagentBankUI keeps it; RetailAH's Buy tab shows it)
+
+function RPF.HasShoppingList()
+	local RB = _G.ReagentBankUI
+	return RB and RB.AddShoppingListRows and RB.GetShoppingListMap and true or false
+end
+
+-- Units of an item still to buy on the shopping list.
+function RPF.OnShoppingList(entry)
+	local RB = _G.ReagentBankUI
+	if not (RB and RB.GetShoppingListMap) then return 0 end
+	local ok, list = pcall(RB.GetShoppingListMap, RB)
+	return ok and type(list) == "table" and tonumber(list[entry]) or 0
+end
+
+-- What `count` crafts of a recipe need beyond the bags and the reagent bank:
+-- { { rg = reagent, amount = units short } }. The bank counts whether or not crafting uses it:
+-- it's yours either way.
+function RPF.ShortFor(r, count)
+	local short = {}
+	for _, rg in ipairs(r.reagents) do
+		if rg.id then
+			local have = (GetItemCount(rg.id) or 0) + RPF.BankCount(rg.id)
+			local need = rg.n * count - have
+			if need > 0 then table.insert(short, { rg = rg, amount = need }) end
+		end
+	end
+	return short
+end
+
+-- Puts what `count` crafts of a recipe are short of on the shopping list and returns how many
+-- units went on. The list adds up, so only what isn't on it yet goes on: asking twice, or again
+-- while a purchase is still in the mail, doesn't double it. `onTop` adds the whole shortfall
+-- anyway, for a second recipe that needs the same reagent.
+function RPF.AddToShoppingList(r, count, onTop)
+	local RB = _G.ReagentBankUI
+	if not RPF.HasShoppingList() then return 0 end
+	local rows, total = {}, 0
+	for _, part in ipairs(RPF.ShortFor(r, count)) do
+		local amount = onTop and part.amount or part.amount - RPF.OnShoppingList(part.rg.id)
+		if amount > 0 then
+			table.insert(rows, { itemEntry = part.rg.id, amount = amount })
+			total = total + amount
+		end
+	end
+	if total == 0 then return 0 end
+	local ok = pcall(RB.AddShoppingListRows, RB, rows, count .. " craft(s) of " .. tostring(r.name))
+	return ok and total or 0
+end
+
 -- What the player has of a reagent: bags, and the reagent bank when the setting says so.
 function RPF.HaveCount(entry)
 	local bags = GetItemCount(entry) or 0

@@ -280,12 +280,27 @@ ReagentBankUI = {
 		withdrawn = { name = name, count = self.prepareCount, reagents = reagents }
 	end,
 	GetTradeSkillControlsHost = function () return provider and provider.frame end,
+	-- The auction house shopping list: what the provider's recipe and amount are short of.
+	shopping = {},
+	GetShoppingListMap = function (self) return self.shopping end,
+	AddShoppingListRows = function (self, rows)
+		for _, row in ipairs(rows) do self.shopping[row.itemEntry] = (self.shopping[row.itemEntry] or 0) + row.amount end
+	end,
+	-- What the bank holds isn't known until its snapshot arrives.
+	snapshot = true,
+	HasFreshBankSnapshot = function (self) return self.snapshot end,
+	HandleBankSnapshotResponse = function (self) self.snapshot = true end,
+	leftovers = false,
+	GetAutoDepositLeftovers = function (self) return self.leftovers end,
+	SetAutoDepositLeftovers = function (self, on) self.leftovers = on and true or false end,
 }
+-- A ReagentBankUI that still has its profession sidebar docks it on our window.
 local bankPanel
 function ReagentBankUI:DockTradeSkillPanel()
 	bankPanel = bankPanel or CreateFrame("Frame")
 	bankPanel.__point = { "TOPLEFT", self:GetTradeSkillControlsHost(), "TOPRIGHT", -33, -12 }
 	self.tradeSkillPanel = bankPanel
+	bankPanel:Show()
 end
 function hooksecurefunc(t, name, fn)
 	local orig = t[name]
@@ -574,10 +589,60 @@ step("combat hides the secure buttons first, then they come back", function ()
 	assert(RetailProfessionsTab1.__shown, "tab button not back after combat")
 end)
 
-step("the reagent bank sidebar moves past the tabs", function ()
+step("an older ReagentBankUI's sidebar stays away: the window has its controls", function ()
 	ReagentBankUI:DockTradeSkillPanel()
-	local _, _, _, x = bankPanel:GetPoint(1)
-	assert(x == -33 + 40, "bank sidebar not shifted: " .. tostring(x))
+	assert(not bankPanel:IsShown(), "an older ReagentBankUI's sidebar wasn't hidden")
+end)
+
+step("deposit leftovers is ReagentBankUI's setting", function ()
+	RetailProfessionsDB.autoWithdraw = true
+	RPF.Select(M.bySpell[2963])
+	local check = find(function (f) return f.__kind == "FontString" and f.__text == "Deposit leftovers" end):GetParent()
+	assert(check:IsVisible() and check:IsEnabled() and not check:GetChecked(), "leftovers check not offered, or ticked")
+	check:SetChecked(true)
+	check.__scripts.OnClick(check)
+	assert(ReagentBankUI.leftovers == true, "the tick didn't reach ReagentBankUI")
+	-- Nothing comes out of the bank without Use reagent bank, so there are no leftovers either.
+	RetailProfessionsDB.autoWithdraw = false
+	RPF.UpdateControls()
+	assert(check:GetChecked() and not check:IsEnabled(), "leftovers check not greyed without Use reagent bank")
+	RetailProfessionsDB.autoWithdraw = true
+	ReagentBankUI.leftovers = false
+	RPF.UpdateControls()
+end)
+
+step("what the amount is short of goes on the shopping list, once", function ()
+	-- Bolt of Linen Cloth: 2 Linen Cloth each; 4 in the bags, 30 in the bank.
+	RPF.Select(M.bySpell[2963])
+	RPF.SetQuantity(17)
+	local add = buttonWithText("Add to Shopping List")
+	assert(not add:IsVisible(), "shopping row shown with nothing short")
+	RPF.SetQuantity(20)
+	assert(add:IsVisible() and add:IsEnabled(), "shopping row not shown for 20")
+	assert(textShown("Short for 20|r  6 Linen Cloth"), "wrong shortfall")
+	-- Lowest buyout 10c each.
+	assert(textShown("about 60c"), "no price on the shortfall")
+	-- Not while the bank's counts are unknown: all 30 in it would look missing.
+	ReagentBankUI.snapshot = false
+	add.__scripts.OnClick(add)
+	assert(not ReagentBankUI.shopping[2589], "added without knowing what the bank holds")
+	ReagentBankUI:HandleBankSnapshotResponse()
+	add.__scripts.OnClick(add)
+	assert(ReagentBankUI.shopping[2589] == 6, "not on the list: " .. tostring(ReagentBankUI.shopping[2589]))
+	assert(textShown("6 on the list"), "row doesn't show it's on the list")
+	-- Asking again adds nothing; a bigger amount adds the difference; Shift adds it all on top.
+	add.__scripts.OnClick(add)
+	assert(ReagentBankUI.shopping[2589] == 6, "a second click doubled it")
+	RPF.SetQuantity(21)
+	assert(textShown("8 Linen Cloth"), "row didn't follow the amount")
+	add.__scripts.OnClick(add)
+	assert(ReagentBankUI.shopping[2589] == 8, "the difference wasn't added: " .. tostring(ReagentBankUI.shopping[2589]))
+	IsShiftKeyDown = function () return true end
+	add.__scripts.OnClick(add)
+	IsShiftKeyDown = function () return false end
+	assert(ReagentBankUI.shopping[2589] == 16, "Shift didn't add on top: " .. tostring(ReagentBankUI.shopping[2589]))
+	ReagentBankUI.shopping = {}
+	RPF.SetQuantity(1)
 end)
 
 step("shift-click Enchant answers the replace-enchant question", function ()
