@@ -131,11 +131,22 @@ do
 	glass:SetSize(14, 14)
 	glass:SetPoint("LEFT", search, "LEFT", 0, 0)
 	glass:SetVertexColor(0.7, 0.7, 0.7)
+	-- Short enough for the box, and cut off at its edge whatever the font; hovering says the rest.
 	local hint = search:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	hint:SetPoint("LEFT", search, "LEFT", 17, 0)
-	hint:SetText("Search recipes or reagents")
+	hint:SetPoint("RIGHT", search, "RIGHT", -4, 0)
+	hint:SetJustifyH("LEFT")
+	hint:SetWordWrap(false)
+	hint:SetText(SEARCH or "Search")
 	hint:SetTextColor(0.6, 0.6, 0.6)
 	search.hint = hint
+	search:SetScript("OnEnter", function (self)
+		GameTooltip:SetOwner(self, "ANCHOR_TOP")
+		GameTooltip:SetText(SEARCH or "Search")
+		GameTooltip:AddLine("Finds recipes by their name or by a reagent they use.", 1, 1, 1, true)
+		GameTooltip:Show()
+	end)
+	search:SetScript("OnLeave", function () GameTooltip:Hide() end)
 	-- DragonUI's skin turns the input border into a plain dark field; give the box an edge so
 	-- it reads as something to type in.
 	if dragon then
@@ -318,7 +329,8 @@ local function filtersActive()
 end
 
 -----------------------------------------
--- right: the recipe, Track recipe inside it, and Create All / amount / Create under it
+-- right: the recipe, its options along the bottom edge (Track Recipe and, with ReagentBankUI,
+-- the two reagent bank ones), and Create All / amount / Create under it
 
 local right = RPF.CreateInset(content)
 right:SetPoint("TOPLEFT", left, "TOPRIGHT", 6, 0)
@@ -364,8 +376,7 @@ trackCheck:SetScript("OnClick", function ()
 end)
 
 -- With ReagentBankUI: craft straight from the reagent bank. Create takes what the bags lack
--- out of the bank first (ReagentBankUI's Withdraw Needed, which also puts leftovers back when
--- the window closes, if that's ticked there), then crafts once it has arrived.
+-- out of the bank first (ReagentBankUI's Withdraw Needed), then crafts once it has arrived.
 local bankCheck = RPF.CreateCheck(right, "Use reagent bank")
 bankCheck:SetPoint("LEFT", trackCheck.label, "RIGHT", 14, 0)
 bankCheck:SetScript("OnClick", function (self)
@@ -389,10 +400,29 @@ local function usingBank()
 	return bankWithdrawAvailable() and RetailProfessionsDB.autoWithdraw ~= false
 end
 
+-- What came out of the bank and wasn't used goes back when the window closes. The setting is
+-- ReagentBankUI's own (/rbank autodeposit flips it too).
+local leftoversCheck = RPF.CreateCheck(right, "Deposit leftovers")
+leftoversCheck:SetPoint("LEFT", bankCheck.label, "RIGHT", 14, 0)
+leftoversCheck:SetScript("OnClick", function (self)
+	RPF.SetDepositLeftovers(self:GetChecked())
+end)
+leftoversCheck:SetScript("OnEnter", function (self)
+	GameTooltip:SetOwner(self, "ANCHOR_TOP")
+	GameTooltip:SetText("Deposit leftovers")
+	GameTooltip:AddLine("When you close this window, reagents that came out of the reagent bank for a craft and "
+		.. "weren't used go back into it. What was in your bags before stays there.", 1, 1, 1, true)
+	if not usingBank() then
+		GameTooltip:AddLine("Needs Use reagent bank.", 1, 0.25, 0.25)
+	end
+	GameTooltip:Show()
+end)
+leftoversCheck:SetScript("OnLeave", function () GameTooltip:Hide() end)
+
 -- Enchants: the item to put them on, picked once instead of after every cast. It sits at the
--- bottom right of the recipe pane.
+-- bottom right of the recipe pane, above the options.
 local target = RPF.CreateItemButton(right, 28)
-target:SetPoint("BOTTOMRIGHT", right, "BOTTOMRIGHT", -10, 8)
+target:SetPoint("BOTTOMRIGHT", right, "BOTTOMRIGHT", -10, 34)
 target:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 target.label = right:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 target.label:SetPoint("RIGHT", target, "LEFT", -6, 0)
@@ -406,10 +436,12 @@ do
 end
 RPF.enchantTarget = nil -- { id = item id, bag, slot } or { id, inv }
 
+-- A line of feedback above the options, clear of the Enchant slot.
 local status = right:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-status:SetPoint("LEFT", bankCheck.label, "RIGHT", 10, 0)
+status:SetPoint("BOTTOMLEFT", right, "BOTTOMLEFT", 12, 32)
 status:SetPoint("RIGHT", right, "RIGHT", -110, 0)
 status:SetJustifyH("LEFT")
+status:SetJustifyV("BOTTOM")
 status:SetHeight(28)
 
 local statusToken = 0
@@ -425,8 +457,9 @@ local function getQuantity()
 	return math.max(1, math.min(999, tonumber(quantity:GetText()) or 1))
 end
 
--- ReagentBankUI keeps its own "Crafts" count and withdraws for that, not for ours, so the two
--- are kept equal: ours goes to it on every change, and it sets ours through the provider.
+-- A ReagentBankUI that still has its sidebar keeps its own "Crafts" count and withdraws for
+-- that, not for ours, so the two are kept equal: ours goes to it on every change, and it sets
+-- ours through the provider. Later ones read the amount from this window.
 local fromBank = false
 local function pushToBank(n)
 	local RB = _G.ReagentBankUI
@@ -436,8 +469,10 @@ end
 
 local function setQuantity(n)
 	n = math.max(1, math.min(999, math.floor(tonumber(n) or 1)))
+	local changed = quantity:GetText() ~= tostring(n)
 	quantity:SetText(tostring(n))
 	pushToBank(n)
+	if changed then RPF.Fire("QUANTITY", n) end
 end
 RPF.GetQuantity, RPF.SetQuantity = getQuantity, setQuantity
 
@@ -452,7 +487,10 @@ minus:SetScript("OnClick", function () setQuantity(getQuantity() - (IsShiftKeyDo
 quantity:SetScript("OnEditFocusLost", function () setQuantity(getQuantity()) end)
 quantity:SetScript("OnTextChanged", function (self, userInput)
 	local n = tonumber(self:GetText())
-	if userInput and n and n > 0 then pushToBank(math.min(999, math.floor(n))) end
+	if userInput and n and n > 0 then
+		pushToBank(math.min(999, math.floor(n)))
+		RPF.Fire("QUANTITY", n)
+	end
 end)
 
 -- The search box and the amount only take the keyboard when clicked: InputBoxTemplate's boxes
@@ -582,8 +620,13 @@ local function updateControls()
 	if bankWithdrawAvailable() and not M.linked then
 		bankCheck:Show()
 		bankCheck:SetChecked(RetailProfessionsDB.autoWithdraw ~= false)
+		leftoversCheck:Show()
+		leftoversCheck:SetChecked(RPF.DepositLeftovers())
+		RPF.SetEnabled(leftoversCheck, usingBank())
+		leftoversCheck.label:SetAlpha(usingBank() and 1 or 0.5)
 	else
 		bankCheck:Hide()
+		leftoversCheck:Hide()
 	end
 	trackCheck:SetChecked(r and isTracked(r))
 	RPF.SetEnabled(trackCheck, r ~= nil)
@@ -878,7 +921,7 @@ frame:SetScript("OnHide", function ()
 end)
 
 -----------------------------------------
--- ReagentBankUI: its sidebar follows this window the way it follows the stock one
+-- ReagentBankUI: it reads the selected recipe and the amount from this window
 
 RPF.On("LOGIN", function ()
 	local RB = _G.ReagentBankUI
@@ -902,7 +945,17 @@ RPF.On("LOGIN", function ()
 	})
 end)
 
--- ReagentBankUI redraws its sidebar on these; tell it the selection changed.
+-- What the bank holds arrives a moment after the window opens, and nothing else says so: the
+-- reagent counts, Create All and the shopping line are drawn again when it does.
+RPF.On("LOGIN", function ()
+	local RB = _G.ReagentBankUI
+	if not (RB and RB.HandleBankSnapshotResponse and hooksecurefunc) then return end
+	hooksecurefunc(RB, "HandleBankSnapshotResponse", function ()
+		if frame:IsShown() then RPF.Debounce("bank-snapshot", 0.05, function () RPF.Fire("BAGS") end) end
+	end)
+end)
+
+-- Tell ReagentBankUI the selection changed.
 RPF.On("SELECTED", function ()
 	local RB = _G.ReagentBankUI
 	if RB and RB.NotifyRecipeProviderChanged and frame:IsShown() then pcall(RB.NotifyRecipeProviderChanged, RB) end

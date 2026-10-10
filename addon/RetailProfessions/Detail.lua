@@ -1,8 +1,9 @@
 -- The selected recipe, laid out like retail's: a round icon with the name, a favorite star and
 -- what it requires (tools, a fire, a forge) beside it, how likely it is to raise your skill (a
 -- bar showing where it turns yellow, green and grey and where you are), the reagents with what
--- you have, and for a recipe you haven't learned, where to learn it. A faint picture of the
--- profession sits behind it all.
+-- you have, what the chosen amount is still short of with a button that puts it on the auction
+-- house shopping list, and for a recipe you haven't learned, where to learn it. A faint picture
+-- of the profession sits behind it all.
 
 local RPF = RetailProfessions
 local M = RPF.Model
@@ -160,6 +161,87 @@ local function drawReagents(r)
 	if shown == 0 then noReagents:Show() else noReagents:Hide() end
 	return math.max(1, shown)
 end
+
+-----------------------------------------
+-- shopping list: what the amount in the window is short of, bags and reagent bank together,
+-- and a button that puts it on ReagentBankUI's auction house shopping list
+
+local SHOP_BUTTON_WIDTH = 150
+
+local shopRow = CreateFrame("Frame", nil, pane)
+shopRow:SetHeight(22)
+
+local shopButton = RPF.CreateButton(shopRow, "Add to Shopping List", SHOP_BUTTON_WIDTH, 22)
+shopButton:SetPoint("TOPLEFT", shopRow, "TOPLEFT", 0, 0)
+
+-- Its width is set outright (in drawShopping), so its wrapped height is known as soon as the
+-- text is set and the row can make room for it.
+local shopText = label(shopRow, "GameFontHighlightSmall")
+shopText:SetPoint("TOPLEFT", shopButton, "TOPRIGHT", 8, -1)
+shopText:SetJustifyV("TOP")
+
+-- More reagents than this are counted, not named, so the line stays short.
+local SHOP_NAMES = 3
+
+local function shortEntries(short)
+	local entries = {}
+	for _, part in ipairs(short) do table.insert(entries, part.rg.id) end
+	return entries
+end
+
+local function onListTotal(short)
+	local total = 0
+	for _, part in ipairs(short) do total = total + RPF.OnShoppingList(part.rg.id) end
+	return total
+end
+
+-- Draws under `anchor` and returns what comes next should hang from.
+local function drawShopping(r, anchor)
+	local count = RPF.GetQuantity()
+	local short = r.learned and not M.linked and RPF.HasShoppingList() and RPF.ShortFor(r, count) or {}
+	if #short == 0 then
+		shopRow:Hide()
+		return anchor
+	end
+
+	local names, cost, priced = {}, 0, true
+	for i, part in ipairs(short) do
+		if i <= SHOP_NAMES then
+			table.insert(names, part.amount .. " " .. (M.ReagentName(part.rg) or ("Item #" .. part.rg.id)))
+		end
+		local unit = RPF.Profit.BuyCost(part.rg.id)
+		if unit then cost = cost + unit * part.amount else priced = false end
+	end
+	local text = string.format("|cffffd200Short for %d|r  %s", count, table.concat(names, ", "))
+	if #short > SHOP_NAMES then text = text .. " and " .. (#short - SHOP_NAMES) .. " more" end
+	if RPF.Profit.state ~= "missing" then
+		RPF.Profit.Fetch(shortEntries(short))
+		if priced then text = text .. " |cff9d9d9d- about " .. RPF.Profit.Short(cost) .. "|r" end
+	end
+	local listed = onListTotal(short)
+	if listed > 0 then text = text .. string.format("  |cff4fc3f7%d on the list|r", listed) end
+	local room = (pane:GetWidth() or 0) - 2 * PAD - SHOP_BUTTON_WIDTH - 8
+	shopText:SetWidth(room > 100 and room or 240)
+	shopText:SetText(text)
+
+	shopRow:ClearAllPoints()
+	shopRow:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -10)
+	shopRow:SetPoint("RIGHT", pane, "RIGHT", -PAD, 0)
+	shopRow:SetHeight(math.max(22, (shopText:GetStringHeight() or 0) + 2))
+	shopRow:Show()
+	return shopRow
+end
+
+shopButton:SetScript("OnEnter", function (self)
+	GameTooltip:SetOwner(self, "ANCHOR_TOP")
+	GameTooltip:SetText("Add to Shopping List")
+	GameTooltip:AddLine("Puts what your bags and reagent bank are short of, for the amount below, on your shopping "
+		.. "list. The auction house's Buy tab opens on that list and counts down as you buy.", 1, 1, 1, true)
+	GameTooltip:AddLine("Only what isn't on the list yet is added. Shift-click adds all of it on top, for another "
+		.. "recipe that needs the same reagent.", 0.7, 0.7, 0.7, true)
+	GameTooltip:Show()
+end)
+shopButton:SetScript("OnLeave", function () GameTooltip:Hide() end)
 
 -----------------------------------------
 -- auction house: what it sells for, what the materials cost, the profit (Profit.lua)
@@ -421,6 +503,7 @@ local function showParts(on)
 	if not on then
 		noReagents:Hide()
 		for _, slot in ipairs(reagentSlots) do slot:Hide2() end
+		shopRow:Hide()
 		hideSources()
 		hidePrices()
 	end
@@ -483,7 +566,8 @@ local function draw(r)
 	reagentAnchor:SetPoint("TOPLEFT", description, "BOTTOMLEFT", 0, (r.description or "") ~= "" and -12 or 0)
 
 	local rows = drawReagents(r)
-	local below = drawPrices(r, #r.reagents > 0 and reagentSlots[rows] or noReagents)
+	local below = drawShopping(r, #r.reagents > 0 and reagentSlots[rows] or noReagents)
+	below = drawPrices(r, below)
 	if r.learned then
 		hideSources()
 	else
@@ -491,5 +575,28 @@ local function draw(r)
 	end
 end
 
+shopButton:SetScript("OnClick", function ()
+	local r = RPF.selected
+	if not (r and r.learned) then return end
+	-- Without the bank's counts everything in it would look missing.
+	if not RPF.BankCountsKnown() then
+		RPF.RequestBankSnapshot()
+		RPF.Status("Still checking what your reagent bank holds. Try again in a moment.", true)
+		return
+	end
+	local added = RPF.AddToShoppingList(r, RPF.GetQuantity(), IsShiftKeyDown())
+	if added > 0 then
+		RPF.Status("On your shopping list: the auction house's Buy tab opens on it.")
+	else
+		RPF.Status("That's already on your shopping list. Shift-click adds it again on top.")
+	end
+	draw(r)
+end)
+
 RPF.On("SELECTED", draw)
+-- The shopping line follows the amount.
+RPF.On("QUANTITY", function ()
+	local r = RPF.selected
+	if r and r.learned and RPF.frame:IsShown() then draw(r) end
+end)
 RPF.On("HIDDEN", function () whereToken = whereToken + 1 end)

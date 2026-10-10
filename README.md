@@ -15,7 +15,7 @@ cooldowns, discoveries and other modules' hooks behave as before.
 - The profession's **portrait**, a **skill bar** across the window ("Blacksmithing 24/75"; hover it
   for your rank) and a **chat link** button that shows everyone your recipes.
 - **Search** (the box at the top of the list) matches recipe names and **reagents** ("silk" finds
-  everything made from silk).
+  everything made from silk); hover the box for a reminder.
 - **Filters**: Have materials, Has skill-up, Slot (head, chest, weapon ...), Show unlearned
   recipes, Only ones I can learn now, Count the reagent bank, plus expand / collapse all.
 - Recipes sit under gold category bars that fold. Each has a **skill-up chevron** in its colour
@@ -38,8 +38,17 @@ cooldowns, discoveries and other modules' hooks behave as before.
   enchant?" and "binds it to you" questions for that cast (handy for enchanting skill-ups).
 - **Use reagent bank** (with ReagentBankUI, on by default): Create and Create All count the bank
   and take whatever your bags are missing out of it before crafting, through ReagentBankUI's
-  Withdraw Needed (so its *Auto-deposit leftovers* puts the rest back when you close the window).
-  If the game insists on a click to start the craft once the reagents have arrived, it says so.
+  Withdraw Needed. If the game insists on a click to start the craft once the reagents have
+  arrived, it says so.
+- **Deposit leftovers** (with ReagentBankUI): when you close the window, reagents that came out
+  of the bank for a craft and weren't used go back into it. What was in your bags before stays.
+- **Add to Shopping List** (with ReagentBankUI): set the amount you want to make, and when your
+  bags and reagent bank together fall short the recipe says so ("Short for 18  46 Bolt of Woolen
+  Cloth - about 5g 94s", priced from the auction house when
+  [mod-retail-ah](https://github.com/buildthehomelab/wow-mod-retail-ah) is there) with a button
+  that puts the shortfall on your shopping list. Only what isn't on the list yet is added, so
+  asking twice doesn't double it (Shift-click adds it all on top, for a second recipe that needs
+  the same reagent). RetailAH's Buy tab opens on that list and counts it down as you buy.
 - For a recipe you haven't learned: **where to learn it**. Trainers (nearest first, with the
   cost), vendors (price, limited stock, reputation needed), drops (creature, zone, level,
   chance), world drops (how many creatures, level range), chests, containers, quests and
@@ -90,7 +99,8 @@ cooldowns, discoveries and other modules' hooks behave as before.
   [DragonUI](https://github.com/NeticSoul/DragonUI) installed they wear DragonUI's retail skin:
   the metal frame with the round portrait, red buttons and gold category bars.
 - With [mod-reagent-bank-account](https://github.com/buildthehomelab/mod-reagent-bank-account)'s
-  ReagentBankUI, its sidebar docks to this window as it does to the old one.
+  ReagentBankUI, everything its old profession sidebar did is in this window: the amount,
+  crafting from the bank, Deposit leftovers and Add to Shopping List.
 
 ## Individual progression
 

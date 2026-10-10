@@ -1,13 +1,11 @@
 -- Profession tabs down the right edge of the window, like the spellbook's: one per profession
--- you know that has a window, so you can switch without the spellbook. ReagentBankUI's sidebar,
--- which docks to the window's right edge, moves over to make room for them.
+-- you know that has a window, so you can switch without the spellbook.
 
 local RPF = RetailProfessions
 local M = RPF.Model
 
 local frame = RPF.frame
 local TAB_SIZE = 40
-local TAB_COLUMN = TAB_SIZE -- room the bank sidebar makes for the tabs (they reach 38 past the edge)
 local MAX_TABS = 10
 
 local tabs = {}
@@ -76,18 +74,15 @@ end)
 frame:HookScript("OnShow", refresh)
 RPF.FollowRaises(frame)
 
--- ReagentBankUI docks its sidebar against the window's right edge, where the tabs hang now.
--- After each dock (it re-docks from scratch every time), shift it past the tabs.
+-- This window has ReagentBankUI's profession controls built in (Frame.lua), and ReagentBankUI
+-- dropped its sidebar for that. One from before still docks it here, over the tabs: hide it
+-- after each dock.
 RPF.On("LOGIN", function ()
 	local RB = _G.ReagentBankUI
 	if not (RB and RB.DockTradeSkillPanel and hooksecurefunc) then return end
 	hooksecurefunc(RB, "DockTradeSkillPanel", function (self)
 		local panel = self.tradeSkillPanel
 		local host = self.GetTradeSkillControlsHost and self:GetTradeSkillControlsHost()
-		if not (panel and host == frame) then return end
-		local point, relativeTo, relativePoint, x, y = panel:GetPoint(1)
-		if not point then return end
-		panel:ClearAllPoints()
-		panel:SetPoint(point, relativeTo, relativePoint, (x or 0) + TAB_COLUMN, y or 0)
+		if panel and host == frame then panel:Hide() end
 	end)
 end)
