@@ -2,7 +2,7 @@
 ## Title: Retail Professions
 ## Notes: A retail-style profession window: search, filters, skill-up odds, unlearned recipes and where to learn them, a recipe tracker, a professions book (K) and a craft-for-profit view priced from the auction house. Backed by the mod-retail-professions server module.
 ## Author: buildthehomelab
-## Version: 1.5.0
+## Version: 1.5.1
 ## OptionalDeps: DragonUI, ReagentBankUI
 ## SavedVariables: RetailProfessionsDB
 ## SavedVariablesPerCharacter: RetailProfessionsCharDB

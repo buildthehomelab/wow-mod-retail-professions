@@ -97,6 +97,10 @@ namespace RetailProfessions::Index
             std::array<uint32, 3> reqAbility = {}; // e.g. a specialization: Goblin Engineer, Armorsmith
         };
 
+        // The L row's slot for an enchant that goes on any weapon, one- or two-handed; the client's
+        // inventory types end at MAX_INVTYPE - 1.
+        constexpr uint32 SLOT_ANY_WEAPON = MAX_INVTYPE;
+
         // A SkillLineAbility row that teaches the recipe by itself, for the races and classes in it.
         struct AutoRow
         {
@@ -235,6 +239,31 @@ namespace RetailProfessions::Index
             return spellId;
         }
 
+        // The slot a spell cast on an item goes on (an enchant, a socket, an embroidery), as an
+        // inventory type, from the equipment the spell asks for. Chest enchants name chest and
+        // robe, weapon enchants name only weapon subclasses.
+        uint32 TargetSlot(SpellInfo const* info)
+        {
+            if (info->EquippedItemClass != ITEM_CLASS_WEAPON && info->EquippedItemClass != ITEM_CLASS_ARMOR)
+                return 0;
+
+            uint32 slots = uint32(info->EquippedItemInventoryTypeMask);
+            for (uint32 type = 1; slots && type < MAX_INVTYPE; ++type)
+                if (slots & (1u << type))
+                    return type;
+
+            uint32 subclasses = uint32(info->EquippedItemSubClassMask);
+            if (info->EquippedItemClass == ITEM_CLASS_ARMOR)
+                return subclasses == (1u << ITEM_SUBCLASS_ARMOR_SHIELD) ? uint32(INVTYPE_SHIELD) : 0;
+
+            constexpr uint32 TWO_HANDED = (1u << ITEM_SUBCLASS_WEAPON_AXE2) | (1u << ITEM_SUBCLASS_WEAPON_MACE2)
+                | (1u << ITEM_SUBCLASS_WEAPON_POLEARM) | (1u << ITEM_SUBCLASS_WEAPON_SWORD2) | (1u << ITEM_SUBCLASS_WEAPON_STAFF)
+                | (1u << ITEM_SUBCLASS_WEAPON_EXOTIC2) | (1u << ITEM_SUBCLASS_WEAPON_SPEAR) | (1u << ITEM_SUBCLASS_WEAPON_FISHING_POLE);
+            if (subclasses && !(subclasses & ~TWO_HANDED))
+                return INVTYPE_2HWEAPON;
+            return subclasses & TWO_HANDED ? SLOT_ANY_WEAPON : uint32(INVTYPE_WEAPON);
+        }
+
         uint8 TeamsOfRaceMask(uint32 raceMask)
         {
             if (!raceMask)
@@ -362,6 +391,8 @@ namespace RetailProfessions::Index
                             recipe.invType = product->InventoryType;
                             recipe.quality = product->Quality;
                         }
+                    if (!recipe.item && recipe.targetsItem)
+                        recipe.invType = TargetSlot(info);
 
                     std::string reagents;
                     for (std::size_t i = 0; i < info->Reagent.size(); ++i)

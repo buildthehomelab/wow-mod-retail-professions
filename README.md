@@ -16,8 +16,8 @@ cooldowns, discoveries and other modules' hooks behave as before.
   for your rank) and a **chat link** button that shows everyone your recipes.
 - **Search** (the box at the top of the list) matches recipe names and **reagents** ("silk" finds
   everything made from silk); hover the box for a reminder.
-- **Filters**: Have materials, Has skill-up, Slot (head, chest, weapon ...), Show unlearned
-  recipes, Only ones I can learn now, Count the reagent bank, plus expand / collapse all.
+- **Filters**: Have materials, Has skill-up, Slot (head, chest, weapon ...; for enchants, the
+  slot they go on), Show unlearned recipes, Only ones I can learn now, Count the reagent bank, plus expand / collapse all.
 - Recipes sit under gold category bars that fold. Each has a **skill-up chevron** in its colour
   (orange = sure, yellow = likely, green = unlikely, none = no more skill-ups) and how many you
   can make in brackets, with what the reagent bank adds in blue: `Copper Bracers [3+2]`.
