@@ -23,17 +23,27 @@ local INVTYPES = {
 	[17] = "INVTYPE_2HWEAPON", [18] = "INVTYPE_BAG", [19] = "INVTYPE_TABARD", [20] = "INVTYPE_CHEST",
 	[21] = "INVTYPE_WEAPONMAINHAND", [22] = "INVTYPE_WEAPONOFFHAND", [23] = "INVTYPE_HOLDABLE",
 	[24] = "INVTYPE_AMMO", [25] = "INVTYPE_THROWN", [26] = "INVTYPE_RANGEDRIGHT", [27] = "INVTYPE_QUIVER",
-	[28] = "INVTYPE_RELIC",
+	[28] = "INVTYPE_RELIC", [29] = "RPF_ANY_WEAPON",
+}
+-- Enchants make no item: the server names the slot from the equipment the spell asks for, with
+-- a type of its own for the ones that go on any weapon. A server that doesn't send it yet
+-- leaves Enchanting's names to say it ("Enchant Bracer - Minor Health").
+local SLOT_NAMES = { RPF_ANY_WEAPON = ENCHSLOT_WEAPON or "Weapon" }
+local ENCHANT_NAME_SLOTS = {
+	["Bracer"] = "INVTYPE_WRIST", ["Bracers"] = "INVTYPE_WRIST", ["Chest"] = "INVTYPE_CHEST",
+	["Cloak"] = "INVTYPE_CLOAK", ["Gloves"] = "INVTYPE_HAND", ["Boots"] = "INVTYPE_FEET",
+	["Ring"] = "INVTYPE_FINGER", ["Shield"] = "INVTYPE_SHIELD", ["Weapon"] = "RPF_ANY_WEAPON",
+	["2H Weapon"] = "INVTYPE_2HWEAPON", ["Staff"] = "INVTYPE_2HWEAPON",
 }
 -- Slots in paper-doll order for the filter menu.
 M.SLOT_ORDER = { "INVTYPE_HEAD", "INVTYPE_NECK", "INVTYPE_SHOULDER", "INVTYPE_CLOAK", "INVTYPE_CHEST",
 	"INVTYPE_BODY", "INVTYPE_TABARD", "INVTYPE_WRIST", "INVTYPE_HAND", "INVTYPE_WAIST", "INVTYPE_LEGS",
-	"INVTYPE_FEET", "INVTYPE_FINGER", "INVTYPE_TRINKET", "INVTYPE_WEAPON", "INVTYPE_2HWEAPON",
+	"INVTYPE_FEET", "INVTYPE_FINGER", "INVTYPE_TRINKET", "RPF_ANY_WEAPON", "INVTYPE_WEAPON", "INVTYPE_2HWEAPON",
 	"INVTYPE_WEAPONMAINHAND", "INVTYPE_WEAPONOFFHAND", "INVTYPE_SHIELD", "INVTYPE_HOLDABLE", "INVTYPE_RANGED",
 	"INVTYPE_RANGEDRIGHT", "INVTYPE_THROWN", "INVTYPE_RELIC", "INVTYPE_AMMO", "INVTYPE_QUIVER", "INVTYPE_BAG" }
 
 function M.SlotName(slot)
-	return slot and (_G[slot] or slot:gsub("^INVTYPE_", "")) or nil
+	return slot and (SLOT_NAMES[slot] or _G[slot] or slot:gsub("^INVTYPE_", "")) or nil
 end
 
 -- How likely a craft is to raise the skill, as the stock window colours it, or as it would
@@ -234,6 +244,12 @@ function M.Scan()
 		if not r.slot and r.item then
 			local _, _, _, _, _, _, _, _, equipLoc = GetItemInfo(r.item)
 			if equipLoc and equipLoc ~= "" then r.slot = equipLoc == "INVTYPE_ROBE" and "INVTYPE_CHEST" or equipLoc end
+		end
+	end
+
+	for _, group in ipairs({ recipes, unlearned }) do
+		for _, r in ipairs(group) do
+			if not r.slot and r.isEnchant then r.slot = ENCHANT_NAME_SLOTS[r.name:match("^Enchant (.-) %- ") or ""] end
 		end
 	end
 

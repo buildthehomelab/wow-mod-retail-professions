@@ -775,6 +775,37 @@ step("a recipe that makes no item isn't an enchant outside Enchanting", function
 	RPF.Rebuild()
 end)
 
+step("enchants filter by the slot they go on", function ()
+	local info = RPF.RecipeList(197)[2963]
+	local oldInfo, oldLink = GetTradeSkillInfo, GetTradeSkillItemLink
+	GetTradeSkillInfo = function (i)
+		if i == 2 then return "Enchant Bracer - Minor Health", "optimal", 2 end
+		return oldInfo(i)
+	end
+	GetTradeSkillItemLink = function (i) if i == 2 then return nil end return oldLink(i) end
+	info.targetsItem = true
+	-- A server that doesn't name the slot: the enchant's name does.
+	RPF.Rebuild()
+	assert(M.bySpell[2963].slot == "INVTYPE_WRIST", "slot from the name: " .. tostring(M.bySpell[2963].slot))
+	-- The server's word wins: this one goes on any weapon.
+	info.invType = 29
+	RPF.Rebuild()
+	local slot = M.bySpell[2963].slot
+	assert(M.SlotName(slot) == "Weapon", "any-weapon slot: " .. tostring(slot))
+	local present = false
+	for _, s in ipairs(M.SlotsPresent()) do if s == slot then present = true end end
+	assert(present, "the filter menu doesn't offer the weapon slot")
+	RPF.filter.slot = slot
+	RPF.Rebuild(true)
+	local count = 0
+	for _, row in ipairs(RPF.list.rows) do if row.recipe then count = count + 1 end end
+	assert(count == 1, "enchant slot filter rows: " .. count)
+	RPF.filter.slot = nil
+	info.targetsItem, info.invType = false, 0
+	GetTradeSkillInfo, GetTradeSkillItemLink = oldInfo, oldLink
+	RPF.Rebuild()
+end)
+
 step("closing the window closes the trade skill", function ()
 	local before = closedTradeSkill
 	RPF.enchantTarget = { id = 2589, bag = 0, slot = 1 }
