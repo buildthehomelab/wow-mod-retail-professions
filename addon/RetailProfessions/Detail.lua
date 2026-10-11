@@ -25,7 +25,7 @@ local function itemTooltip(owner, link)
 	if not link then return end
 	GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
 	GameTooltip:SetHyperlink(link)
-	GameTooltip:Show()
+	RPF.ShowItemTooltip(owner)
 end
 
 local function linkOrNothing(link)
@@ -58,10 +58,10 @@ icon:SetScript("OnEnter", function (self)
 	itemTooltip(self, self.link)
 	if RPF.selected then
 		RPF.AddSkillUpLines(GameTooltip, RPF.selected)
-		GameTooltip:Show()
+		RPF.ShowItemTooltip(self)
 	end
 end)
-icon:SetScript("OnLeave", function () GameTooltip:Hide() end)
+icon:SetScript("OnLeave", RPF.HideItemTooltip)
 icon:SetScript("OnClick", function (self) linkOrNothing(self.link) end)
 
 local nameText = label(pane, "GameFontNormalLarge")
@@ -118,7 +118,7 @@ for i = 1, MAX_REAGENTS do
 	slot.name:SetWidth(REAGENT_TEXT_WIDTH)
 	slot.have = slot.name -- one line holds both
 	slot:SetScript("OnEnter", function (self) itemTooltip(self, self.link) end)
-	slot:SetScript("OnLeave", function () GameTooltip:Hide() end)
+	slot:SetScript("OnLeave", RPF.HideItemTooltip)
 	slot:SetScript("OnClick", function (self) linkOrNothing(self.link) end)
 	slot.Hide2 = function (self) self:Hide(); self.name:Hide() end
 	slot.Show2 = function (self) self:Show(); self.name:Show() end
@@ -355,7 +355,7 @@ recipeItemButton:SetPoint("RIGHT", pane, "RIGHT", -PAD, 0)
 recipeItemButton.text = label(recipeItemButton, "GameFontHighlightSmall")
 recipeItemButton.text:SetAllPoints(recipeItemButton)
 recipeItemButton:SetScript("OnEnter", function (self) itemTooltip(self, self.link) end)
-recipeItemButton:SetScript("OnLeave", function () GameTooltip:Hide() end)
+recipeItemButton:SetScript("OnLeave", RPF.HideItemTooltip)
 recipeItemButton:SetScript("OnClick", function (self) linkOrNothing(self.link) end)
 
 local sourceRows = {}

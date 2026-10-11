@@ -125,9 +125,9 @@ function RPF.CreateRecipeList(parent, spec)
 			RPF.AddSkillUpLines(GameTooltip, r)
 			if row.right then RPF.Profit.AddTooltipLines(GameTooltip, r) end
 			GameTooltip:AddLine("Right-click to track.", 0.5, 0.5, 0.5)
-			GameTooltip:Show()
+			RPF.ShowItemTooltip(self)
 		end)
-		b:SetScript("OnLeave", function () GameTooltip:Hide() end)
+		b:SetScript("OnLeave", RPF.HideItemTooltip)
 		buttons[i] = b
 	end
 

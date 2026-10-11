@@ -223,6 +223,36 @@ function RPF.CreateCheck(parent, label)
 	return cb
 end
 
+-- Shows the item tooltip that was just filled in. Holding Shift puts what you have equipped in
+-- that slot beside it, as elsewhere in the game.
+local tipOwner
+
+local function hideCompare()
+	ShoppingTooltip1:Hide()
+	ShoppingTooltip2:Hide()
+	if ShoppingTooltip3 then ShoppingTooltip3:Hide() end
+end
+
+function RPF.ShowItemTooltip(owner)
+	tipOwner = owner
+	GameTooltip:Show()
+	if IsModifiedClick("COMPAREITEMS") then GameTooltip_ShowCompareItem() end
+end
+
+function RPF.HideItemTooltip()
+	tipOwner = nil
+	GameTooltip:Hide()
+	hideCompare()
+end
+
+-- Pressing or letting go of Shift while hovering shows or hides the comparison right away.
+local modifierFrame = CreateFrame("Frame")
+modifierFrame:RegisterEvent("MODIFIER_STATE_CHANGED")
+modifierFrame:SetScript("OnEvent", function ()
+	if not tipOwner or not GameTooltip:IsShown() or not GameTooltip:IsOwned(tipOwner) then return end
+	if IsModifiedClick("COMPAREITEMS") then GameTooltip_ShowCompareItem() else hideCompare() end
+end)
+
 -- A square item button with a quality border.
 function RPF.CreateItemButton(parent, size)
 	local btn = CreateFrame("Button", nil, parent)
