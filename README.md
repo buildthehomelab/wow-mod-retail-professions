@@ -31,6 +31,8 @@ cooldowns, discoveries and other modules' hooks behave as before.
 - Hover a recipe (in the list, or its icon) for the **chance to raise your skill**, exactly as the
   server works it out, and the skill where it turns yellow, green and grey. With
   `SkillGain.Crafting` above 1 it says how many points a skill-up gives.
+- Hold **Shift** over a recipe, its icon or a tracked recipe to compare what it makes with what
+  you have equipped, as with any other item.
 - **Reagents** as `have/need Name` (red when short), plus what's in the reagent bank.
 - **Track Recipe**, and under the recipe **Create All [n]**, the amount and **Create**. For
   enchants, an **Enchant** slot: drop the item on it once and every cast goes straight onto that

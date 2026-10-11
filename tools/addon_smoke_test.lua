@@ -168,6 +168,10 @@ GameTooltip = newObject("GameTooltip", "GameTooltip")
 local tipLines = {}
 function GameTooltip:SetOwner() tipLines = {} end
 function GameTooltip:AddLine(text) table.insert(tipLines, tostring(text)) end
+ShoppingTooltip1 = newObject("GameTooltip", "ShoppingTooltip1")
+ShoppingTooltip2 = newObject("GameTooltip", "ShoppingTooltip2")
+local compared = 0
+function GameTooltip_ShowCompareItem() compared = compared + 1 end
 function UnitCastingInfo() return nil end
 DEFAULT_CHAT_FRAME = { AddMessage = function (_, m) print("  [chat] " .. m) end }
 GameFontHighlightSmall, GameFontNormalSmall = {}, {}
@@ -541,6 +545,32 @@ step("skill-up odds live in the tooltip", function ()
 	-- Skill 120 is past the vest's grey (70).
 	assert(text:find("No more skill%-ups"), "no skill-up line: " .. text)
 	assert(text:find("yellow 45") and text:find("grey 70"), "no thresholds: " .. text)
+end)
+
+step("hovering a recipe compares with equipped gear only while Shift is held", function ()
+	local row = find(function (f)
+		return f.__kind == "Button" and rawget(f, "row") and rawget(f, "row").recipe and rawget(f, "row").recipe.item
+	end)
+	assert(row, "no recipe row")
+	local before = compared
+	row.__scripts.OnEnter(row)
+	assert(compared == before, "compared without Shift")
+	-- Pressing Shift while hovering compares right away.
+	local isModified, isOwned, isShown = IsModifiedClick, GameTooltip.IsOwned, GameTooltip.IsShown
+	IsModifiedClick = function () return true end
+	GameTooltip.IsOwned = function (tip, owner) return owner == row end
+	GameTooltip.IsShown = function () return true end
+	fire("MODIFIER_STATE_CHANGED", "LSHIFT", 1)
+	assert(compared == before + 1, "no comparison when Shift went down")
+	row.__scripts.OnEnter(row)
+	assert(compared == before + 2, "no comparison on hover with Shift held")
+	IsModifiedClick, GameTooltip.IsOwned, GameTooltip.IsShown = isModified, isOwned, isShown
+	-- Once the mouse has left, Shift does nothing.
+	row.__scripts.OnLeave(row)
+	IsModifiedClick = function () return true end
+	fire("MODIFIER_STATE_CHANGED", "LSHIFT", 1)
+	IsModifiedClick = isModified
+	assert(compared == before + 2, "compared with nothing hovered")
 end)
 
 step("use reagent bank: withdraw, then craft when it arrives", function ()

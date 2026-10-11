@@ -106,7 +106,7 @@ local function onLineEnter(self)
 	if self.link then
 		GameTooltip:SetOwner(self, "ANCHOR_LEFT")
 		GameTooltip:SetHyperlink(self.link)
-		GameTooltip:Show()
+		RPF.ShowItemTooltip(self)
 	elseif self.spell then
 		GameTooltip:SetOwner(self, "ANCHOR_LEFT")
 		GameTooltip:SetHyperlink("spell:" .. self.spell)
@@ -136,7 +136,7 @@ local function line(i)
 	hl:SetTexture(1, 1, 1, 0.06)
 	b:SetScript("OnClick", onLineClick)
 	b:SetScript("OnEnter", onLineEnter)
-	b:SetScript("OnLeave", function () GameTooltip:Hide() end)
+	b:SetScript("OnLeave", RPF.HideItemTooltip)
 	lines[i] = b
 	return b
 end
