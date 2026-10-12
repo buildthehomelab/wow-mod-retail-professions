@@ -91,3 +91,64 @@ RetailProfessions.Refine.Enable = 1
 #
 
 RetailProfessions.Refine.CastTime = 0
+
+#
+#    RetailProfessions.Perks.Enable
+#        Description: Retail's crafting stats, earned by skill instead of gear. A craft of a
+#                     recipe can make a second batch (Multicraft, things that stack only), give
+#                     part of its reagents back (Resourcefulness) and cast faster. Each is at
+#                     its Min while the recipe is orange, rises in a straight line from where
+#                     the recipe turns yellow to where it turns grey, and is at its Max from
+#                     then on. Skill counts with its bonuses, as the profession window shows it.
+#                     Three kinds of recipe only get the speed: the ones the core already rolls
+#                     extra items for (skill_extra_item_template: most potions, elixirs, flasks
+#                     and transmutes, whether or not the player has the mastery), recipes that
+#                     can be crafted back into their own reagents (elemental, primal and eternal
+#                     transmutes, prismatic shards) and recipes made only from what vendors
+#                     sell without limit. Bots get the speed only.
+#                     Which recipes get what is worked out at startup: turning this on, or a
+#                     Max from 0 to something, needs a restart.
+#        Default:     1
+#
+
+RetailProfessions.Perks.Enable = 1
+
+#
+#    RetailProfessions.Perks.Multicraft.Min
+#    RetailProfessions.Perks.Multicraft.Max
+#        Description: Chance in percent that a craft makes a second batch. Max 0 turns it off.
+#                     A Min above 0 gives every recipe a base chance, also the ones at the top
+#                     of an era's skill cap that never turn grey. A Min above its Max counts
+#                     as the Max (the same goes for the two perks below).
+#        Default:     0 / 25
+#
+
+RetailProfessions.Perks.Multicraft.Min = 0
+RetailProfessions.Perks.Multicraft.Max = 25
+
+#
+#    RetailProfessions.Perks.Resourcefulness.Min
+#    RetailProfessions.Perks.Resourcefulness.Max
+#    RetailProfessions.Perks.Resourcefulness.Refund
+#        Description: Chance in percent that a craft gives reagents back, and how much of each
+#                     reagent a proc gives back, in percent. A fraction of a unit is a roll, so
+#                     a proc gives back Refund percent on average and can give nothing on a
+#                     recipe that uses one of each. Max 0 or Refund 0 turns it off.
+#        Default:     0 / 20 / 30
+#
+
+RetailProfessions.Perks.Resourcefulness.Min = 0
+RetailProfessions.Perks.Resourcefulness.Max = 20
+RetailProfessions.Perks.Resourcefulness.Refund = 30
+
+#
+#    RetailProfessions.Perks.Speed.Min
+#    RetailProfessions.Perks.Speed.Max
+#        Description: How much shorter a craft's cast is, in percent (at most 90). A cast never
+#                     goes under a quarter of a second, and one something else already changed
+#                     (cooking with the Chef's Hat) is left alone. Max 0 turns it off.
+#        Default:     0 / 50
+#
+
+RetailProfessions.Perks.Speed.Min = 0
+RetailProfessions.Perks.Speed.Max = 50

@@ -9,7 +9,9 @@
  *
  * Crafting itself still goes through the core. The one thing the module does on its own is
  * Milling and Prospecting from the window (RetailProfessionsRefine.cpp): the spells work one
- * stack and one loot window at a time, so the server works through the bags instead.
+ * stack and one loot window at a time, so the server works through the bags instead. On top of
+ * a craft, a recipe the player has outgrown can give a second batch, give reagents back and
+ * cast faster (RetailProfessionsPerks.cpp).
  *
  * Released under the MIT License.
  */
@@ -22,7 +24,11 @@
 #include <string_view>
 #include <vector>
 
+class Item;
 class Player;
+class Spell;
+class SpellInfo;
+class Unit;
 
 namespace RetailProfessions
 {
@@ -41,6 +47,15 @@ namespace RetailProfessions
         HELLO_RECIPES  = 0x1, // L lists a profession's recipes, W says where one is learned
         HELLO_MAP_PINS = 0x2, // M flags a trainer or vendor on the map
         HELLO_REFINE   = 0x4, // Y lists what herbs and ore give, X mills or prospects them
+        HELLO_PERKS    = 0x8, // crafts can proc; HELLO carries the odds, L rows say which recipes
+    };
+
+    // What a craft of a recipe can get on top (the perks field of an L row).
+    enum PerkFlags : uint8
+    {
+        PERK_MULTICRAFT  = 0x1, // a second batch
+        PERK_RESOURCEFUL = 0x2, // part of the reagents back
+        PERK_SPEED       = 0x4, // a shorter cast
     };
 
     // Where a recipe can be learned: the source bits of an L row.
@@ -64,6 +79,12 @@ namespace RetailProfessions
         bool saveZoneData = true;
         bool refine = true;             // Milling and Prospecting from the window
         uint32 refineCastTime = 0;      // ms per cast; 0 = the spell's own cast time
+        bool perks = true;              // Multicraft, Resourcefulness and crafting speed
+        // Each in percent: Min while a recipe is orange, Max once it is grey.
+        uint32 multicraftMin = 0, multicraftMax = 25;
+        uint32 resourcefulMin = 0, resourcefulMax = 20;
+        uint32 resourcefulRefund = 30;  // percent of each reagent given back on a proc
+        uint32 speedMin = 0, speedMax = 50;
     };
 
     Config& GetConfig();
@@ -121,6 +142,21 @@ namespace RetailProfessions
 
         // Drops the player's job without telling them: they're logging out.
         void Forget(Player* player);
+    }
+
+    // ---- RetailProfessionsPerks.cpp: Multicraft, Resourcefulness and crafting speed ------------
+
+    namespace Perks
+    {
+        // Works out which recipes get what. Only from OnStartup, before Index::Build: the
+        // recipe lists carry the result.
+        void Build();
+
+        // PerkFlags of a recipe, 0 when the perks are off.
+        uint8 Flags(uint32 spell);
+
+        void OnPrepare(Spell* spell, Unit* caster, SpellInfo const* info);
+        void OnCreateItem(Player* player, Item* item, uint32 count);
     }
 }
 

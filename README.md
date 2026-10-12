@@ -6,9 +6,10 @@ one clear window with search, filters and skill-up odds, recipes you haven't lea
 where to get them, a recipe tracker and a professions book on **K**.
 
 Crafting itself doesn't change. Every craft is the client's own `DoTradeSkill`, so skill-ups,
-cooldowns, discoveries and other modules' hooks behave as before. The one thing the server does
-on its own is **Milling and Prospecting** from the window, which the client can only do one
-stack and one loot window at a time.
+cooldowns, discoveries and other modules' hooks behave as before. The server adds two things
+of its own: **Milling and Prospecting** from the window, which the client can only do one stack
+and one loot window at a time, and retail's crafting stats, **Multicraft, Resourcefulness and
+crafting speed**, earned by skill.
 
 ## What players get
 
@@ -75,6 +76,32 @@ stack and one loot window at a time.
 - Same rules as the spells: you need to know Milling or Prospecting and have the skill the herb
   or ore asks for. `SkillChance.Milling` / `SkillChance.Prospecting` skill-ups still apply. The
   spells in the spellbook work as before.
+
+**Multicraft, Resourcefulness and crafting speed**
+- Retail's crafting stats, earned by skill instead of gear. A recipe gets nothing while it's
+  orange, more from where it turns yellow to where it turns grey, and the most from then on: a
+  recipe that still teaches you is slow and single, one you've outgrown is quick to make in bulk.
+  - **Multicraft**: a chance that a craft makes a second batch (up to 25%). Only for things that
+    stack: bars, bolts, leather, inks, bandages, food, scopes and powders. Not gear, and not cut
+    gems (they don't stack).
+  - **Resourcefulness**: a chance (up to 20%) to get 30% of the reagents back. A fraction of a
+    unit is a roll, so it is 30% on average, and a proc on a recipe that uses one of each can
+    give nothing.
+  - **Cast**: up to 50% shorter, so a Create All of a grey recipe takes half the time.
+- The recipe shows its numbers at your skill ("Multicraft 18%   Resourcefulness 14%   Cast 1.6
+  sec"; hover for what they mean), its tooltip too, and the window says when one procs.
+- Extras that don't fit in your bags are mailed.
+- Three kinds of recipe only get the speed:
+  - the ones the core already rolls extra items for through an alchemy mastery: most potions,
+    elixirs, flasks and transmutes (`skill_extra_item_template`). Their own proc stands in,
+    and that holds for an alchemist without the mastery too;
+  - recipes that can be crafted back into their own reagents (elemental, primal and eternal
+    transmutes, prismatic shards), where a proc would mint materials out of nothing;
+  - recipes made only from what vendors sell without limit, where a second batch would be gold
+    out of nothing.
+- Skill counts with its bonuses (a racial +15), as the window shows it. Bots only get the speed.
+- Recipes at the very top of an era's skill cap never turn grey, so they get little or nothing.
+  `RetailProfessions.Perks.*.Min` gives every recipe a base if you want one.
 
 **Craft for profit** (with [mod-retail-ah](https://github.com/buildthehomelab/wow-mod-retail-ah)'s server)
 - The **coin button** beside Filter turns the list into a ranking of the recipes you know, in the
@@ -158,6 +185,13 @@ references and the drop rates included), which is what the window shows. A Mill 
 the server: every cast time it checks what the spell checks (spell known, skill, five in the
 bags), takes five, rolls the core's own loot table (`Loot::FillLoot`) and stores the result.
 
+The crafting perks hang on the core's own hooks. Multicraft and Resourcefulness roll when a
+craft creates its item (`OnPlayerCreateItem`), from the recipe's yellow and grey skill in
+`SkillLineAbility.dbc` and the player's skill. The core has no hook for a cast time, so the
+speed is applied right after `Spell::prepare`: the cast is shortened and its start is sent to
+the client again. Which recipes loop is worked out at startup from every recipe's reagents and
+product.
+
 The profit view asks mod-retail-ah's server for prices under that module's `RAH` prefix (its `K`
 request, which needs no auctioneer). Without it, or with `RetailAH.CraftPrices = 0`, the view
 says there are no auction prices on the realm.
@@ -191,15 +225,18 @@ quicker.
 ## Configuration
 
 See `conf/mod_retail_professions.conf.dist`: master switch, the era skill cap, hiding locked
-continents, how many sources per kind, the world-drop threshold, saving zones, and Milling and
-Prospecting from the window (`RetailProfessions.Refine.Enable`, `RetailProfessions.Refine.CastTime`).
+continents, how many sources per kind, the world-drop threshold, saving zones, Milling and
+Prospecting from the window (`RetailProfessions.Refine.Enable`, `RetailProfessions.Refine.CastTime`),
+and the crafting perks (`RetailProfessions.Perks.Enable` and a `Min` / `Max` percent each for
+`Perks.Multicraft`, `Perks.Resourcefulness` (plus `Refund`) and `Perks.Speed`).
 
 ## Development
 
 `lua tools/addon_smoke_test.lua addon/RetailProfessions` loads the addon against a stubbed
 3.3.5a API and a fake server and walks through opening a profession, filters, crafting, where to
 learn a recipe, tracking, the book, combat, the profit view (with a fake mod-retail-ah price
-server), milling (its tab, Mill All, Stop, the reagent bank) and the classic switch.
+server), the crafting perks, milling (its tab, Mill All, Stop, the reagent bank) and the classic
+switch.
 
 ## Troubleshooting
 

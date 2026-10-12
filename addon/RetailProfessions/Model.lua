@@ -105,6 +105,63 @@ function RPF.AddSkillUpLines(tip, r)
 		tip:AddLine(string.format("Turns %syellow %d|r, %sgreen %d|r, %sgrey %d|r",
 			hex(C.medium), r.yellow, hex(C.easy), r.green, hex(C.trivial), r.grey), 0.8, 0.8, 0.8)
 	end
+	local perks = M.PerksOf(r)
+	if perks then tip:AddLine(M.PerksText(perks, true), 0.8, 0.8, 0.8) end
+end
+
+-----------------------------------------
+-- what knowing a recipe well gives: a chance at a second batch (Multicraft), a chance to get
+-- reagents back (Resourcefulness) and a shorter cast. Nothing while the recipe is orange, more
+-- from where it turns yellow to where it turns grey, and the most from then on. The server
+-- rolls; this is the same sum, for showing.
+
+local MIN_CAST = 0.25
+
+function M.Mastery(r)
+	local rank = M.rank or 0
+	local yellow, grey = r.yellow or 0, r.grey or 0
+	if rank >= grey then return 1 end
+	if rank <= yellow or grey <= yellow then return 0 end
+	return (rank - yellow) / (grey - yellow)
+end
+
+-- { multicraft = %, resourceful = %, speed = %, castTime = seconds } with only what the recipe
+-- can get, or nil when it gets nothing (or isn't yours to craft).
+function M.PerksOf(r)
+	local p = RPF.perks
+	local bits = r.perks or 0
+	if not (p and r.learned and not M.linked and not r.refine and bits > 0) then return nil end
+	local mastery = M.Mastery(r)
+	local function at(low, high) return low + (high - low) * mastery end
+	local out = { mastery = mastery }
+	if bit.band(bits, RPF.PERK_MULTICRAFT) ~= 0 then out.multicraft = at(p.multicraftMin, p.multicraftMax) end
+	if bit.band(bits, RPF.PERK_RESOURCEFUL) ~= 0 then out.resourceful = at(p.resourcefulMin, p.resourcefulMax) end
+	if bit.band(bits, RPF.PERK_SPEED) ~= 0 then
+		out.speed = at(p.speedMin, p.speedMax)
+		local castTime = r.spell and select(7, GetSpellInfo(r.spell))
+		if castTime and castTime > 0 then
+			out.castTime = math.max(MIN_CAST, castTime / 1000 * (100 - out.speed) / 100)
+		end
+	end
+	return out
+end
+
+local function whole(pct)
+	return math.floor(pct + 0.5)
+end
+
+-- "Multicraft 18%   Resourcefulness 12%   Cast 1.2 sec"; `plain` leaves the gold out.
+function M.PerksText(perks, plain)
+	local gold, off = plain and "" or "|cffffd200", plain and "" or "|r"
+	local parts = {}
+	if perks.multicraft then table.insert(parts, string.format("%sMulticraft%s %d%%", gold, off, whole(perks.multicraft))) end
+	if perks.resourceful then table.insert(parts, string.format("%sResourcefulness%s %d%%", gold, off, whole(perks.resourceful))) end
+	if perks.castTime then
+		table.insert(parts, string.format("%sCast%s %.1f sec", gold, off, perks.castTime))
+	elseif perks.speed then
+		table.insert(parts, string.format("%sCast%s %d%% faster", gold, off, whole(perks.speed)))
+	end
+	return table.concat(parts, plain and ", " or "   ")
 end
 
 -----------------------------------------
@@ -145,6 +202,7 @@ local function attachServerData(recipe, info)
 	recipe.slot = INVTYPES[info.invType]
 	recipe.quality = info.quality
 	recipe.madeMin, recipe.madeMax = info.madeMin, info.madeMax
+	recipe.perks = info.perks
 	if info.targetsItem ~= nil then recipe.isEnchant = info.targetsItem end
 	if not recipe.item or recipe.item == 0 then recipe.item = info.item end
 	-- The client names reagents it hasn't cached as nil; the server always knows the ids.

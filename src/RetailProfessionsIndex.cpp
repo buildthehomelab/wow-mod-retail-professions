@@ -882,9 +882,9 @@ namespace RetailProfessions::Index
 
         std::string ListRow(Recipe const& recipe, uint32 recipeItem)
         {
-            return Acore::StringFormat("{},{},{},{},{},{},{},{},{},{},{},{},{}", recipe.spell, recipe.reqSkill, recipe.yellow,
+            return Acore::StringFormat("{},{},{},{},{},{},{},{},{},{},{},{},{},{}", recipe.spell, recipe.reqSkill, recipe.yellow,
                 recipe.grey, recipe.item, recipe.madeMin, recipe.madeMax, uint32(recipe.sources), recipe.reagents,
-                recipe.invType, recipe.quality, recipeItem, recipe.targetsItem ? 1 : 0);
+                recipe.invType, recipe.quality, recipeItem, recipe.targetsItem ? 1 : 0, uint32(Perks::Flags(recipe.spell)));
         }
 
         // FNV-1a over everything an L row can carry, so the addon's cache follows the data.
@@ -1152,7 +1152,7 @@ namespace RetailProfessions::Index
     // L:<req>:<skill> -> every recipe of the profession the player could learn or already knows.
     // Row: spell, required skill, yellow, grey, product item, made min, made max, source bits,
     // reagents ("id*n/id*n" or "-"), product inventory type, product quality, recipe item,
-    // 1 when it's cast on an item (an enchant, socket, buckle, lining...).
+    // 1 when it's cast on an item (an enchant, socket, buckle, lining...), PerkFlags.
     void HandleList(Player* player, std::string const& req, std::vector<std::string_view> const& args)
     {
         uint32 skill = 0;

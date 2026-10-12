@@ -90,6 +90,35 @@ local subText = label(pane, "GameFontHighlightSmall")
 subText:SetPoint("TOPLEFT", nameText, "BOTTOMLEFT", 0, -5)
 subText:SetPoint("RIGHT", pane, "RIGHT", -PAD, 0)
 
+-- Multicraft, Resourcefulness and the cast time at your skill (Model.lua); hover for what they are.
+local perkLine = CreateFrame("Button", nil, pane)
+perkLine:SetHeight(14)
+perkLine:SetPoint("TOPLEFT", icon, "BOTTOMLEFT", 0, -10)
+perkLine:SetPoint("RIGHT", pane, "RIGHT", -PAD, 0)
+perkLine.text = label(perkLine, "GameFontHighlightSmall")
+perkLine.text:SetAllPoints(perkLine)
+perkLine:SetScript("OnEnter", function (self)
+	local perks, p = self.perks, RPF.perks
+	if not (perks and p) then return end
+	GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+	GameTooltip:SetText("Knowing a recipe well")
+	GameTooltip:AddLine("Nothing while a recipe is orange, more from where it turns yellow to where it turns grey, "
+		.. "and the most from then on.", 1, 1, 1, true)
+	if perks.multicraft then
+		GameTooltip:AddLine(string.format("|cffffd200Multicraft|r  a chance that a craft makes a second batch (%d%% to %d%%).",
+			p.multicraftMin, p.multicraftMax), 0.8, 0.8, 0.8, true)
+	end
+	if perks.resourceful then
+		GameTooltip:AddLine(string.format("|cffffd200Resourcefulness|r  a chance (%d%% to %d%%) to get %d%% of the "
+			.. "reagents back, on average.", p.resourcefulMin, p.resourcefulMax, p.refund), 0.8, 0.8, 0.8, true)
+	end
+	if perks.speed then
+		GameTooltip:AddLine(string.format("|cffffd200Cast|r  %d%% to %d%% faster.", p.speedMin, p.speedMax), 0.8, 0.8, 0.8, true)
+	end
+	GameTooltip:Show()
+end)
+perkLine:SetScript("OnLeave", function () GameTooltip:Hide() end)
+
 local description = label(pane, "GameFontHighlightSmall", 0.8, 0.8, 0.8)
 description:SetPoint("TOPLEFT", icon, "BOTTOMLEFT", 0, -10)
 description:SetPoint("RIGHT", pane, "RIGHT", -PAD, 0)
@@ -582,6 +611,7 @@ local function showParts(on)
 		hideSources()
 		hidePrices()
 		hideResults()
+		perkLine:Hide()
 	end
 end
 
@@ -645,6 +675,17 @@ local function draw(r)
 	subText:SetText(sub)
 	description:SetText(r.description or "")
 
+	local perks = M.PerksOf(r)
+	perkLine.perks = perks
+	if perks then
+		perkLine.text:SetText(M.PerksText(perks))
+		perkLine:Show()
+		description:SetPoint("TOPLEFT", perkLine, "BOTTOMLEFT", 0, -8)
+	else
+		perkLine:Hide()
+		description:SetPoint("TOPLEFT", icon, "BOTTOMLEFT", 0, -10)
+	end
+
 	reagentAnchor:ClearAllPoints()
 	reagentAnchor:SetPoint("TOPLEFT", description, "BOTTOMLEFT", 0, (r.description or "") ~= "" and -12 or 0)
 
@@ -684,3 +725,24 @@ RPF.On("QUANTITY", function ()
 	if r and r.learned and RPF.frame:IsShown() then draw(r) end
 end)
 RPF.On("HIDDEN", function () whereToken = whereToken + 1 end)
+
+-- A craft made a second batch or gave reagents back: say so in the window, or in chat when
+-- it's closed (a craft from a macro). Both can come from one craft; the line keeps both.
+local lastProc, lastProcAt = nil, 0
+RPF.On("PERK", function (spell, kind, list)
+	local names = {}
+	for entry, n in (list or ""):gmatch("(%d+)%*(%d+)") do
+		local info = RPF.Item(tonumber(entry))
+		table.insert(names, n .. " " .. (info and info.name or ("item " .. entry)))
+	end
+	if #names == 0 then return end
+	local text = kind == "M" and ("Multicraft! " .. table.concat(names, ", ") .. " more.")
+		or ("Resourcefulness! You got back " .. table.concat(names, ", ") .. ".")
+	if not RPF.frame:IsShown() then
+		RPF.Print(text)
+		return
+	end
+	if lastProc and GetTime() - lastProcAt < 0.5 then text = lastProc .. " " .. text end
+	lastProc, lastProcAt = text, GetTime()
+	RPF.Status(text)
+end)

@@ -203,9 +203,11 @@ local spells = {
 	[45357] = "Inscription", [51005] = "Milling", [25229] = "Jewelcrafting", [31252] = "Prospecting",
 }
 local knownSpells = { Tailoring = true, Smelting = true, Mining = true, ["Find Minerals"] = true, Fishing = true }
+-- Crafts take three seconds here.
+local castTimes = { [2963] = 3000, [2385] = 3000, [3914] = 3000 }
 function GetSpellInfo(spell)
 	if type(spell) == "number" then
-		return spells[spell], nil, "Interface\\Icons\\S"
+		return spells[spell], nil, "Interface\\Icons\\S", 0, false, 0, castTimes[spell] or 0
 	end
 	if knownSpells[spell] then return spell, nil, "Interface\\Icons\\S" end
 	return nil
@@ -366,7 +368,9 @@ local function serve(msg)
 	local cmd, req = msg:match("^([^:]+):([^:]*)")
 	table.insert(sent, msg)
 	print("  -> " .. msg)
-	if cmd == "HELLO" then reply("HELLO:" .. req .. ":1:7:777:300:100:0:3")
+	-- Flags: recipes, map pins, milling, perks. Perks: multicraft 0-25%, resourcefulness 0-20%
+	-- giving 30% back, casts 0-50% faster.
+	if cmd == "HELLO" then reply("HELLO:" .. req .. ":1:15:777:300:100:0:3:0:25:0:20:30:0:50")
 	elseif cmd == "Y" then
 		-- Peacebloom, Mageroyal (a second pigment one time in four) and a herb past the skill.
 		reply("YR:" .. req .. ":M:3")
@@ -384,7 +388,8 @@ local function serve(msg)
 		reply("XS:" .. req .. ":ok")
 	elseif cmd == "L" then
 		reply("LR:" .. req .. ":197:3:0")
-		reply("LD:" .. req .. ":2963,1,25,50,2996,1,1,1,2589*2,0,1,0,0;2385,10,45,70,2568,1,1,1,2589*3/2320*1,5,1,0")
+		-- The bolt stacks, so it can multicraft (perks 7); the vest can't (6).
+		reply("LD:" .. req .. ":2963,1,25,50,2996,1,1,1,2589*2,0,1,0,0,7;2385,10,45,70,2568,1,1,1,2589*3/2320*1,5,1,0,0,6")
 		reply("LD:" .. req .. ":3914,130,155,175,4308,1,1,2,2996*2/2321*1,9,2,4355")
 		reply("LE:" .. req)
 	elseif cmd == "W" then
@@ -855,6 +860,45 @@ step("enchants filter by the slot they go on", function ()
 	info.targetsItem, info.invType = false, 0
 	GetTradeSkillInfo, GetTradeSkillItemLink = oldInfo, oldLink
 	RPF.Rebuild()
+end)
+
+-----------------------------------------
+-- Multicraft, Resourcefulness and crafting speed: skill-based, rolled by the server
+
+step("perks: a grey recipe gets the most, and only what it can", function ()
+	RPF.Select(M.bySpell[2963])
+	-- Tailoring 120, the bolt went grey at 50.
+	local perks = M.PerksOf(M.bySpell[2963])
+	assert(perks and perks.multicraft == 25 and perks.resourceful == 20 and perks.castTime == 1.5,
+		"bolt perks: " .. tostring(perks and perks.multicraft) .. " / " .. tostring(perks and perks.castTime))
+	assert(textShown("Multicraft|r 25%%.*Resourcefulness|r 20%%.*Cast|r 1%.5 sec"), "perk line missing")
+	-- The vest doesn't stack: no Multicraft.
+	RPF.Select(M.bySpell[2385])
+	assert(M.PerksOf(M.bySpell[2385]).multicraft == nil, "Multicraft on a vest")
+	assert(textShown("^|cffffd200Resourcefulness|r 20%%"), "the vest's perk line: no Multicraft expected")
+	-- An unlearned recipe has nothing to show yet.
+	assert(M.PerksOf(M.bySpell[3914]) == nil, "perks on an unlearned recipe")
+end)
+
+step("perks: they follow skill between yellow and grey", function ()
+	local function recipe(yellow, grey) return { learned = true, spell = 2963, perks = 7, yellow = yellow, grey = grey } end
+	local orange = M.PerksOf(recipe(125, 150))
+	assert(orange.multicraft == 0 and orange.resourceful == 0 and orange.castTime == 3, "an orange recipe got something")
+	local halfway = M.PerksOf(recipe(110, 130))
+	assert(halfway.multicraft == 12.5 and halfway.resourceful == 10 and halfway.castTime == 2.25,
+		"halfway: " .. halfway.multicraft .. " / " .. halfway.castTime)
+	assert(M.PerksText(halfway, true) == "Multicraft 13%, Resourcefulness 10%, Cast 2.3 sec"
+		or M.PerksText(halfway, true) == "Multicraft 13%, Resourcefulness 10%, Cast 2.2 sec", M.PerksText(halfway, true))
+	RPF.AddSkillUpLines(GameTooltip, M.bySpell[2963])
+	assert(table.concat(tipLines, "\n"):find("Multicraft 25%%"), "the tooltip doesn't mention the perks")
+end)
+
+step("perks: a proc says so", function ()
+	reply("PK:0:2963:M:2996*1")
+	assert(textShown("Multicraft! 1 Bolt of Linen Cloth more"), "no Multicraft line")
+	-- Both from one craft: the line keeps both.
+	reply("PK:0:2963:R:2589*1/2320*1")
+	assert(textShown("Multicraft! .*Resourcefulness! You got back 1 Linen Cloth, 1 Coarse Thread"), "no Resourcefulness line")
 end)
 
 -----------------------------------------
