@@ -67,3 +67,27 @@ RetailProfessions.WorldDropThreshold = 25
 #
 
 RetailProfessions.SaveZoneData = 1
+
+#
+#    RetailProfessions.Refine.Enable
+#        Description: Milling and Prospecting from the profession window. The window lists the
+#                     herbs or ore in a player's bags with what each one gives, and Mill All or
+#                     Prospect All has the server work through them one cast at a time, with the
+#                     same loot tables, skill requirement and five-per-cast as the spells, and
+#                     put the results straight into the bags. Moving, fighting or closing the
+#                     window stops it. Results that don't fit are mailed. With 0 the window has
+#                     no Milling or Prospecting tab; the spells themselves always work.
+#                     Turning it on needs a restart: the loot tables are read at startup.
+#        Default:     1
+#
+
+RetailProfessions.Refine.Enable = 1
+
+#
+#    RetailProfessions.Refine.CastTime
+#        Description: Milliseconds one cast takes when the server mills or prospects. 0 uses the
+#                     spell's own cast time (Milling 51005, Prospecting 31252). At least 250.
+#        Default:     0
+#
+
+RetailProfessions.Refine.CastTime = 0

@@ -1,6 +1,7 @@
 -- The professions book (K): every profession and secondary skill you have, with its rank and
--- skill bar, a button to open it, the gathering or fishing action where there is one, and a
--- way to unlearn it.
+-- skill bar, a button to open it, the gathering or fishing action where there is one (for
+-- Inscription and Jewelcrafting, the window's Milling or Prospecting view), and a way to
+-- unlearn it.
 
 local RPF = RetailProfessions
 
@@ -156,12 +157,32 @@ StaticPopupDialogs["RETAILPROFESSIONS_UNLEARN"] = {
 }
 
 local function bind(button, spell)
+	button.secure.preClick = nil
+	button:EnableMouse(false)
 	if spell then
 		button:Show()
 		RPF.BindSpellButton(button.secure, button, spell, book)
 	else
 		button:Hide()
 		RPF.BindSpellButton(button.secure, nil, nil)
+	end
+end
+
+-- The Milling or Prospecting button: opens the profession on its herbs or ore. With the
+-- profession already open nothing has to be cast, so the button takes the click itself.
+local function bindRefine(button, kind, openName)
+	button:Show()
+	if RPF.Refine.IsOpen(kind) then
+		RPF.BindSpellButton(button.secure, nil, nil)
+		button:EnableMouse(true)
+		button:SetScript("OnClick", function ()
+			RPF.Refine.SetView(kind.code)
+			book:Hide()
+		end)
+	else
+		button:EnableMouse(false)
+		button.secure.preClick = function () RPF.Refine.Pend(kind.code) end
+		RPF.BindSpellButton(button.secure, button, openName, book)
 	end
 end
 
@@ -206,8 +227,15 @@ local function refresh()
 		row.open:SetWidth(p.id == 186 and 80 or 64)
 		bind(row.open, openName)
 		local extraName = p.extraName and GetSpellInfo(p.extraName) and p.extraName or nil
-		row.extra:SetText(extraName or "")
-		bind(row.extra, extraName)
+		local refine = openName and p.refine and RPF.Refine.Known(p.refine) or nil
+		if refine then
+			extraName = refine.name
+			row.extra:SetText(extraName)
+			bindRefine(row.extra, refine, openName)
+		else
+			row.extra:SetText(extraName or "")
+			bind(row.extra, extraName)
+		end
 		if not openName and extraName then
 			-- Nothing to open: the action takes the top spot.
 			row.extra:ClearAllPoints()
@@ -257,6 +285,9 @@ RPF.On("SKILLS", function () if book:IsShown() then refresh() end end)
 RPF.On("SHOW", function () if book:IsShown() then book:Hide() end end)
 RPF.FollowRaises(book)
 RPF.On("SECURE_STATE", function () if book:IsShown() then refresh() end end)
+-- Whether the Milling and Prospecting buttons have to open the profession first.
+RPF.On("HIDDEN", function () if book:IsShown() then refresh() end end)
+RPF.On("READY", function () if book:IsShown() then refresh() end end)
 
 -- Key binding (Bindings.xml), and K for it the first time, when K is free.
 BINDING_HEADER_RETAILPROFESSIONS = "Retail Professions"

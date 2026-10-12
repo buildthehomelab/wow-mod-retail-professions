@@ -10,6 +10,7 @@ RPF.PROTOCOL = 1
 -- Capability bits in the server's HELLO answer (see src/RetailProfessions.h).
 RPF.HELLO_RECIPES = 1   -- L and W: every recipe of a profession, and where to learn one
 RPF.HELLO_MAP_PINS = 2  -- M: a map flag on a trainer or vendor
+RPF.HELLO_REFINE = 4    -- Y and X: what herbs and ore give, and milling or prospecting them
 
 -- Where a recipe can be learned (the src field of an L row).
 RPF.SRC_TRAINER = 1
@@ -117,14 +118,15 @@ end
 
 -- id = skill line; nameSpell = a spell with the profession's (localized) name, used to match
 -- the names the client hands out; open = the spell that opens its window; extra = a second
--- action for the book (gathering tracking, fishing).
+-- action for the book (gathering tracking, fishing); refine = the Milling or Prospecting that
+-- goes with it (Refine.lua).
 RPF.PROFESSIONS = {
 	{ id = 171, nameSpell = 2259, open = 2259, icon = "Trade_Alchemy" },
 	{ id = 164, nameSpell = 2018, open = 2018, icon = "Trade_BlackSmithing" },
 	{ id = 333, nameSpell = 7411, open = 7411, icon = "Trade_Engraving" },
 	{ id = 202, nameSpell = 4036, open = 4036, icon = "Trade_Engineering" },
-	{ id = 773, nameSpell = 45357, open = 45357, icon = "INV_Inscription_Tradeskill01" },
-	{ id = 755, nameSpell = 25229, open = 25229, icon = "INV_Misc_Gem_01" },
+	{ id = 773, nameSpell = 45357, open = 45357, icon = "INV_Inscription_Tradeskill01", refine = "M" },
+	{ id = 755, nameSpell = 25229, open = 25229, icon = "INV_Misc_Gem_01", refine = "P" },
 	{ id = 165, nameSpell = 2108, open = 2108, icon = "Trade_LeatherWorking" },
 	{ id = 197, nameSpell = 3908, open = 3908, icon = "Trade_Tailoring" },
 	{ id = 186, nameSpell = 2575, open = 2656, extra = 2580, icon = "Trade_Mining" },
@@ -424,7 +426,7 @@ RPF.flags = 0
 
 local nextReq = 0
 local pending = {}
-local LISTS = { L = true, W = true }
+local LISTS = { L = true, W = true, Y = true }
 
 local function send(msg)
 	SendAddonMessage(RPF.PREFIX, msg, "WHISPER", UnitName("player"))
@@ -527,6 +529,12 @@ local function onAddonMessage(message)
 			return
 		end
 		finish(req, nil, rest)
+		return
+	end
+
+	-- A milling or prospecting job reports on its own, under the id of the request that began it.
+	if code == "XP" or code == "XE" then
+		RPF.Fire(code == "XP" and "REFINE_PROGRESS" or "REFINE_END", req, splitFields(rest))
 		return
 	end
 

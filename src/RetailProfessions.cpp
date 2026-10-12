@@ -10,6 +10,9 @@
  *   L:<req>:<skill line>     -> LR:<req>:<skill>:<count>:<gm>, LD rows, LE   (RetailProfessionsIndex.cpp)
  *   W:<req>:<spell>          -> WR:<req>:<spell>:<recipe item>, WD rows, WE
  *   M:<req>:<T|V>:<entry>    -> M:<req>:ok:<where>   or ERR:<req>:none
+ *   Y:<req>:<M|P>            -> YR:<req>:<kind>:<count>, YD rows, YE        (RetailProfessionsRefine.cpp)
+ *   X:<req>:<M|P>:<item>:<n> -> X:<req>:ok:<n>:<cast ms>, then XP per cast and XE at the end
+ *   XS:<req>                 -> XS:<req>:ok
  *
  * Addon messages arrive as CMSG_MESSAGECHAT on the world thread, so requests are answered
  * straight from the hook.
@@ -160,6 +163,8 @@ namespace RetailProfessions
             sConfig.maxSourcesPerKind = std::clamp<uint32>(sConfigMgr->GetOption<uint32>("RetailProfessions.MaxSourcesPerKind", 6), 1, 20);
             sConfig.worldDropThreshold = std::max<uint32>(sConfigMgr->GetOption<uint32>("RetailProfessions.WorldDropThreshold", 25), 5);
             sConfig.saveZoneData = sConfigMgr->GetOption<bool>("RetailProfessions.SaveZoneData", true);
+            sConfig.refine = sConfigMgr->GetOption<bool>("RetailProfessions.Refine.Enable", true);
+            sConfig.refineCastTime = std::min<uint32>(sConfigMgr->GetOption<uint32>("RetailProfessions.Refine.CastTime", 0), 60000);
             sConfig.progressionEnabled = sConfigMgr->GetOption<bool>("IndividualProgression.Enable", false, false);
         }
 
@@ -180,8 +185,9 @@ namespace RetailProfessions
             uint32 orange = sWorld->getIntConfig(CONFIG_SKILL_CHANCE_ORANGE);
             uint32 grey = sWorld->getIntConfig(CONFIG_SKILL_CHANCE_GREY);
             uint32 gain = sWorld->getIntConfig(CONFIG_SKILL_GAIN_CRAFTING);
+            uint32 flags = HELLO_RECIPES | HELLO_MAP_PINS | (sConfig.refine ? HELLO_REFINE : 0);
             Send(player, "HELLO:" + req + ":" + std::to_string(PROTOCOL_VERSION) + ":"
-                + std::to_string(HELLO_RECIPES | HELLO_MAP_PINS) + ":" + std::to_string(Index::Stamp())
+                + std::to_string(flags) + ":" + std::to_string(Index::Stamp())
                 + ":" + std::to_string(SkillCap(player)) + ":" + std::to_string(orange) + ":" + std::to_string(grey)
                 + ":" + std::to_string(gain));
         }
@@ -219,8 +225,9 @@ namespace RetailProfessions
                 return;
             }
 
-            // A recipe list is a hundred-odd messages; the addon caches it, so it's rare.
-            if (!TakeToken(sSessions[player->GetGUID().GetCounter()], command == "L" ? 4.0f : 1.0f))
+            // A recipe list is a hundred-odd messages; the addon caches it, so it's rare. What
+            // herbs and ore give is a few dozen, asked once per login.
+            if (!TakeToken(sSessions[player->GetGUID().GetCounter()], command == "L" || command == "Y" ? 4.0f : 1.0f))
             {
                 SendError(player, req, "busy");
                 return;
@@ -232,6 +239,14 @@ namespace RetailProfessions
                 Index::HandleWhere(player, req, args);
             else if (command == "M")
                 Index::HandleMapPin(player, req, args);
+            else if (!sConfig.refine && (command == "Y" || command == "X" || command == "XS"))
+                SendError(player, req, "off");
+            else if (command == "Y")
+                Refine::HandleYields(player, req, args);
+            else if (command == "X")
+                Refine::HandleStart(player, req, args);
+            else if (command == "XS")
+                Refine::HandleStop(player, req);
             else
                 SendError(player, req, "unknown");
         }
@@ -246,7 +261,8 @@ public:
     RetailProfessionsPlayerScript() : PlayerScript("RetailProfessionsPlayerScript",
         {
             PLAYERHOOK_CAN_PLAYER_USE_PRIVATE_CHAT,
-            PLAYERHOOK_ON_LOGOUT
+            PLAYERHOOK_ON_LOGOUT,
+            PLAYERHOOK_ON_UPDATE
         }) { }
 
     // The addon whispers itself; swallow those messages so they never show up as chat.
@@ -272,6 +288,12 @@ public:
     void OnPlayerLogout(Player* player) override
     {
         sSessions.erase(player->GetGUID().GetCounter());
+        Refine::Forget(player);
+    }
+
+    void OnPlayerUpdate(Player* player, uint32 diff) override
+    {
+        Refine::Update(player, diff);
     }
 };
 
@@ -291,7 +313,11 @@ public:
     void OnStartup() override
     {
         if (GetConfig().enabled)
+        {
             Index::Build();
+            if (GetConfig().refine)
+                Refine::Build();
+        }
     }
 };
 

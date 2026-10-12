@@ -6,7 +6,9 @@ one clear window with search, filters and skill-up odds, recipes you haven't lea
 where to get them, a recipe tracker and a professions book on **K**.
 
 Crafting itself doesn't change. Every craft is the client's own `DoTradeSkill`, so skill-ups,
-cooldowns, discoveries and other modules' hooks behave as before.
+cooldowns, discoveries and other modules' hooks behave as before. The one thing the server does
+on its own is **Milling and Prospecting** from the window, which the client can only do one
+stack and one loot window at a time.
 
 ## What players get
 
@@ -56,6 +58,24 @@ cooldowns, discoveries and other modules' hooks behave as before.
   chance), world drops (how many creatures, level range), chests, containers, quests and
   discoveries. **Map** puts a flag on the trainer or vendor.
 
+**Milling and Prospecting**
+- A **Milling** tab (scribes) and a **Prospecting** tab (jewelcrafters) under the profession
+  tabs. The professions book has a button for each too.
+- Every herb or ore is a row, like a recipe: the ones you have enough of on top with how many
+  times you can do it (`Peacebloom [4+2]`, the reagent bank's in blue), the rest greyed below,
+  with the skill they need in red when yours is too low.
+- The pane shows what five of it give: every pigment or gem with how many and how likely, as the
+  server's loot tables have it. Search finds herbs and ore by what they give ("golden pigment").
+- **Mill All [n]** / **Prospect All [n]**, or an amount and **Mill** / **Prospect**. The server
+  works through your bags at the spell's own cast time and puts the results straight into your
+  bags: no clicking a stack, no loot window. Five can come from more than one stack.
+- **Stop** ends it. So does moving, combat, casting something else, opening a trade or closing
+  the window, like a cast being interrupted. What doesn't fit in your bags is mailed to you.
+- **Use reagent bank** works here too: herbs and ore come out of the bank first.
+- Same rules as the spells: you need to know Milling or Prospecting and have the skill the herb
+  or ore asks for. `SkillChance.Milling` / `SkillChance.Prospecting` skill-ups still apply. The
+  spells in the spellbook work as before.
+
 **Craft for profit** (with [mod-retail-ah](https://github.com/buildthehomelab/wow-mod-retail-ah)'s server)
 - The **coin button** beside Filter turns the list into a ranking of the recipes you know, in the
   spirit of TradeSkillMaster: what the item sells for on the auction house (after the house cut)
@@ -91,7 +111,8 @@ cooldowns, discoveries and other modules' hooks behave as before.
 **Professions book (K)**
 - Every profession and secondary skill with its rank and skill bar, an **Open** button, the
   gathering action where there is one (Find Herbs, Find Minerals, Smelting, Fishing) and
-  **Unlearn**. The addon binds **K** the first time, if K is free; otherwise set it under
+  **Unlearn**. For Inscription and Jewelcrafting, a **Milling** / **Prospecting** button that
+  opens the window on your herbs or ore. The addon binds **K** the first time, if K is free; otherwise set it under
   Key Bindings > Retail Professions. `/prof` also opens it.
 
 **Other**
@@ -128,7 +149,14 @@ The addon asks through addon whispers to itself (prefix `RPR`, like
 [mod-retail-ah](https://github.com/buildthehomelab/wow-mod-retail-ah)'s `RAH`). It caches a
 profession's list per data version, so the list travels once.
 
-Without the module the window still works, minus unlearned recipes, exact odds and sources.
+Without the module the window still works, minus unlearned recipes, exact odds, sources and the
+Milling and Prospecting tabs.
+
+For Milling and Prospecting the module reads `milling_loot_template`, `prospecting_loot_template`
+and the reference tables they point to at startup and works out each result's chance (groups,
+references and the drop rates included), which is what the window shows. A Mill All is a job on
+the server: every cast time it checks what the spell checks (spell known, skill, five in the
+bags), takes five, rolls the core's own loot table (`Loot::FillLoot`) and stores the result.
 
 The profit view asks mod-retail-ah's server for prices under that module's `RAH` prefix (its `K`
 request, which needs no auctioneer). Without it, or with `RetailAH.CraftPrices = 0`, the view
@@ -163,14 +191,15 @@ quicker.
 ## Configuration
 
 See `conf/mod_retail_professions.conf.dist`: master switch, the era skill cap, hiding locked
-continents, how many sources per kind, the world-drop threshold and saving zones.
+continents, how many sources per kind, the world-drop threshold, saving zones, and Milling and
+Prospecting from the window (`RetailProfessions.Refine.Enable`, `RetailProfessions.Refine.CastTime`).
 
 ## Development
 
 `lua tools/addon_smoke_test.lua addon/RetailProfessions` loads the addon against a stubbed
 3.3.5a API and a fake server and walks through opening a profession, filters, crafting, where to
 learn a recipe, tracking, the book, combat, the profit view (with a fake mod-retail-ah price
-server) and the classic switch.
+server), milling (its tab, Mill All, Stop, the reagent bank) and the classic switch.
 
 ## Troubleshooting
 
