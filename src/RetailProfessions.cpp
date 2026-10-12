@@ -7,12 +7,14 @@
  * answers come as "<X>R" (meta), any number of "<X>D" (rows) and "<X>E" (end).
  *
  *   HELLO:<req>:<protocol>   -> HELLO:<req>:<version>:<flags>:<stamp>:<skill cap>:<orange %>:<grey %>:<points>
+ *                               :<multicraft min>:<max>:<resourcefulness min>:<max>:<refund>:<speed min>:<max>
  *   L:<req>:<skill line>     -> LR:<req>:<skill>:<count>:<gm>, LD rows, LE   (RetailProfessionsIndex.cpp)
  *   W:<req>:<spell>          -> WR:<req>:<spell>:<recipe item>, WD rows, WE
  *   M:<req>:<T|V>:<entry>    -> M:<req>:ok:<where>   or ERR:<req>:none
  *   Y:<req>:<M|P>            -> YR:<req>:<kind>:<count>, YD rows, YE        (RetailProfessionsRefine.cpp)
  *   X:<req>:<M|P>:<item>:<n> -> X:<req>:ok:<n>:<cast ms>, then XP per cast and XE at the end
  *   XS:<req>                 -> XS:<req>:ok
+ *   (unasked)                   PK:0:<spell>:<M|R>:<item*n/...>   a craft proc      (RetailProfessionsPerks.cpp)
  *
  * Addon messages arrive as CMSG_MESSAGECHAT on the world thread, so requests are answered
  * straight from the hook.
@@ -24,6 +26,7 @@
 #include "Player.h"
 #include "QuestDef.h"
 #include "ScriptMgr.h"
+#include "StringFormat.h"
 #include "Timer.h"
 #include "World.h"
 #include "WorldPacket.h"
@@ -165,6 +168,18 @@ namespace RetailProfessions
             sConfig.saveZoneData = sConfigMgr->GetOption<bool>("RetailProfessions.SaveZoneData", true);
             sConfig.refine = sConfigMgr->GetOption<bool>("RetailProfessions.Refine.Enable", true);
             sConfig.refineCastTime = std::min<uint32>(sConfigMgr->GetOption<uint32>("RetailProfessions.Refine.CastTime", 0), 60000);
+            sConfig.perks = sConfigMgr->GetOption<bool>("RetailProfessions.Perks.Enable", true);
+            auto percent = [](char const* key, uint32 fallback, uint32 most)
+            {
+                return std::min<uint32>(sConfigMgr->GetOption<uint32>(key, fallback), most);
+            };
+            sConfig.multicraftMax = percent("RetailProfessions.Perks.Multicraft.Max", 25, 100);
+            sConfig.multicraftMin = percent("RetailProfessions.Perks.Multicraft.Min", 0, sConfig.multicraftMax);
+            sConfig.resourcefulMax = percent("RetailProfessions.Perks.Resourcefulness.Max", 20, 100);
+            sConfig.resourcefulMin = percent("RetailProfessions.Perks.Resourcefulness.Min", 0, sConfig.resourcefulMax);
+            sConfig.resourcefulRefund = percent("RetailProfessions.Perks.Resourcefulness.Refund", 30, 100);
+            sConfig.speedMax = percent("RetailProfessions.Perks.Speed.Max", 50, 90);
+            sConfig.speedMin = percent("RetailProfessions.Perks.Speed.Min", 0, sConfig.speedMax);
             sConfig.progressionEnabled = sConfigMgr->GetOption<bool>("IndividualProgression.Enable", false, false);
         }
 
@@ -185,11 +200,14 @@ namespace RetailProfessions
             uint32 orange = sWorld->getIntConfig(CONFIG_SKILL_CHANCE_ORANGE);
             uint32 grey = sWorld->getIntConfig(CONFIG_SKILL_CHANCE_GREY);
             uint32 gain = sWorld->getIntConfig(CONFIG_SKILL_GAIN_CRAFTING);
-            uint32 flags = HELLO_RECIPES | HELLO_MAP_PINS | (sConfig.refine ? HELLO_REFINE : 0);
+            uint32 flags = HELLO_RECIPES | HELLO_MAP_PINS | (sConfig.refine ? HELLO_REFINE : 0)
+                | (sConfig.perks ? HELLO_PERKS : 0);
             Send(player, "HELLO:" + req + ":" + std::to_string(PROTOCOL_VERSION) + ":"
                 + std::to_string(flags) + ":" + std::to_string(Index::Stamp())
                 + ":" + std::to_string(SkillCap(player)) + ":" + std::to_string(orange) + ":" + std::to_string(grey)
-                + ":" + std::to_string(gain));
+                + ":" + std::to_string(gain)
+                + Acore::StringFormat(":{}:{}:{}:{}:{}:{}:{}", sConfig.multicraftMin, sConfig.multicraftMax,
+                    sConfig.resourcefulMin, sConfig.resourcefulMax, sConfig.resourcefulRefund, sConfig.speedMin, sConfig.speedMax));
         }
 
         std::vector<std::string_view> Split(std::string_view text, char sep)
@@ -262,7 +280,8 @@ public:
         {
             PLAYERHOOK_CAN_PLAYER_USE_PRIVATE_CHAT,
             PLAYERHOOK_ON_LOGOUT,
-            PLAYERHOOK_ON_UPDATE
+            PLAYERHOOK_ON_UPDATE,
+            PLAYERHOOK_ON_CREATE_ITEM
         }) { }
 
     // The addon whispers itself; swallow those messages so they never show up as chat.
@@ -295,6 +314,22 @@ public:
     {
         Refine::Update(player, diff);
     }
+
+    void OnPlayerCreateItem(Player* player, Item* item, uint32 count) override
+    {
+        Perks::OnCreateItem(player, item, count);
+    }
+};
+
+class RetailProfessionsSpellScript : public AllSpellScript
+{
+public:
+    RetailProfessionsSpellScript() : AllSpellScript("RetailProfessionsSpellScript", { ALLSPELLHOOK_ON_PREPARE }) { }
+
+    void OnSpellPrepare(Spell* spell, Unit* caster, SpellInfo const* spellInfo) override
+    {
+        Perks::OnPrepare(spell, caster, spellInfo);
+    }
 };
 
 class RetailProfessionsWorldScript : public WorldScript
@@ -314,6 +349,9 @@ public:
     {
         if (GetConfig().enabled)
         {
+            // First: the recipe lists say which recipes get a perk.
+            if (GetConfig().perks)
+                Perks::Build();
             Index::Build();
             if (GetConfig().refine)
                 Refine::Build();
@@ -324,5 +362,6 @@ public:
 void AddRetailProfessionsScripts()
 {
     new RetailProfessionsPlayerScript();
+    new RetailProfessionsSpellScript();
     new RetailProfessionsWorldScript();
 }

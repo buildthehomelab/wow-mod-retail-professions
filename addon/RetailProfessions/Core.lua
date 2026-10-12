@@ -11,6 +11,12 @@ RPF.PROTOCOL = 1
 RPF.HELLO_RECIPES = 1   -- L and W: every recipe of a profession, and where to learn one
 RPF.HELLO_MAP_PINS = 2  -- M: a map flag on a trainer or vendor
 RPF.HELLO_REFINE = 4    -- Y and X: what herbs and ore give, and milling or prospecting them
+RPF.HELLO_PERKS = 8     -- crafts can make a second batch, give reagents back and cast faster
+
+-- What a craft of a recipe can get on top (the perks field of an L row).
+RPF.PERK_MULTICRAFT = 1
+RPF.PERK_RESOURCEFUL = 2
+RPF.PERK_SPEED = 4
 
 -- Where a recipe can be learned (the src field of an L row).
 RPF.SRC_TRAINER = 1
@@ -491,6 +497,17 @@ local function onHello(fields)
 	RPF.chanceOrange = tonumber(fields[5]) or 100
 	RPF.chanceGrey = tonumber(fields[6]) or 0
 	RPF.skillGain = tonumber(fields[7]) or 1
+	-- Multicraft, Resourcefulness and crafting speed, each in percent from where a recipe is
+	-- orange to where it's grey (Model.lua works a recipe's odds out from these).
+	RPF.perks = nil
+	if bit.band(RPF.flags, RPF.HELLO_PERKS) ~= 0 then
+		RPF.perks = {
+			multicraftMin = tonumber(fields[8]) or 0, multicraftMax = tonumber(fields[9]) or 0,
+			resourcefulMin = tonumber(fields[10]) or 0, resourcefulMax = tonumber(fields[11]) or 0,
+			refund = tonumber(fields[12]) or 0,
+			speedMin = tonumber(fields[13]) or 0, speedMax = tonumber(fields[14]) or 0,
+		}
+	end
 	RPF.Fire("READY")
 end
 
@@ -529,6 +546,13 @@ local function onAddonMessage(message)
 			return
 		end
 		finish(req, nil, rest)
+		return
+	end
+
+	-- A craft made a second batch (M) or gave reagents back (R): "<spell>:<M|R>:<item>*<n>/...".
+	if code == "PK" then
+		local spell, kind, list = rest:match("^(%d+):(%a):(.*)$")
+		if spell then RPF.Fire("PERK", tonumber(spell), kind, list) end
 		return
 	end
 
@@ -590,8 +614,8 @@ local function listKey(skill)
 end
 
 -- L row: spell, required skill, yellow, grey, product item, made min, made max, source bits,
--- reagents ("id*n/id*n" or "-"), product inventory type, product quality, recipe item, and
--- 1 when it's cast on an item (missing from older servers).
+-- reagents ("id*n/id*n" or "-"), product inventory type, product quality, recipe item,
+-- 1 when it's cast on an item, and the perks a craft can get (both missing from older servers).
 local function buildList(rows)
 	local list = {}
 	for _, r in ipairs(rows) do
@@ -603,7 +627,7 @@ local function buildList(rows)
 				green = floor((yellow + grey) / 2), item = tonumber(r[5]) or 0,
 				madeMin = tonumber(r[6]) or 1, madeMax = tonumber(r[7]) or 1, sources = tonumber(r[8]) or 0,
 				reagents = parseReagents(r[9]), invType = tonumber(r[10]) or 0, quality = tonumber(r[11]) or 1,
-				recipeItem = tonumber(r[12]) or 0,
+				recipeItem = tonumber(r[12]) or 0, perks = tonumber(r[14]) or 0,
 			}
 			-- nil from older servers: the addon falls back to its own guess.
 			if r[13] ~= nil then list[spell].targetsItem = tonumber(r[13]) == 1 end
