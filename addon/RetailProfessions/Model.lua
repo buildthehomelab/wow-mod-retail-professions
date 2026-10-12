@@ -78,6 +78,8 @@ local DIFFICULTY_TEXT = {
 -- server works it out, with how many points a skill-up gives) and where the recipe turns
 -- yellow, green and grey. For a recipe not learned yet, the skill it needs first.
 function RPF.AddSkillUpLines(tip, r)
+	-- Herbs and ore (Refine.lua) aren't recipes: no colour, no thresholds.
+	if r.refine then return end
 	local rank = M.rank or 0
 	local C = M.DIFFICULTY_COLOR
 	tip:AddLine(" ")

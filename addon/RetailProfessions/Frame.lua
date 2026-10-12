@@ -231,12 +231,16 @@ local function filterMenu()
 			Rebuild()
 		end
 	end
+	local refine = RPF.Refine.Active()
 	local items = {
 		{ text = "Filters", isTitle = true, notCheckable = true },
 		{ text = "Have materials", checked = f.haveMats, keepShownOnClick = true, isNotRadio = true, func = toggle("haveMats") },
-		{ text = "Has skill-up", checked = f.skillUp, keepShownOnClick = true, isNotRadio = true, func = toggle("skillUp") },
 	}
-	if M.hasServerData then
+	if not refine then
+		table.insert(items, { text = "Has skill-up", checked = f.skillUp, keepShownOnClick = true, isNotRadio = true,
+			func = toggle("skillUp") })
+	end
+	if M.hasServerData and not refine then
 		table.insert(items, { text = "Show unlearned recipes", checked = RetailProfessionsDB.showUnlearned, keepShownOnClick = true,
 			isNotRadio = true, func = function ()
 				RetailProfessionsDB.showUnlearned = not RetailProfessionsDB.showUnlearned
@@ -253,7 +257,7 @@ local function filterMenu()
 			end })
 	end
 
-	local slots = M.SlotsPresent()
+	local slots = refine and {} or M.SlotsPresent()
 	if #slots > 0 then
 		local sub = { { text = "All slots", checked = f.slot == nil, func = function () f.slot = nil; CloseDropDownMenus(); Rebuild() end } }
 		for _, slot in ipairs(slots) do
@@ -270,7 +274,8 @@ local function filterMenu()
 		Rebuild(true)
 	end })
 	table.insert(items, { text = "Collapse all", notCheckable = true, func = function ()
-		for _, row in ipairs(M.Rows({ unlearned = RetailProfessionsDB.showUnlearned }, {})) do
+		local all = refine and RPF.Refine.Rows({}, {}) or M.Rows({ unlearned = RetailProfessionsDB.showUnlearned }, {})
+		for _, row in ipairs(all) do
 			if row.key then RetailProfessionsCharDB.collapsed[row.key] = true end
 		end
 		Rebuild(true)
@@ -288,7 +293,7 @@ filterButton:SetScript("OnClick", function (self)
 end)
 
 local function profitView()
-	return RetailProfessionsDB.profitView and not M.linked
+	return RetailProfessionsDB.profitView and not M.linked and not RPF.Refine.Active()
 end
 
 profitButton:SetScript("OnClick", function ()
@@ -325,6 +330,7 @@ profitButton:SetScript("OnLeave", function () GameTooltip:Hide() end)
 
 local function filtersActive()
 	local f = RPF.filter
+	if RPF.Refine.Active() then return f.haveMats end
 	return f.haveMats or f.skillUp or f.slot or f.learnableOnly
 end
 
@@ -583,26 +589,41 @@ target:SetScript("OnLeave", function () GameTooltip:Hide() end)
 -----------------------------------------
 -- crafting
 
-local pendingCraft -- { spell, count, untilTime }: waiting for reagents from the bank
+local pendingCraft -- { key, count, untilTime }: waiting for reagents from the bank
+
+-- What tells one row from another: a recipe's spell, or a herb's or ore's key (Refine.lua).
+local function keyOf(r)
+	return r and (r.spell or r.key) or nil
+end
 
 local function updateControls()
 	local r = RPF.selected
 	local learned = r and r.learned and not M.linked
+	-- A herb to mill or ore to prospect: the server does those, and one job runs at a time.
+	local refine = learned and r.refine and RPF.Refine.Kind(r.refine) or nil
+	local job = RPF.Refine.job or RPF.Refine.starting
 	local bags, withBank = 0, 0
 	if learned then bags, withBank = M.Craftable(r) end
+	if refine and (RPF.Refine.SkillTooLow(r) or job) then bags, withBank = 0, 0 end
 	-- With the bank in use, what the bank holds counts as if it were in the bags.
 	if usingBank() then bags = math.max(bags, withBank) end
 	if pendingCraft then bags = 0 end
 	local onCooldown = learned and r.cooldown and r.cooldown > 0
 	local enchant = learned and r.isEnchant
 
-	RPF.SetEnabled(createButton, learned and bags > 0 and not onCooldown)
+	-- While a job runs, the button on its herbs and ore stops it.
+	local running = refine and RPF.Refine.job and true or false
+	RPF.SetEnabled(createButton, (learned and bags > 0 and not onCooldown) or running)
 	RPF.SetEnabled(createAllButton, learned and bags > 0 and not onCooldown and not enchant)
-	RPF.SetEnabled(plus, learned and not enchant)
-	RPF.SetEnabled(minus, learned and not enchant)
+	RPF.SetEnabled(plus, learned and not enchant and not (refine and job))
+	RPF.SetEnabled(minus, learned and not enchant and not (refine and job))
 	if enchant then setQuantity(1) end
-	createButton:SetText(r and r.learned and r.altVerb or CREATE or "Create")
-	createAllButton:SetText((CREATE_ALL or "Create All") .. " [" .. (enchant and 0 or bags) .. "]")
+	if running then
+		createButton:SetText("Stop")
+	else
+		createButton:SetText(refine and refine.verb or r and r.learned and r.altVerb or CREATE or "Create")
+	end
+	createAllButton:SetText((refine and refine.all or CREATE_ALL or "Create All") .. " [" .. (enchant and 0 or bags) .. "]")
 
 	if enchant then
 		target:Show(); target.label:Show()
@@ -614,7 +635,8 @@ local function updateControls()
 		trackCheck:Hide()
 		minus:Hide(); plus:Hide(); quantity:Hide(); createButton:Hide(); createAllButton:Hide()
 	else
-		trackCheck:Show()
+		-- The tracker follows recipes; a herb isn't one.
+		if refine then trackCheck:Hide() else trackCheck:Show() end
 		minus:Show(); plus:Show(); quantity:Show(); createButton:Show(); createAllButton:Show()
 	end
 	if bankWithdrawAvailable() and not M.linked then
@@ -684,7 +706,7 @@ local function craft(count, noConfirm)
 			end
 			local ok = pcall(_G.ReagentBankUI.WithdrawNeededForSelectedRecipe, _G.ReagentBankUI)
 			if ok then
-				pendingCraft = { spell = r.spell, count = count, untilTime = GetTime() + 10, noConfirm = noConfirm }
+				pendingCraft = { key = keyOf(r), count = count, untilTime = GetTime() + 10, noConfirm = noConfirm }
 				RPF.Status("Taking the reagents out of the reagent bank...")
 				updateControls()
 				RPF.After(10.1, function ()
@@ -702,6 +724,11 @@ local function craft(count, noConfirm)
 end
 
 craftNow = function (r, count, noConfirm)
+	if r.refine then
+		RPF.Refine.Start(r, count)
+		quantity:ClearFocus()
+		return
+	end
 	local index = M.IndexOf(r)
 	if not index then
 		RPF.Status("That recipe moved in the list; try again.", true)
@@ -722,7 +749,10 @@ craftNow = function (r, count, noConfirm)
 	quantity:ClearFocus()
 end
 
-createButton:SetScript("OnClick", function () craft(getQuantity(), IsShiftKeyDown()) end)
+createButton:SetScript("OnClick", function ()
+	if RPF.Refine.job and RPF.selected and RPF.selected.refine then RPF.Refine.Stop() return end
+	craft(getQuantity(), IsShiftKeyDown())
+end)
 createButton:SetScript("OnEnter", function (self)
 	local r = RPF.selected
 	if not (r and r.isEnchant and r.learned) then return end
@@ -737,6 +767,7 @@ createAllButton:SetScript("OnClick", function ()
 	if not r then return end
 	local bags, withBank = M.Craftable(r)
 	if usingBank() then bags = math.max(bags, withBank) end
+	if r.refine and (RPF.Refine.SkillTooLow(r) or RPF.Refine.job) then return end
 	if bags > 0 then
 		setQuantity(bags)
 		craft(bags)
@@ -763,11 +794,14 @@ local function updateHeader()
 	local texture = p and p.texture or (GetTradeSkillTexture and GetTradeSkillTexture()) or "Interface\\Icons\\INV_Misc_QuestionMark"
 	if frame.portrait then RPF.SetPortrait(frame.portrait, texture) else profIcon:SetTexture(texture) end
 	-- Someone else's linked profession: their name in the title.
-	title:SetText(M.linked and ((M.linkedName or "") .. " - " .. (M.skillName or "")) or (M.skillName or "Professions"))
+	local refine = RPF.Refine.Active()
+	title:SetText(refine and refine.name or M.linked and ((M.linkedName or "") .. " - " .. (M.skillName or ""))
+		or (M.skillName or "Professions"))
 	skillBar:SetMinMaxValues(0, math.max(1, M.maxRank or 1))
 	skillBar:SetValue(M.rank or 0)
 	skillText:SetText(string.format("%s %d/%d", M.skillName or "", M.rank or 0, M.maxRank or 0))
-	if M.linked then linkButton:Hide(); profitButton:Hide() else linkButton:Show(); profitButton:Show() end
+	if M.linked then linkButton:Hide() else linkButton:Show() end
+	if M.linked or refine then profitButton:Hide() else profitButton:Show() end
 	if profitView() then profitButton:LockHighlight() else profitButton:UnlockHighlight() end
 	filterButton:SetText(filtersActive() and ("|cff4fc3f7" .. (FILTER or "Filter") .. "|r") or (FILTER or "Filter"))
 end
@@ -780,14 +814,19 @@ Rebuild = function (viewOnly)
 	local state = { text = f.text, haveMats = f.haveMats, skillUp = f.skillUp, slot = f.slot,
 		unlearned = RetailProfessionsDB.showUnlearned and not M.linked, learnableOnly = f.learnableOnly,
 		favorites = not M.linked and RetailProfessionsCharDB.favorites or nil }
+	local refine = RPF.Refine.Active()
 	local rows
-	if profitView() then
+	if refine then
+		rows = RPF.Refine.Rows(state, RetailProfessionsCharDB.collapsed)
+	elseif profitView() then
 		RPF.Profit.Fetch(RPF.Profit.ProfessionEntries())
 		rows = RPF.Profit.Rows(state, RetailProfessionsCharDB.collapsed)
 	else
 		rows = M.Rows(state, RetailProfessionsCharDB.collapsed)
 	end
-	if profitView() and #rows == 0 and not ((filtersActive() or f.text ~= "") and RPF.Profit.state == "ok") then
+	if refine then
+		list:SetEmptyText(RPF.Refine.EmptyText(filtersActive() or f.text ~= ""))
+	elseif profitView() and #rows == 0 and not ((filtersActive() or f.text ~= "") and RPF.Profit.state == "ok") then
 		list:SetEmptyText(RPF.Profit.EmptyText())
 	elseif M.skill and not M.hasServerData and RPF.Has(RPF.HELLO_RECIPES) then
 		list:SetEmptyText("Loading recipes...")
@@ -798,11 +837,16 @@ Rebuild = function (viewOnly)
 	updateHeader()
 
 	-- Keep the selection when the recipe still exists (it's a new table after a scan).
-	local selected = RPF.selected and RPF.selected.spell and M.bySpell[RPF.selected.spell]
-	if not selected and RPF.selected and RPF.selected.learned then
+	local selected
+	if refine then
+		selected = RPF.selected and RPF.selected.refine == refine.code and RPF.Refine.ByKey(RPF.selected.key) or nil
+	else
+		selected = RPF.selected and RPF.selected.spell and M.bySpell[RPF.selected.spell]
+	end
+	if not selected and not refine and RPF.selected and RPF.selected.learned then
 		for _, r in ipairs(M.recipes) do if r.name == RPF.selected.name then selected = r break end end
 	end
-	if not selected then
+	if not selected and not refine then
 		local index = GetTradeSkillSelectionIndex and GetTradeSkillSelectionIndex() or 0
 		for _, r in ipairs(M.recipes) do if r.index == index then selected = r break end end
 	end
@@ -817,6 +861,8 @@ RPF.Rebuild = Rebuild
 function RPF.SelectSpell(spell)
 	local r = M.bySpell[spell]
 	if not r then return false end
+	-- Recipes, not herbs or ore.
+	RPF.Refine.SetView(nil)
 	if not r.learned then RetailProfessionsDB.showUnlearned = true end
 	RetailProfessionsCharDB.collapsed["h:" .. (r.header or "")] = nil
 	RPF.filter.text = ""
@@ -850,20 +896,23 @@ RPF.On("BAGS", function ()
 	if not frame:IsShown() then return end
 	-- The bank's reagents arrived: craft. If the game wants a click for that, say so.
 	local p = pendingCraft
-	if p and RPF.selected and RPF.selected.spell == p.spell and bagsCover(RPF.selected, p.count) then
+	if p and RPF.selected and keyOf(RPF.selected) == p.key and bagsCover(RPF.selected, p.count) then
 		pendingCraft = nil
 		local r = RPF.selected
 		craftNow(r, p.count, p.noConfirm)
-		RPF.After(0.6, function ()
-			if not UnitCastingInfo("player") and RPF.selected == r and bagsCover(r, p.count) then
-				RPF.Status("The reagents are in your bags. Press " .. (r.altVerb or CREATE or "Create") .. ".")
-			end
-		end)
-	elseif p and RPF.selected and RPF.selected.spell ~= p.spell then
+		-- Milling and prospecting need no cast from here: the server answers either way.
+		if not r.refine then
+			RPF.After(0.6, function ()
+				if not UnitCastingInfo("player") and RPF.selected == r and bagsCover(r, p.count) then
+					RPF.Status("The reagents are in your bags. Press " .. (r.altVerb or CREATE or "Create") .. ".")
+				end
+			end)
+		end
+	elseif p and RPF.selected and keyOf(RPF.selected) ~= p.key then
 		pendingCraft = nil
 	end
-	-- What's craftable decides the profit view's groups.
-	if profitView() then Rebuild(true) else list:Refresh() end
+	-- What's craftable decides the groups of the profit view and of the herbs and ore.
+	if profitView() or RPF.Refine.Active() then Rebuild(true) else list:Refresh() end
 	if RPF.selected then RPF.Fire("SELECTED", RPF.selected) end
 	updateControls()
 end)
@@ -881,6 +930,10 @@ RPF.On("ITEM_INFO", function ()
 	end
 end)
 RPF.On("FAVORITES", function () Rebuild(true) end)
+-- Recipes or herbs and ore: the view changed, or what herbs and ore give arrived.
+RPF.On("VIEW", function () Rebuild(true) end)
+RPF.On("YIELDS", function () if RPF.Refine.Active() then Rebuild(true) end end)
+RPF.On("REFINE", function () if frame:IsShown() then updateControls() end end)
 RPF.On("PRICES", function ()
 	if not frame:IsShown() then return end
 	-- A rebuild redraws the selected recipe too.

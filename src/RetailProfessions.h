@@ -7,7 +7,9 @@
  * the ones the player hasn't learned yet), the exact skill-up thresholds of each, and where an
  * unlearned recipe is taught, sold, dropped or rewarded.
  *
- * It never changes anything about crafting itself; every craft still goes through the core.
+ * Crafting itself still goes through the core. The one thing the module does on its own is
+ * Milling and Prospecting from the window (RetailProfessionsRefine.cpp): the spells work one
+ * stack and one loot window at a time, so the server works through the bags instead.
  *
  * Released under the MIT License.
  */
@@ -38,6 +40,7 @@ namespace RetailProfessions
     {
         HELLO_RECIPES  = 0x1, // L lists a profession's recipes, W says where one is learned
         HELLO_MAP_PINS = 0x2, // M flags a trainer or vendor on the map
+        HELLO_REFINE   = 0x4, // Y lists what herbs and ore give, X mills or prospects them
     };
 
     // Where a recipe can be learned: the source bits of an L row.
@@ -59,6 +62,8 @@ namespace RetailProfessions
         uint32 maxSourcesPerKind = 6;
         uint32 worldDropThreshold = 25;  // more droppers than this through a shared loot table = world drop
         bool saveZoneData = true;
+        bool refine = true;             // Milling and Prospecting from the window
+        uint32 refineCastTime = 0;      // ms per cast; 0 = the spell's own cast time
     };
 
     Config& GetConfig();
@@ -98,6 +103,24 @@ namespace RetailProfessions
         void HandleList(Player* player, std::string const& req, std::vector<std::string_view> const& args);
         void HandleWhere(Player* player, std::string const& req, std::vector<std::string_view> const& args);
         void HandleMapPin(Player* player, std::string const& req, std::vector<std::string_view> const& args);
+    }
+
+    // ---- RetailProfessionsRefine.cpp: Milling and Prospecting from the window ------------------
+
+    namespace Refine
+    {
+        // Reads the milling and prospecting loot tables. Only from OnStartup.
+        void Build();
+
+        void HandleYields(Player* player, std::string const& req, std::vector<std::string_view> const& args);
+        void HandleStart(Player* player, std::string const& req, std::vector<std::string_view> const& args);
+        void HandleStop(Player* player, std::string const& req);
+
+        // Runs the player's job, if they have one. From the player's own update.
+        void Update(Player* player, uint32 diff);
+
+        // Drops the player's job without telling them: they're logging out.
+        void Forget(Player* player);
     }
 }
 

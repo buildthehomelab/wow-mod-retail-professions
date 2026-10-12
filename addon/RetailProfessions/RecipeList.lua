@@ -104,6 +104,7 @@ function RPF.CreateRecipeList(parent, spec)
 			elseif IsModifiedClick("CHATLINK") then
 				local link = row.recipe.recipeLink or row.recipe.itemLink
 				if not link and row.recipe.spell then link = GetSpellLink and GetSpellLink(row.recipe.spell) end
+				if not link and row.recipe.source then link = select(2, GetItemInfo(row.recipe.source)) end
 				if link then ChatEdit_InsertLink(link) end
 			else
 				spec.onSelect(row.recipe)
@@ -115,6 +116,13 @@ function RPF.CreateRecipeList(parent, spec)
 			if not (row and row.recipe) then return end
 			local r = row.recipe
 			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+			-- A herb to mill or ore to prospect: the item, and what it gives.
+			if r.refine then
+				GameTooltip:SetHyperlink("item:" .. r.source)
+				RPF.Refine.AddTooltipLines(GameTooltip, r)
+				RPF.ShowItemTooltip(self)
+				return
+			end
 			if r.itemLink and r.itemLink:find("item:") then
 				GameTooltip:SetHyperlink(r.itemLink)
 			elseif r.item and r.item > 0 then
@@ -204,7 +212,7 @@ function RPF.CreateRecipeList(parent, spec)
 
 				local difficulty = M.DifficultyAt(r, rank) or "trivial"
 				local color = M.DIFFICULTY_COLOR[difficulty] or M.DIFFICULTY_COLOR.trivial
-				local showChevron = difficulty ~= "trivial"
+				local showChevron = difficulty ~= "trivial" and not r.refine
 				for _, c in ipairs(b.chevrons) do
 					c:SetVertexColor(color[1], color[2], color[3], r.learned and 1 or 0.5)
 					if showChevron then c:Show() else c:Hide() end
@@ -225,6 +233,9 @@ function RPF.CreateRecipeList(parent, spec)
 				b.text:SetText(name)
 				if not r.learned then
 					b.text:SetTextColor(0.55, 0.55, 0.55)
+				elseif r.refine then
+					-- White when there's enough to do it now.
+					if row.ready then b.text:SetTextColor(1, 1, 1) else b.text:SetTextColor(0.55, 0.55, 0.55) end
 				elseif difficulty == "trivial" then
 					b.text:SetTextColor(0.62, 0.62, 0.62)
 				else
@@ -233,6 +244,8 @@ function RPF.CreateRecipeList(parent, spec)
 
 				if row.right then
 					b.count:SetText(row.right)
+				elseif row.note then
+					b.count:SetText(row.note)
 				elseif r.learned then
 					b.count:SetText("")
 				else

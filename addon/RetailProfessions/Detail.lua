@@ -2,8 +2,9 @@
 -- what it requires (tools, a fire, a forge) beside it, how likely it is to raise your skill (a
 -- bar showing where it turns yellow, green and grey and where you are), the reagents with what
 -- you have, what the chosen amount is still short of with a button that puts it on the auction
--- house shopping list, and for a recipe you haven't learned, where to learn it. A faint picture
--- of the profession sits behind it all.
+-- house shopping list, and for a recipe you haven't learned, where to learn it. A herb to mill
+-- or ore to prospect (Refine.lua) shows what it gives instead. A faint picture of the profession
+-- sits behind it all.
 
 local RPF = RetailProfessions
 local M = RPF.Model
@@ -343,6 +344,80 @@ local function drawPrices(r, anchor)
 end
 
 -----------------------------------------
+-- what a herb gives when milled, or ore when prospected: likeliest first, in two columns when
+-- there's a lot (ore gives a dozen gems)
+
+local MAX_RESULTS = 20
+local RESULT_HEIGHT = 18
+local RESULT_COLUMN = 212
+local ONE_COLUMN = 8
+
+local resultTitle = label(pane, "GameFontNormalSmall")
+
+local resultRows = {}
+for i = 1, MAX_RESULTS do
+	local row = CreateFrame("Button", nil, pane)
+	row:SetSize(RESULT_COLUMN - 8, RESULT_HEIGHT)
+	row.icon = row:CreateTexture(nil, "ARTWORK")
+	row.icon:SetSize(14, 14)
+	row.icon:SetPoint("LEFT", row, "LEFT", 0, 0)
+	row.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+	row.text = label(row, "GameFontHighlightSmall")
+	row.text:SetPoint("LEFT", row.icon, "RIGHT", 6, 0)
+	row.text:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+	row.text:SetWordWrap(false)
+	row:SetScript("OnEnter", function (self) itemTooltip(self, self.link) end)
+	row:SetScript("OnLeave", RPF.HideItemTooltip)
+	row:SetScript("OnClick", function (self) linkOrNothing(self.link) end)
+	resultRows[i] = row
+end
+
+local resultMore = label(pane, "GameFontDisableSmall")
+
+local function hideResults()
+	resultTitle:Hide()
+	resultMore:Hide()
+	for _, row in ipairs(resultRows) do row:Hide() end
+end
+
+local function drawResults(r, anchor)
+	local kind = RPF.Refine.Kind(r.refine)
+	resultTitle:ClearAllPoints()
+	resultTitle:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -12)
+	resultTitle:SetText(string.format("%s 5 gives:", kind.verb))
+	resultTitle:Show()
+
+	local n = math.min(#r.results, MAX_RESULTS)
+	local perColumn = n > ONE_COLUMN and math.ceil(n / 2) or n
+	for i, row in ipairs(resultRows) do
+		local res = r.results[i]
+		if res and i <= n then
+			local info = RPF.Item(res.id)
+			local _, _, _, hex = RPF.QualityColor(info and info.quality or 1)
+			row.link = info and info.link or ("item:" .. res.id)
+			row.icon:SetTexture((info and info.texture) or RPF.ItemIcon(res.id) or "Interface\\Icons\\INV_Misc_QuestionMark")
+			row.text:SetText(string.format("%s %s%s|r |cff9d9d9d- %s|r", RPF.Refine.CountText(res), hex,
+				info and info.name or ("Item #" .. res.id), RPF.Refine.ChanceText(res)))
+			local column, line = i > perColumn and 1 or 0, (i - 1) % math.max(1, perColumn)
+			row:ClearAllPoints()
+			row:SetPoint("TOPLEFT", resultTitle, "BOTTOMLEFT", column * RESULT_COLUMN, -6 - line * RESULT_HEIGHT)
+			row:Show()
+		else
+			row:Hide()
+		end
+	end
+
+	if #r.results > n then
+		resultMore:ClearAllPoints()
+		resultMore:SetPoint("TOPLEFT", resultTitle, "BOTTOMLEFT", 0, -8 - perColumn * RESULT_HEIGHT)
+		resultMore:SetText(string.format("and %d rarer ones", #r.results - n))
+		resultMore:Show()
+	else
+		resultMore:Hide()
+	end
+end
+
+-----------------------------------------
 -- where to learn it
 
 local sourceTitle = label(pane, "GameFontNormalSmall")
@@ -506,6 +581,7 @@ local function showParts(on)
 		shopRow:Hide()
 		hideSources()
 		hidePrices()
+		hideResults()
 	end
 end
 
@@ -518,11 +594,13 @@ local function draw(r)
 	empty:Hide()
 	showParts(true)
 
-	-- What it makes.
+	-- What it makes; for a herb to mill or ore to prospect, the herb or ore itself.
 	local itemLink = r.itemLink and r.itemLink:find("item:") and r.itemLink or nil
-	local info = r.item and r.item > 0 and RPF.Item(r.item)
+	local shown = r.refine and r.source or r.item
+	local info = shown and shown > 0 and RPF.Item(shown)
 	icon.link = itemLink or (info and info.link) or (r.spell and GetSpellLink and GetSpellLink(r.spell)) or r.recipeLink
-	RPF.SetPortrait(icon.texture, (info and info.texture) or r.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
+	RPF.SetPortrait(icon.texture, (info and info.texture) or r.icon or (r.refine and RPF.Refine.Icon(r))
+		or "Interface\\Icons\\INV_Misc_QuestionMark")
 	local quality = info and info.quality or r.quality or 1
 	if quality >= 2 and not r.isEnchant then
 		local qr, qg, qb = RPF.QualityColor(quality)
@@ -535,12 +613,17 @@ local function draw(r)
 	nameText:SetText((r.isEnchant and "|cffffffff" or hex) .. r.name .. "|r")
 	star.texture:SetDesaturated(not RPF.IsFavorite(r.spell))
 	star.texture:SetAlpha(RPF.IsFavorite(r.spell) and 1 or 0.45)
+	-- Favorites are kept by spell; a herb or ore has none.
+	if r.refine then star:Hide() end
 	local p = M.profession
 	watermark:SetTexture(p and p.texture or nil)
 
 	-- Under the name: what it needs (red when you don't have it), else what it makes.
 	local sub
-	if r.tools and #r.tools > 0 then
+	if r.refine then
+		sub = string.format("|cffffd200Requires:|r %s%s %d|r", RPF.Refine.SkillTooLow(r) and "|cffff2020" or "|cffffffff",
+			M.skillName or "", r.reqSkill or 0)
+	elseif r.tools and #r.tools > 0 then
 		local names = {}
 		for _, t in ipairs(r.tools) do table.insert(names, (t.has and "|cffffffff" or "|cffff2020") .. t.name .. "|r") end
 		sub = "|cffffd200Requires:|r " .. table.concat(names, ", ")
@@ -568,6 +651,7 @@ local function draw(r)
 	local rows = drawReagents(r)
 	local below = drawShopping(r, #r.reagents > 0 and reagentSlots[rows] or noReagents)
 	below = drawPrices(r, below)
+	if r.refine then drawResults(r, below) else hideResults() end
 	if r.learned then
 		hideSources()
 	else

@@ -184,6 +184,8 @@ local items = {
 	[2589] = { "Linen Cloth", 1 }, [2320] = { "Coarse Thread", 1 }, [2996] = { "Bolt of Linen Cloth", 1 },
 	[2568] = { "Brown Linen Vest", 1, "INVTYPE_CHEST" }, [4308] = { "Green Linen Bracers", 2, "INVTYPE_WRIST" },
 	[4355] = { "Pattern: Green Linen Bracers", 2 }, [2321] = { "Fine Thread", 1 },
+	[2447] = { "Peacebloom", 1 }, [785] = { "Mageroyal", 1 }, [39151] = { "Alabaster Pigment", 1 },
+	[39334] = { "Dusky Pigment", 1 }, [43103] = { "Verdant Pigment", 2 },
 }
 local function itemLink(id) return "|cffffffff|Hitem:" .. id .. ":0:0:0:0:0:0:0:0|h[" .. items[id][1] .. "]|h|r" end
 function GetItemInfo(item)
@@ -198,6 +200,7 @@ function GetItemCount(id) return bags[id] or 0 end
 local spells = {
 	[3908] = "Tailoring", [2259] = "Alchemy", [2575] = "Mining", [2656] = "Smelting", [2580] = "Find Minerals",
 	[7620] = "Fishing", [2963] = "Bolt of Linen Cloth", [2385] = "Brown Linen Vest", [3914] = "Green Linen Bracers",
+	[45357] = "Inscription", [51005] = "Milling", [25229] = "Jewelcrafting", [31252] = "Prospecting",
 }
 local knownSpells = { Tailoring = true, Smelting = true, Mining = true, ["Find Minerals"] = true, Fishing = true }
 function GetSpellInfo(spell)
@@ -227,7 +230,8 @@ local tradeSkill = {
 }
 local selectedIndex = 0
 local crafted = {}
-function GetTradeSkillLine() return "Tailoring", 120, 150 end
+local tradeSkillLine = { "Tailoring", 120, 150 }
+function GetTradeSkillLine() return table.unpack(tradeSkillLine) end
 function GetNumTradeSkills() return #tradeSkill end
 function GetTradeSkillInfo(i)
 	local t = tradeSkill[i]
@@ -272,7 +276,8 @@ function SetPortraitToTexture(tex, path) tex.__portrait = path end
 -- ReagentBankUI, as far as we use it.
 local provider, withdrawn
 ReagentBankUI = {
-	GetCachedBankItemCount = function (_, id) return id == 2589 and 30 or 0 end,
+	banked = { [2589] = 30 },
+	GetCachedBankItemCount = function (self, id) return self.banked[id] or 0 end,
 	RegisterRecipeProvider = function (_, p) provider = p return true end,
 	RequestBankSnapshot = function () end,
 	NotifyRecipeProviderChanged = function () end,
@@ -356,11 +361,27 @@ local function serveAH(msg)
 end
 
 local sent = {}
+local millJob -- the request id of the milling job the fake server is running
 local function serve(msg)
 	local cmd, req = msg:match("^([^:]+):([^:]*)")
 	table.insert(sent, msg)
 	print("  -> " .. msg)
-	if cmd == "HELLO" then reply("HELLO:" .. req .. ":1:3:777:300:100:0:3")
+	if cmd == "HELLO" then reply("HELLO:" .. req .. ":1:7:777:300:100:0:3")
+	elseif cmd == "Y" then
+		-- Peacebloom, Mageroyal (a second pigment one time in four) and a herb past the skill.
+		reply("YR:" .. req .. ":M:3")
+		reply("YD:" .. req .. ":S,2447,1,Peacebloom;R,2447,39151,2,4,10000;S,785,50,Mageroyal;R,785,39334,2,3,10000")
+		reply("YD:" .. req .. ":R,785,43103,1,3,2500;S,36901,325,Goldclover;R,36901,39343,2,4,10000")
+		reply("YE:" .. req)
+	elseif cmd == "X" then
+		local item, count = msg:match("^X:[^:]*:M:(%d+):(%d+)$")
+		assert(item, "bad X request " .. msg)
+		millJob = req
+		reply("X:" .. req .. ":ok:" .. count .. ":1000")
+	elseif cmd == "XS" then
+		if millJob then reply("XE:" .. millJob .. ":1:4:stopped") end
+		millJob = nil
+		reply("XS:" .. req .. ":ok")
 	elseif cmd == "L" then
 		reply("LR:" .. req .. ":197:3:0")
 		reply("LD:" .. req .. ":2963,1,25,50,2996,1,1,1,2589*2,0,1,0,0;2385,10,45,70,2568,1,1,1,2589*3/2320*1,5,1,0")
@@ -834,6 +855,182 @@ step("enchants filter by the slot they go on", function ()
 	info.targetsItem, info.invType = false, 0
 	GetTradeSkillInfo, GetTradeSkillItemLink = oldInfo, oldLink
 	RPF.Rebuild()
+end)
+
+-----------------------------------------
+-- Milling: a tab of its own, the herbs as rows, and the server doing the work
+
+local function sentCount(pattern)
+	local n = 0
+	for _, m in ipairs(sent) do if m:match(pattern) then n = n + 1 end end
+	return n
+end
+local function rowNames()
+	local names = {}
+	for _, row in ipairs(RPF.list.rows) do table.insert(names, row.header and ("[" .. row.header .. "]") or row.recipe.name) end
+	return table.concat(names, ", ")
+end
+local createButton = buttonWithText("Create")
+local createAllButton = find(function (f) return f.__kind == "Button" and f.__text:find("^Create All") end)
+
+step("milling: no tab without the spell", function ()
+	assert(not RetailProfessionsRefineTabM.__shown, "a Milling tab for a tailor")
+end)
+
+step("milling: its tab opens Inscription on your herbs", function ()
+	table.insert(skillLines, 3, { "Inscription", false, 100, 150 })
+	knownSpells.Inscription, knownSpells.Milling = true, true
+	bags[2447] = 23
+	fire("SKILL_LINES_CHANGED")
+	tick(0.5)
+	local tab = RetailProfessionsRefineTabM
+	assert(tab.__shown and tab:GetAttribute("spell") == "Inscription", "Milling tab doesn't open Inscription")
+	assert(not RetailProfessionsRefineTabP.__shown, "a Prospecting tab without the spell")
+
+	-- The click: the tab says what it wants, the cast opens the profession.
+	tab.__scripts.PreClick(tab)
+	tradeSkillLine = { "Inscription", 100, 150 }
+	fire("TRADE_SKILL_SHOW")
+	tick(0.5)
+	assert(RPF.Refine.Active() == RPF.Refine.Kind("M"), "the window isn't on Milling")
+	assert(sentCount("^Y:%d+:M$") == 1, "what herbs give wasn't asked once")
+	assert(rowNames() == "[Herbs you can mill], Peacebloom, [Other herbs], Mageroyal, Goldclover", "rows: " .. rowNames())
+	assert(RPF.selected and RPF.selected.name == "Peacebloom", "the first herb isn't selected")
+	assert(createButton.__text == "Mill" and createButton:IsEnabled(), "Mill button: " .. createButton.__text)
+	-- 23 in the bags: four times five.
+	assert(createAllButton.__text == "Mill All [4]", "Mill All: " .. createAllButton.__text)
+	assert(textShown("Mill 5 gives:") and textShown("2%-4 .*Alabaster Pigment.*100%%"), "what it gives isn't shown")
+	assert(not tab.__shown, "with Inscription open the Milling tab still casts")
+end)
+
+step("milling: a herb past your skill, and search by what it gives", function ()
+	RPF.Select(RPF.Refine.ByKey("M:36901"))
+	assert(not createButton:IsEnabled() and not createAllButton:IsEnabled(), "Goldclover can be milled at skill 100")
+	assert(textShown("Requires:.*Inscription 325"), "the skill it needs isn't shown")
+	RPF.filter.text = "verdant"
+	RPF.Rebuild(true)
+	assert(rowNames() == "[Other herbs], Mageroyal", "search by pigment: " .. rowNames())
+	RPF.filter.text = ""
+	RPF.filter.haveMats = true
+	RPF.Rebuild(true)
+	assert(rowNames() == "[Herbs you can mill], Peacebloom", "have-materials: " .. rowNames())
+	RPF.filter.haveMats = false
+	RPF.Rebuild(true)
+end)
+
+step("milling: Mill All runs on the server and Stop ends it", function ()
+	RetailProfessionsDB.autoWithdraw = false
+	RPF.Select(RPF.Refine.ByKey("M:2447"))
+	local before = #crafted
+	createAllButton.__scripts.OnClick()
+	tick(0.2)
+	assert(sent[#sent]:match("^X:%d+:M:2447:4$"), "no job for 4 casts: " .. sent[#sent])
+	assert(#crafted == before, "a trade skill was cast for milling")
+	assert(RPF.Refine.job and RPF.Refine.job.total == 4, "no job running")
+	assert(createButton.__text == "Stop" and createButton:IsEnabled(), "no Stop button: " .. createButton.__text)
+	assert(not createAllButton:IsEnabled(), "Mill All still enabled during a job")
+
+	reply("XP:" .. millJob .. ":1:4:39151*3")
+	bags[2447] = 18
+	fire("BAG_UPDATE")
+	tick(0.5)
+	assert(textShown("Milling Peacebloom: 1 of 4"), "no progress line")
+
+	createButton.__scripts.OnClick()
+	tick(0.2)
+	assert(sent[#sent]:match("^XS:"), "Stop didn't reach the server")
+	assert(not RPF.Refine.job, "the job didn't end")
+	assert(textShown("Milled 5 x Peacebloom: 3 Alabaster Pigment"), "no summary")
+	assert(createButton.__text == "Mill" and createAllButton.__text == "Mill All [3]", "buttons after the job: "
+		.. createButton.__text .. " / " .. createAllButton.__text)
+end)
+
+step("milling: herbs come out of the reagent bank first", function ()
+	RetailProfessionsDB.autoWithdraw = true
+	ReagentBankUI.banked[785] = 12
+	RPF.Rebuild(true)
+	assert(rowNames():find("Herbs you can mill%], Peacebloom, Mageroyal"), "banked herbs don't count: " .. rowNames())
+	RPF.Select(RPF.Refine.ByKey("M:785"))
+	assert(createAllButton.__text == "Mill All [2]", "Mill All with the bank: " .. createAllButton.__text)
+	local before = sentCount("^X:")
+	withdrawn = nil
+	createAllButton.__scripts.OnClick()
+	assert(withdrawn and withdrawn.name == "Mageroyal" and withdrawn.count == 2
+		and withdrawn.reagents[1].itemEntry == 785 and withdrawn.reagents[1].requiredPerCraft == 5, "no withdraw of 10 Mageroyal")
+	assert(sentCount("^X:") == before, "milled before the herbs arrived")
+	bags[785] = 10
+	fire("BAG_UPDATE")
+	tick(0.5)
+	assert(sent[#sent]:match("^X:%d+:M:785:2$"), "didn't mill after the withdraw: " .. sent[#sent])
+	reply("XP:" .. millJob .. ":2:2:39334*5/43103*1")
+	reply("XE:" .. millJob .. ":2:2:done")
+	millJob = nil
+	bags[785] = nil
+	fire("BAG_UPDATE")
+	tick(0.5)
+	assert(textShown("Milled 10 x Mageroyal: 5 Dusky Pigment, 1 Verdant Pigment"), "no summary of both pigments")
+	ReagentBankUI.banked[785] = nil
+	RetailProfessionsDB.autoWithdraw = false
+end)
+
+step("milling: a refusal says why", function ()
+	RPF.Select(RPF.Refine.ByKey("M:2447"))
+	createButton.__scripts.OnClick()
+	-- The fake server answers ok; turn that one answer into a refusal.
+	local msg = table.remove(outbox, 1)
+	table.insert(sent, msg[2])
+	reply("ERR:" .. msg[2]:match("^X:(%d+)") .. ":combat")
+	tick(0.2)
+	assert(not RPF.Refine.job and textShown("you're in combat"), "refusal not shown")
+	assert(createButton.__text == "Mill" and createButton:IsEnabled(), "Mill button dead after a refusal")
+end)
+
+step("milling: the profession's tab goes back to its recipes, the book has a Milling button", function ()
+	local tab
+	for i = 1, 10 do
+		local b = _G["RetailProfessionsTab" .. i]
+		if b and not b.__shown then
+			-- The one tab that isn't a cast any more: Inscription's, while its herbs are showing.
+			tab = find(function (f) return f.__kind == "Button" and rawget(f, "button") == b and rawget(f, "onClick") end)
+			if tab then break end
+		end
+	end
+	assert(tab and tab.profession.id == 773, "Inscription's tab doesn't take the click")
+	tab.__scripts.OnClick(tab)
+	tick(0.2)
+	assert(not RPF.Refine.Active(), "still on Milling")
+	assert(not rowNames():find("Herbs you can mill"), "the herbs stayed in the list: " .. rowNames())
+	assert(createButton.__text == "Create", "Create button: " .. createButton.__text)
+	-- And the Milling tab, with Inscription open, switches without a cast.
+	local millTab = find(function (f) return f.__kind == "Button" and rawget(f, "code") == "M" end)
+	assert(millTab.onClick, "the Milling tab doesn't take the click")
+	millTab.__scripts.OnClick(millTab)
+	tick(0.2)
+	assert(RPF.Refine.Active(), "the Milling tab didn't switch")
+
+	RPF.ToggleBook()
+	local button = buttonWithText("Milling")
+	assert(button and button:IsVisible(), "no Milling button in the book")
+	button.__scripts.OnClick(button)
+	assert(not RetailProfessionsBook:IsShown() and RPF.Refine.Active(), "the book's Milling button")
+end)
+
+step("milling: closing the window stops the job; the next profession opens on recipes", function ()
+	RPF.Select(RPF.Refine.ByKey("M:2447"))
+	createButton.__scripts.OnClick()
+	tick(0.2)
+	assert(RPF.Refine.job, "no job to stop")
+	RetailProfessionsFrame:Hide()
+	tick(0.2)
+	assert(sent[#sent]:match("^XS:") and not RPF.Refine.job, "closing didn't stop the job")
+	fire("TRADE_SKILL_CLOSE")
+
+	tradeSkillLine = { "Tailoring", 120, 150 }
+	fire("TRADE_SKILL_SHOW")
+	tick(0.5)
+	assert(RetailProfessionsFrame:IsShown() and not RPF.Refine.Active(), "Tailoring opened on herbs")
+	assert(M.skill == 197 and #M.recipes == 2, "Tailoring's recipes are gone")
+	bags[2447] = nil
 end)
 
 step("closing the window closes the trade skill", function ()
