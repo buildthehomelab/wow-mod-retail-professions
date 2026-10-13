@@ -6,26 +6,54 @@ local RPF = RetailProfessions
 local M = RPF.Model
 
 local frame = RPF.frame
-local TAB_SIZE = 40
-local MAX_TABS = 10
+local dragon = RPF.Dragon() and true or false
+-- Every profession with a window, should one character know them all.
+local MAX_TABS = 12
+-- The column runs from under the title bar to just above the window's bottom edge. A tab is an
+-- icon on a plate, PITCH apart; with more tabs than fit at that size (a dozen professions and
+-- both refine tabs), they all shrink until the column fits.
+local COLUMN_TOP, COLUMN_BOTTOM = 36, 14
+local PITCH, MIN_PITCH = 42, 24
+local PAD, GAP = 3, 4
+local REFINE_GAP = 8
+-- Under DragonUI the plate's left edge goes beneath the metal frame (whose outer edge lies
+-- about 4 inside the window's own), so the tab grows out of the window. The stock dialog border
+-- is drawn by the window itself, under its children, so there the plate stops short of it.
+local TAB_X = dragon and -1 or 1
+local TUCK = dragon and 3 or 0
+
+local PLATE = {
+	bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
+	edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+	tile = true, tileSize = 16, edgeSize = 10,
+	insets = { left = 2, right = 2, top = 2, bottom = 2 },
+}
 
 -- A tab is drawn here and clicked through the secure button lying over it, which casts the
 -- spell that opens the profession. Where nothing has to be cast (the profession is already
 -- open and only the view changes), the button steps aside and the tab takes the click itself.
 local function createTab(buttonName, tip)
 	local tab = CreateFrame("Button", nil, frame)
-	tab:SetSize(TAB_SIZE, TAB_SIZE)
-	tab.bg = tab:CreateTexture(nil, "BACKGROUND")
-	tab.bg:SetTexture("Interface\\SpellBook\\SpellBook-SkillLineTab")
-	tab.bg:SetSize(64, 64)
-	tab.bg:SetPoint("TOPLEFT", tab, "TOPLEFT", -4, 11)
+	tab:SetFrameLevel(frame:GetFrameLevel() + 2)
+	tab.plate = CreateFrame("Frame", nil, tab)
+	tab.plate:SetFrameLevel(frame:GetFrameLevel() + 1)
+	tab.plate:SetPoint("TOPLEFT", tab, "TOPLEFT", -PAD - TUCK, PAD)
+	tab.plate:SetPoint("BOTTOMRIGHT", tab, "BOTTOMRIGHT", PAD, -PAD)
+	tab.plate:SetBackdrop(PLATE)
+	tab.plate:SetBackdropColor(0.03, 0.03, 0.03, 0.92)
 	tab.icon = tab:CreateTexture(nil, "ARTWORK")
-	tab.icon:SetSize(TAB_SIZE - 6, TAB_SIZE - 6)
-	tab.icon:SetPoint("CENTER", tab, "CENTER")
+	tab.icon:SetAllPoints(tab)
+	-- Without the bevel painted into every icon.
+	tab.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
 	tab.checked = tab:CreateTexture(nil, "OVERLAY")
 	tab.checked:SetTexture("Interface\\Buttons\\CheckButtonHilight")
 	tab.checked:SetBlendMode("ADD")
-	tab.checked:SetAllPoints(tab.icon)
+	tab.checked:SetAllPoints(tab)
+	-- For the clicks the tab takes itself; the secure button has a highlight of its own.
+	local hl = tab:CreateTexture(nil, "HIGHLIGHT")
+	hl:SetTexture("Interface\\Buttons\\ButtonHilight-Square")
+	hl:SetBlendMode("ADD")
+	hl:SetAllPoints(tab)
 	tab:Hide()
 
 	local function onEnter(self)
@@ -40,8 +68,31 @@ local function createTab(buttonName, tip)
 	return tab
 end
 
+-- The tab of what the window shows has a gold edge and its icon lit; the others stand back.
 local function setChecked(tab, on)
-	if on then tab.checked:Show() else tab.checked:Hide() end
+	if on then
+		tab.checked:Show()
+		tab.plate:SetBackdropBorderColor(1, 0.82, 0, 1)
+		tab.icon:SetVertexColor(1, 1, 1)
+	else
+		tab.checked:Hide()
+		tab.plate:SetBackdropBorderColor(0.45, 0.45, 0.45, 1)
+		tab.icon:SetVertexColor(0.8, 0.8, 0.8)
+	end
+end
+
+-- How far apart `count` tabs go: PITCH, or less when that many don't fit in the column.
+local function pitchFor(count, refine)
+	local room = frame:GetHeight() - COLUMN_TOP - COLUMN_BOTTOM - (refine and REFINE_GAP or 0)
+	return math.max(MIN_PITCH, math.min(PITCH, math.floor(room / math.max(count, 1))))
+end
+
+-- Puts a tab on the column's nth row (from 0), `drop` further down.
+local function place(tab, row, pitch, drop)
+	local size = pitch - GAP - 2 * PAD
+	tab:SetSize(size, size)
+	tab:ClearAllPoints()
+	tab:SetPoint("TOPLEFT", frame, "TOPRIGHT", TAB_X, -COLUMN_TOP - PAD - row * pitch - drop)
 end
 
 local tabs = {}
@@ -53,7 +104,6 @@ for i = 1, MAX_TABS do
 		if tab.rank then GameTooltip:AddLine(tab.rank .. " / " .. tab.maxRank, 1, 1, 1) end
 		return true
 	end)
-	tabs[i]:SetPoint("TOPLEFT", frame, "TOPRIGHT", -2, -40 - (i - 1) * (TAB_SIZE + 8))
 end
 
 -- Milling and Prospecting (Refine.lua) get a tab each under the professions: the herbs or ore
@@ -73,48 +123,58 @@ for _, code in ipairs({ "M", "P" }) do
 end
 
 local function refresh()
-	local n = 0
-	local shown = {}
 	local viewing = RPF.Refine.Active()
+	local open, shown = {}, {}
 	if RetailProfessionsDB then
 		for _, known in ipairs(RPF.KnownProfessions()) do
 			local p = known.profession
 			-- GetSpellInfo by name only answers for spells you know.
-			if p.openName and GetSpellInfo(p.openName) and n < MAX_TABS then
-				n = n + 1
-				local tab = tabs[n]
-				tab.profession, tab.rank, tab.maxRank = p, known.rank, known.maxRank
-				tab.icon:SetTexture(p.texture)
-				local current = M.profession == p and not M.linked
-				setChecked(tab, current and not viewing)
-				tab.icon:SetDesaturated(RPF.InCombat())
-				tab:Show()
-				if current and viewing then
-					-- Already open, showing its herbs or ore: the tab goes back to the recipes.
-					tab.onClick = function () RPF.Refine.SetView(nil) end
-					RPF.BindSpellButton(tab.button, nil, nil)
-				else
-					tab.onClick = nil
-					RPF.BindSpellButton(tab.button, tab, p.openName, frame)
-				end
+			if p.openName and GetSpellInfo(p.openName) and #open < MAX_TABS then
+				table.insert(open, known)
 				shown[p.id] = p
 			end
 		end
 	end
-	for i = n + 1, MAX_TABS do
-		tabs[i]:Hide()
-		tabs[i].profession = nil
-		RPF.BindSpellButton(tabs[i].button, nil, nil)
-	end
-
-	local row = n
+	local refining = 0
 	for _, tab in ipairs(refineTabs) do
 		local kind = RPF.Refine.Known(tab.code)
-		local p = kind and shown[kind.skill]
-		if p then
-			tab.kind = kind
-			tab:ClearAllPoints()
-			tab:SetPoint("TOPLEFT", frame, "TOPRIGHT", -2, -40 - row * (TAB_SIZE + 8) - 12)
+		tab.kind = kind and shown[kind.skill] and kind or nil
+		if tab.kind then refining = refining + 1 end
+	end
+	local pitch = pitchFor(#open + refining, refining > 0)
+
+	for i, tab in ipairs(tabs) do
+		local known = open[i]
+		if known then
+			local p = known.profession
+			tab.profession, tab.rank, tab.maxRank = p, known.rank, known.maxRank
+			place(tab, i - 1, pitch, 0)
+			tab.icon:SetTexture(p.texture)
+			local current = M.profession == p and not M.linked
+			setChecked(tab, current and not viewing)
+			tab.icon:SetDesaturated(RPF.InCombat())
+			tab:Show()
+			if current and viewing then
+				-- Already open, showing its herbs or ore: the tab goes back to the recipes.
+				tab.onClick = function () RPF.Refine.SetView(nil) end
+				RPF.BindSpellButton(tab.button, nil, nil)
+			else
+				tab.onClick = nil
+				RPF.BindSpellButton(tab.button, tab, p.openName, frame)
+			end
+		else
+			tab:Hide()
+			tab.profession = nil
+			RPF.BindSpellButton(tab.button, nil, nil)
+		end
+	end
+
+	local row = #open
+	for _, tab in ipairs(refineTabs) do
+		local kind = tab.kind
+		if kind then
+			local p = shown[kind.skill]
+			place(tab, row, pitch, REFINE_GAP)
 			row = row + 1
 			tab.icon:SetTexture(kind.texture or p.texture)
 			setChecked(tab, viewing == kind)
@@ -131,7 +191,6 @@ local function refresh()
 				RPF.BindSpellButton(tab.button, tab, p.openName, frame)
 			end
 		else
-			tab.kind = nil
 			tab:Hide()
 			RPF.BindSpellButton(tab.button, nil, nil)
 		end
