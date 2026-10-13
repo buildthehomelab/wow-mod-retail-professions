@@ -201,6 +201,8 @@ local spells = {
 	[3908] = "Tailoring", [2259] = "Alchemy", [2575] = "Mining", [2656] = "Smelting", [2580] = "Find Minerals",
 	[7620] = "Fishing", [2963] = "Bolt of Linen Cloth", [2385] = "Brown Linen Vest", [3914] = "Green Linen Bracers",
 	[45357] = "Inscription", [51005] = "Milling", [25229] = "Jewelcrafting", [31252] = "Prospecting",
+	[2018] = "Blacksmithing", [7411] = "Enchanting", [4036] = "Engineering", [2108] = "Leatherworking",
+	[2550] = "Cooking", [3273] = "First Aid", [53428] = "Runeforging",
 }
 local knownSpells = { Tailoring = true, Smelting = true, Mining = true, ["Find Minerals"] = true, Fishing = true }
 -- Crafts take three seconds here.
@@ -1075,6 +1077,57 @@ step("milling: closing the window stops the job; the next profession opens on re
 	assert(RetailProfessionsFrame:IsShown() and not RPF.Refine.Active(), "Tailoring opened on herbs")
 	assert(M.skill == 197 and #M.recipes == 2, "Tailoring's recipes are gone")
 	bags[2447] = nil
+end)
+
+-- The tabs down the right edge: at full size while they fit, smaller when a character knows
+-- every profession, and never past the bottom of the window.
+step("tabs: a full column stays inside the window", function ()
+	local function column()
+		local out = {}
+		for i = 1, 12 do
+			local b = _G["RetailProfessionsTab" .. i]
+			if b and b.__shown then table.insert(out, b.region) end
+		end
+		for _, b in ipairs({ RetailProfessionsRefineTabM, RetailProfessionsRefineTabP }) do
+			if b.__shown then table.insert(out, b.region) end
+		end
+		return out
+	end
+	local few = column()
+	assert(#few == 4, "tabs before: " .. #few)
+	assert(few[1]:GetHeight() == 32, "a short column's tabs aren't full size: " .. few[1]:GetHeight())
+
+	local extra = { "Alchemy", "Blacksmithing", "Enchanting", "Engineering", "Jewelcrafting", "Leatherworking",
+		"Cooking", "First Aid", "Runeforging" }
+	for _, name in ipairs(extra) do
+		table.insert(skillLines, 2, { name, false, 300, 300 })
+		knownSpells[name] = true
+	end
+	knownSpells.Prospecting = true
+	fire("SKILL_LINES_CHANGED")
+	tick(0.5)
+
+	local all = column()
+	assert(#all == 14, "tabs with every profession: " .. #all)
+	local size = all[1]:GetHeight()
+	assert(size < 32 and size >= 14, "a full column's tabs didn't shrink: " .. size)
+	local last
+	for i, tab in ipairs(all) do
+		local top = -tab.__point[5]
+		assert(tab:GetHeight() == size and tab:GetWidth() == size, "tab " .. i .. " has its own size")
+		assert(not last or top >= last + size, "tab " .. i .. " lies over the one above")
+		last = top
+	end
+	assert(last + size <= RetailProfessionsFrame:GetHeight(), "the column runs past the window: " .. (last + size))
+
+	for _, name in ipairs(extra) do
+		table.remove(skillLines, 2)
+		knownSpells[name] = nil
+	end
+	knownSpells.Prospecting = nil
+	fire("SKILL_LINES_CHANGED")
+	tick(0.5)
+	assert(#column() == 4 and column()[1]:GetHeight() == 32, "the tabs didn't grow back")
 end)
 
 step("closing the window closes the trade skill", function ()
