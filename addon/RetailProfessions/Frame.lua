@@ -611,6 +611,7 @@ target:SetScript("OnLeave", function () GameTooltip:Hide() end)
 -- crafting
 
 local pendingCraft -- { key, count, untilTime }: waiting for reagents from the bank
+local countdown -- { key, name, left, shown }: what Create started, counted down in the amount box
 
 -- What tells one row from another: a recipe's spell, or a herb's or ore's key (Refine.lua).
 local function keyOf(r)
@@ -765,10 +766,56 @@ craftNow = function (r, count, noConfirm)
 		end
 		return
 	end
+	-- Set first: a cast that can't start fails inside DoTradeSkill, and that ends it.
+	RPF.StartCountdown(keyOf(r), (GetTradeSkillInfo(index)), count)
 	DoTradeSkill(index, count)
 	-- Typing a number and pressing Create straight away leaves the box focused.
 	quantity:ClearFocus()
 end
+
+-- The amount counts down as the casts finish, so after an interruption Create makes only
+-- what's still to do. The box is shared, so it shows the count only while that recipe is
+-- selected, and again when it's picked once more. An amount the player typed ends it.
+local function showCountdown()
+	local c = countdown
+	if not c then return end
+	if getQuantity() ~= c.shown then
+		countdown = nil
+		return
+	end
+	if keyOf(RPF.selected) == c.key then
+		c.shown = math.max(1, c.left)
+		setQuantity(c.shown)
+	end
+end
+
+-- name: the cast to count (nil when the counts come from elsewhere, as for Milling);
+-- count: what the box holds for it.
+function RPF.StartCountdown(key, name, count)
+	countdown = { key = key, name = name, left = count, shown = count }
+end
+
+-- Milling and Prospecting: the server says how many casts are left.
+function RPF.CountdownLeft(key, left)
+	if not (countdown and countdown.key == key) then return end
+	countdown.left = left
+	showCountdown()
+end
+
+RPF.On("CAST", function (event, spellName)
+	local c = countdown
+	if not (c and c.name and spellName == c.name) then return end
+	if event ~= "UNIT_SPELLCAST_SUCCEEDED" then
+		-- Create again mid-batch fails with "another action is in progress" under the same
+		-- name while the batch goes on (3.3.5 events carry no cast id).
+		if UnitCastingInfo("player") == c.name then return end
+		countdown = nil
+		return
+	end
+	if c.left <= 0 then return end
+	c.left = c.left - 1
+	showCountdown()
+end)
 
 createButton:SetScript("OnClick", function ()
 	if RPF.Refine.job and RPF.selected and RPF.selected.refine then RPF.Refine.Stop() return end
@@ -805,6 +852,8 @@ function RPF.Select(r, reveal)
 		if index and SelectTradeSkill then SelectTradeSkill(index) end
 	end
 	if r then M.Details(r) end
+	-- Back on a recipe that was crafting: what it still has to make.
+	showCountdown()
 	RPF.Fire("SELECTED", r)
 	updateControls()
 	if reveal then list:Reveal(r) else list:Refresh() end

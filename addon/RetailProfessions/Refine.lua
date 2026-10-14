@@ -303,6 +303,7 @@ function R.Start(r, count)
 		end
 		R.job = { req = req, kind = kind, recipe = r, total = tonumber(result[2]) or count, done = 0, gained = {},
 			order = {}, castTime = (tonumber(result[3]) or 1000) / 1000, lastAt = GetTime() }
+		RPF.StartCountdown(r.key, nil, count)
 		RPF.Status(string.format("%s %s: 0 of %d...", kind.name, r.name, R.job.total))
 		watch(R.job)
 		RPF.Fire("REFINE")
@@ -325,6 +326,9 @@ RPF.On("REFINE_PROGRESS", function (req, fields)
 		job.gained[id] = (job.gained[id] or 0) + tonumber(n)
 	end
 	RPF.Status(string.format("%s %s: %d of %d...", job.kind.name, job.recipe.name, job.done, job.total))
+	-- The amount counts down as the casts finish (Frame.lua), so after a stop Mill does only
+	-- what's left.
+	RPF.CountdownLeft(job.recipe.key, job.total - job.done)
 	watch(job)
 end)
 

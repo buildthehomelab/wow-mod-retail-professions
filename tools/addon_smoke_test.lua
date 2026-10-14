@@ -535,6 +535,64 @@ step("create and create all", function ()
 	assert(name == "Bolt of Linen Cloth" and list[1].itemEntry == 2589 and list[1].requiredPerCraft == 2, "provider recipe")
 end)
 
+step("the amount counts down as the crafts finish", function ()
+	RPF.Select(M.bySpell[2963])
+	local create = buttonWithText("Create")
+	local function bolt(event) fire(event or "UNIT_SPELLCAST_SUCCEEDED", "player", "Bolt of Linen Cloth") end
+	RPF.SetQuantity(3)
+	create.__scripts.OnClick()
+	assert(crafted[#crafted][2] == 3, "Create count: " .. tostring(crafted[#crafted][2]))
+	bolt()
+	assert(RPF.GetQuantity() == 2, "after one craft: " .. RPF.GetQuantity())
+	-- Someone else's cast and another spell don't count.
+	fire("UNIT_SPELLCAST_SUCCEEDED", "party1", "Bolt of Linen Cloth")
+	fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Fireball")
+	assert(RPF.GetQuantity() == 2, "counted a cast that wasn't ours: " .. RPF.GetQuantity())
+	-- Interrupted: the amount is what's left, and Create makes only that.
+	bolt("UNIT_SPELLCAST_INTERRUPTED")
+	bolt()
+	assert(RPF.GetQuantity() == 2, "counted after the interrupt: " .. RPF.GetQuantity())
+	create.__scripts.OnClick()
+	assert(crafted[#crafted][2] == 2, "Create after the interrupt: " .. tostring(crafted[#crafted][2]))
+	bolt(); bolt()
+	assert(RPF.GetQuantity() == 1, "after the last craft: " .. RPF.GetQuantity())
+	-- Create again mid-batch: the game refuses it under the same name while the batch goes on.
+	RPF.SetQuantity(4)
+	create.__scripts.OnClick()
+	bolt()
+	UnitCastingInfo = function () return "Bolt of Linen Cloth" end
+	create.__scripts.OnClick()
+	bolt("UNIT_SPELLCAST_FAILED")
+	UnitCastingInfo = function () return nil end
+	bolt()
+	assert(RPF.GetQuantity() == 2, "a refused second Create stopped the count: " .. RPF.GetQuantity())
+	-- Another recipe picked mid-batch keeps its amount; back on this one, what's left.
+	local other = M.bySpell[2385]
+	assert(other and other.learned, "no second learned recipe")
+	RPF.Select(other)
+	bolt()
+	assert(RPF.GetQuantity() == 2, "counted down on another recipe: " .. RPF.GetQuantity())
+	bolt()
+	RPF.Select(M.bySpell[2963])
+	assert(RPF.GetQuantity() == 1, "back on the recipe: " .. RPF.GetQuantity())
+	-- A cast that never starts (fails inside DoTradeSkill) leaves nothing to count.
+	RPF.SetQuantity(3)
+	local realDo = DoTradeSkill
+	DoTradeSkill = function (i, n) realDo(i, n); bolt("UNIT_SPELLCAST_FAILED") end
+	create.__scripts.OnClick()
+	DoTradeSkill = realDo
+	bolt()
+	assert(RPF.GetQuantity() == 3, "counted a cast after a failed start: " .. RPF.GetQuantity())
+	-- An amount typed while crafting is the player's: it isn't counted down.
+	RPF.SetQuantity(4)
+	create.__scripts.OnClick()
+	RPF.SetQuantity(9)
+	bolt()
+	assert(RPF.GetQuantity() == 9, "typed amount changed: " .. RPF.GetQuantity())
+	bolt("UNIT_SPELLCAST_INTERRUPTED")
+	RPF.SetQuantity(1)
+end)
+
 step("unlearned recipe: where to learn, map pin", function ()
 	RPF.Select(M.bySpell[3914])
 	tick(0.5)
@@ -1037,12 +1095,14 @@ step("milling: Mill All runs on the server and Stop ends it", function ()
 	fire("BAG_UPDATE")
 	tick(0.5)
 	assert(textShown("Milling Peacebloom: 1 of 4"), "no progress line")
+	assert(RPF.GetQuantity() == 3, "Mill All didn't count down: " .. RPF.GetQuantity())
 
 	createButton.__scripts.OnClick()
 	tick(0.2)
 	assert(sent[#sent]:match("^XS:"), "Stop didn't reach the server")
 	assert(not RPF.Refine.job, "the job didn't end")
 	assert(textShown("Milled 5 x Peacebloom: 3 Alabaster Pigment"), "no summary")
+	assert(RPF.GetQuantity() == 3, "the amount left after Stop: " .. RPF.GetQuantity())
 	assert(createButton.__text == "Mill" and createAllButton.__text == "Mill All [3]", "buttons after the job: "
 		.. createButton.__text .. " / " .. createAllButton.__text)
 end)
