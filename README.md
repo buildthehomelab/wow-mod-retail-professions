@@ -96,7 +96,9 @@ crafting speed**, earned by skill.
 - **Craft procs log** (the note button beside the chat link, or `/prof log`): every Multicraft
   and Resourcefulness with the recipe, the items and what they're worth at auction-house prices,
   plus how often each comes up (procs per craft) for this session and all time on the character.
-  Crafts are counted while the window is open. A checkbox there turns the scrolling text off.
+  Every craft started from a profession window counts, Create All included; the rate only
+  counts procs from those crafts. A proc's worth is priced when it happens, so procs before the
+  addon has auction prices count as unpriced. A checkbox there turns the scrolling text off.
 - Extras that don't fit in your bags are mailed.
 - Three kinds of recipe only get the speed:
   - the ones the core already rolls extra items for through an alchemy mastery: most potions,

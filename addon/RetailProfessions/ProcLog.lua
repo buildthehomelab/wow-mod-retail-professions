@@ -17,11 +17,12 @@ local BIT = { M = RPF.PERK_MULTICRAFT, R = RPF.PERK_RESOURCEFUL }
 local L = {}
 RPF.ProcLog = L
 
--- Per kind: procs, items they gave, what those were worth (copper, when priced) and how many
--- crafts could have got one.
+-- Per kind: procs, items they gave, what those were worth (copper, when priced at the time), how
+-- many crafts could have got one, and how many procs came from those crafts (the rate's top half:
+-- a proc from a craft that wasn't counted would push it past 100%).
 local function blank()
 	local t = {}
-	for _, kind in ipairs(KINDS) do t[kind] = { procs = 0, items = 0, value = 0, crafts = 0 } end
+	for _, kind in ipairs(KINDS) do t[kind] = { procs = 0, items = 0, value = 0, crafts = 0, rated = 0 } end
 	return t
 end
 
@@ -38,9 +39,15 @@ local function eachItem(list, fn)
 	for id, n in (list or ""):gmatch("(%d+)%*(%d+)") do fn(tonumber(id), tonumber(n)) end
 end
 
+-- Set when a line had to make do without an item's name; the log redraws once it arrives.
+local missingNames = false
+
 local function itemName(id, link)
 	local info = RPF.Item(id)
-	if not info then return "item " .. id end
+	if not info then
+		missingNames = true
+		return "item " .. id
+	end
 	return link and info.link or info.name
 end
 
@@ -65,18 +72,18 @@ function L.EntryText(e)
 	return text
 end
 
--- "Multicraft: 4 in 30 crafts (13%), +9 items, worth 1g 20s"
+-- "Multicraft: 4 procs, 13% of 30 crafts, +9 items, worth 1g 20s"
 function L.SummaryText(totals, kind)
 	local t = totals[kind]
 	local text = HEX[kind] .. LABEL[kind] .. ":|r "
 	if t.procs == 0 and t.crafts == 0 then return text .. "|cff888888none yet|r" end
+	text = text .. t.procs .. (t.procs == 1 and " proc" or " procs")
 	if t.crafts > 0 then
-		text = text .. string.format("%d in %d crafts (%d%%)", t.procs, t.crafts, math.floor(t.procs * 100 / t.crafts + 0.5))
-	else
-		text = text .. t.procs .. (t.procs == 1 and " proc" or " procs")
+		text = text .. string.format(", %d%% of %d crafts", math.floor((t.rated or 0) * 100 / t.crafts + 0.5), t.crafts)
 	end
 	if t.items > 0 then
-		text = text .. (kind == "M" and (", +" .. t.items .. " items") or (", " .. t.items .. " reagents back"))
+		text = text .. (kind == "M" and (", +" .. t.items .. (t.items == 1 and " item" or " items"))
+			or (", " .. t.items .. (t.items == 1 and " reagent back" or " reagents back")))
 	end
 	if t.value > 0 then text = text .. ", worth " .. RPF.Money(t.value) end
 	return text
@@ -105,6 +112,35 @@ end
 -----------------------------------------
 -- counting
 
+-- The craft DoTradeSkill last started (Create, Create All, the classic window, a macro): its spell,
+-- its name as the cast reports it, what it can get, the casts still to come and the last one's time.
+-- Only those casts count as crafts, so a flask or grenade sharing a recipe's name doesn't.
+local job
+
+local function recipePerks(index)
+	if IsTradeSkillLinked and IsTradeSkillLinked() then return nil end
+	local spell = RPF.SpellIdFromLink(GetTradeSkillRecipeLink and GetTradeSkillRecipeLink(index))
+	local profession = RPF.ProfessionByName((GetTradeSkillLine()))
+	local list = spell and profession and RPF.RecipeList(profession.id)
+	local info = list and list[spell]
+	return spell, info and info.perks or 0
+end
+
+hooksecurefunc("DoTradeSkill", function (index, count)
+	job = nil
+	if not RPF.perks then return end
+	local name = GetTradeSkillInfo(index)
+	local spell, perks = recipePerks(index)
+	if not (name and spell) or perks == 0 then return end
+	job = { spell = spell, name = name, perks = perks, left = math.max(1, tonumber(count) or 1), at = GetTime() }
+end)
+
+-- Did this proc come from a craft that was counted? The whisper and the cast's event can arrive
+-- either way round, so the job's last craft still covers it for a moment.
+local function fromCountedCraft(spell)
+	return job and job.spell == spell and (job.left > 0 or GetTime() - job.at < 3)
+end
+
 RPF.On("PERK", function (spell, kind, list)
 	if not LABEL[kind] then return end
 	local count, value, first = 0, 0, nil
@@ -117,38 +153,40 @@ RPF.On("PERK", function (spell, kind, list)
 	end)
 	if count == 0 then return end
 
+	local rated = fromCountedCraft(spell) and 1 or 0
 	local log = saved()
 	local totals = { session, log and log.total }
 	for _, t in pairs(totals) do
 		local k = t[kind]
 		k.procs, k.items, k.value = k.procs + 1, k.items + count, k.value + value
+		k.rated = (k.rated or 0) + rated
 	end
+	local entry = { t = time(), spell = spell, kind = kind, items = list, value = value }
 	if log then
-		table.insert(log.entries, { t = time(), spell = spell, kind = kind, items = list, value = value })
+		table.insert(log.entries, entry)
 		while #log.entries > MAX_ENTRIES do table.remove(log.entries, 1) end
 	end
 	scrollText(kind, list, RPF.ItemIcon(first))
-	L.Refresh()
+	L.Added(entry)
 end)
 
--- Every finished craft of a recipe that can proc counts towards the rate. The cast only names
--- the spell, so it's matched against the open profession's recipes (crafts made with the window
--- closed, from a macro, aren't counted).
 RPF.On("CAST", function (event, spellName)
-	if event ~= "UNIT_SPELLCAST_SUCCEEDED" or not spellName or not RPF.active or M.linked or not RPF.perks then return end
-	local recipe
-	for _, r in pairs(M.bySpell) do
-		if r.learned and r.name == spellName and (r.perks or 0) > 0 then recipe = r break end
+	if not (job and spellName == job.name) then return end
+	if event ~= "UNIT_SPELLCAST_SUCCEEDED" then
+		-- An interrupted or failed cast ends a Create All.
+		job.left = 0
+		return
 	end
-	if not recipe then return end
+	if job.left <= 0 then return end
+	job.left, job.at = job.left - 1, GetTime()
 	local log = saved()
 	for _, kind in ipairs(KINDS) do
-		if bit.band(recipe.perks, BIT[kind]) ~= 0 then
+		if bit.band(job.perks, BIT[kind]) ~= 0 then
 			session[kind].crafts = session[kind].crafts + 1
 			if log then log.total[kind].crafts = log.total[kind].crafts + 1 end
 		end
 	end
-	L.Refresh()
+	L.RefreshSummary()
 end)
 
 function L.Clear()
@@ -282,13 +320,20 @@ local clearButton = RPF.CreateButton(content, "Clear", 80, 22)
 clearButton:SetPoint("BOTTOMRIGHT", content, "BOTTOMRIGHT", 0, 2)
 clearButton:SetScript("OnClick", function () StaticPopup_Show("RETAILPROFESSIONS_CLEAR_PROCS") end)
 
-function L.Refresh()
+function L.RefreshSummary()
 	if not frame:IsShown() then return end
 	local total = L.Total() or blank()
 	for _, kind in ipairs(KINDS) do
 		sessionLines[kind]:SetText(L.SummaryText(session, kind))
 		totalLines[kind]:SetText(L.SummaryText(total, kind))
 	end
+end
+
+-- The whole log again: on opening, after Clear, and when item names come in.
+function L.Refresh()
+	if not frame:IsShown() then return end
+	L.RefreshSummary()
+	missingNames = false
 	local entries = L.Entries()
 	messages:Clear()
 	for i = 1, #entries do messages:AddMessage(L.EntryText(entries[i])) end
@@ -297,9 +342,17 @@ function L.Refresh()
 	textCheck:SetChecked(RetailProfessionsDB.procText ~= false)
 end
 
+-- A new proc goes on the end, without moving someone who scrolled up to read.
+function L.Added(entry)
+	if not frame:IsShown() then return end
+	L.RefreshSummary()
+	messages:AddMessage(L.EntryText(entry))
+	empty:Hide()
+end
+
 frame:SetScript("OnShow", L.Refresh)
 -- Item names arrive late for items the client hasn't seen.
-RPF.On("ITEM_INFO", L.Refresh)
+RPF.On("ITEM_INFO", function () if missingNames then L.Refresh() end end)
 RPF.On("RESET_POSITION", function ()
 	RetailProfessionsDB.procLogPosition = nil
 	place()
