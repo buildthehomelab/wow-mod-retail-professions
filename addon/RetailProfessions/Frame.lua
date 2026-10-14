@@ -86,6 +86,27 @@ linkButton:SetScript("OnEnter", function (self)
 end)
 linkButton:SetScript("OnLeave", function () GameTooltip:Hide() end)
 
+-- The craft proc log (ProcLog.lua), when the server rolls Multicraft and Resourcefulness.
+local logButton = CreateFrame("Button", nil, header)
+logButton:SetSize(22, 22)
+logButton:SetPoint("RIGHT", linkButton, "LEFT", -2, -2)
+do
+	local icon = logButton:CreateTexture(nil, "ARTWORK")
+	icon:SetAllPoints(logButton)
+	icon:SetTexture("Interface\\Icons\\INV_Misc_Note_01")
+	icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+end
+logButton:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+logButton:SetScript("OnClick", function () RPF.ProcLog.Toggle() end)
+logButton:SetScript("OnEnter", function (self)
+	GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+	GameTooltip:SetText("Craft procs")
+	GameTooltip:AddLine("Every Multicraft and Resourcefulness you've had, and how often they come up. Also /prof log.",
+		1, 1, 1, true)
+	GameTooltip:Show()
+end)
+logButton:SetScript("OnLeave", function () GameTooltip:Hide() end)
+
 -- The stock skill bar look (the character window's skill bars).
 local skillBar = CreateFrame("StatusBar", nil, header)
 skillBar:SetHeight(15)
@@ -801,6 +822,9 @@ local function updateHeader()
 	skillBar:SetValue(M.rank or 0)
 	skillText:SetText(string.format("%s %d/%d", M.skillName or "", M.rank or 0, M.maxRank or 0))
 	if M.linked then linkButton:Hide() else linkButton:Show() end
+	local showLog = RPF.perks and not M.linked
+	if showLog then logButton:Show() else logButton:Hide() end
+	skillBar:SetPoint("RIGHT", showLog and logButton or linkButton, "LEFT", -6, showLog and 0 or -2)
 	if M.linked or refine then profitButton:Hide() else profitButton:Show() end
 	if profitView() then profitButton:LockHighlight() else profitButton:UnlockHighlight() end
 	filterButton:SetText(filtersActive() and ("|cff4fc3f7" .. (FILTER or "Filter") .. "|r") or (FILTER or "Filter"))
