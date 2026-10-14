@@ -809,7 +809,8 @@ events:SetScript("OnEvent", function (self, event, ...)
 	elseif event == "SPELL_UPDATE_COOLDOWN" then
 		if RPF.active then RPF.Debounce("cooldown", 0.2, function () RPF.Fire("COOLDOWN") end) end
 	elseif event == "UNIT_SPELLCAST_SUCCEEDED" or event == "UNIT_SPELLCAST_INTERRUPTED" or event == "UNIT_SPELLCAST_FAILED" then
-		if ... == "player" then RPF.Fire("CAST", event) end
+		local unit, spellName = ...
+		if unit == "player" then RPF.Fire("CAST", event, spellName) end
 	elseif event == "PLAYER_REGEN_DISABLED" then
 		-- The last moment secure buttons can still be hidden.
 		RPF.Fire("COMBAT", true)
@@ -835,11 +836,14 @@ SlashCmdList.RETAILPROFESSIONS = function (msg)
 		RPF.Print("window positions reset.")
 	elseif msg == "tracker" then
 		RPF.Fire("TRACKER_TOGGLE_LOCK")
+	elseif msg == "log" or msg == "procs" then
+		RPF.ProcLog.Toggle()
 	elseif msg == "" or msg == "book" then
 		RPF.ToggleBook()
 	else
 		RPF.Print("|cffffd200/prof|r opens your professions. |cffffd200/prof classic|r or |cffffd200/prof retail|r "
-			.. "picks the crafting window. |cffffd200/prof tracker|r unlocks the recipe tracker so you can move it. "
+			.. "picks the crafting window. |cffffd200/prof log|r shows your Multicraft and Resourcefulness procs. "
+			.. "|cffffd200/prof tracker|r unlocks the recipe tracker so you can move it. "
 			.. "|cffffd200/prof reset|r moves the windows back.")
 	end
 end

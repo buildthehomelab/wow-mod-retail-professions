@@ -90,6 +90,13 @@ crafting speed**, earned by skill.
   - **Cast**: up to 50% shorter, so a Create All of a grey recipe takes half the time.
 - The recipe shows its numbers at your skill ("Multicraft 18%   Resourcefulness 14%   Cast 1.6
   sec"; hover for what they mean), its tooltip too, and the window says when one procs.
+- Each proc also shows as scrolling text: in [MikScrollingBattleText](https://www.curseforge.com/wow/addons/mik-scrolling-battle-text)'s
+  Notification area when MSBT is loaded, otherwise in the game's floating combat text when
+  that's on.
+- **Craft procs log** (the note button beside the chat link, or `/prof log`): every Multicraft
+  and Resourcefulness with the recipe, the items and what they're worth at auction-house prices,
+  plus how often each comes up (procs per craft) for this session and all time on the character.
+  Crafts are counted while the window is open. A checkbox there turns the scrolling text off.
 - Extras that don't fit in your bags are mailed.
 - Three kinds of recipe only get the speed:
   - the ones the core already rolls extra items for through an alchemy mastery: most potions,
@@ -145,6 +152,7 @@ crafting speed**, earned by skill.
 **Other**
 - `/prof classic` switches back to the old Blizzard window, `/prof retail` returns.
 - `/prof reset` puts the windows back where they started.
+- `/prof log` opens the craft procs log.
 - The windows are stock Blizzard frames (dialog frame, buttons, checkboxes, scroll bars). With
   [DragonUI](https://github.com/NeticSoul/DragonUI) installed they wear DragonUI's retail skin:
   the metal frame with the round portrait, red buttons and gold category bars.

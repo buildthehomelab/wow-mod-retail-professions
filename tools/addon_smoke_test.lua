@@ -20,6 +20,8 @@ local now = 0
 function GetTime() return now end
 local clock = 1000
 function time() clock = clock + 1 return clock end
+date = os.date
+function SetItemRef() end
 
 local errors = 0
 local function report(where, err)
@@ -901,6 +903,40 @@ step("perks: a proc says so", function ()
 	-- Both from one craft: the line keeps both.
 	reply("PK:0:2963:R:2589*1/2320*1")
 	assert(textShown("Multicraft! .*Resourcefulness! You got back 1 Linen Cloth, 1 Coarse Thread"), "no Resourcefulness line")
+end)
+
+step("perks: procs go to MSBT and the proc log counts them", function ()
+	local L = RPF.ProcLog
+	local msbt = {}
+	MikSBT = { DISPLAYTYPE_NOTIFICATION = "Notification", DisplayMessage = function (...) table.insert(msbt, { ... }) end }
+	reply("PK:0:2963:M:2996*2")
+	assert(msbt[1] and msbt[1][1] == "Multicraft! +2 Bolt of Linen Cloth" and msbt[1][2] == "Notification"
+		and msbt[1][4] == 255, "MSBT message: " .. tostring(msbt[1] and msbt[1][1]))
+	RetailProfessionsDB.procText = false
+	reply("PK:0:2963:R:2589*1")
+	assert(#msbt == 1, "scrolling text still shown when turned off")
+	RetailProfessionsDB.procText = nil
+	MikSBT = nil
+	-- The earlier step's two procs plus these two.
+	local s = L.Session()
+	assert(s.M.procs == 2 and s.M.items == 3 and s.R.procs == 2 and s.R.items == 3,
+		"session counts: " .. s.M.procs .. "/" .. s.M.items .. " " .. s.R.procs .. "/" .. s.R.items)
+	assert(L.Total().M.procs == 2 and #L.Entries() == 4, "not saved per character")
+	-- A finished bolt can get both; anything else isn't counted.
+	fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Bolt of Linen Cloth")
+	fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Fireball")
+	fire("UNIT_SPELLCAST_SUCCEEDED", "party1", "Bolt of Linen Cloth")
+	assert(s.M.crafts == 1 and s.R.crafts == 1, "crafts counted: " .. s.M.crafts)
+	SlashCmdList.RETAILPROFESSIONS("log")
+	assert(L.frame:IsShown(), "/prof log didn't open the log")
+	assert(textShown("Multicraft:|r 2 in 1 crafts %(200%%%), %+3 items"), "no session summary")
+	assert(textShown("Resourcefulness:|r 2 in 1 crafts .*3 reagents back"), "no Resourcefulness summary")
+	assert(L.EntryText(L.Entries()[1]):find("Multicraft|r Bolt of Linen Cloth: %+1x "), L.EntryText(L.Entries()[1]))
+	L.Clear()
+	assert(#L.Entries() == 0 and L.Session().M.procs == 0, "Clear kept something")
+	assert(textShown("No procs yet"), "no empty text after Clear")
+	SlashCmdList.RETAILPROFESSIONS("log")
+	assert(not L.frame:IsShown(), "/prof log didn't close the log")
 end)
 
 -----------------------------------------
