@@ -155,6 +155,8 @@ crafting speed**, earned by skill.
 - `/prof classic` switches back to the old Blizzard window, `/prof retail` returns.
 - `/prof reset` puts the windows back where they started.
 - `/prof log` opens the craft procs log.
+- At a profession trainer, the recipe you picked stays picked when you skill up (the stock window
+  jumps back to the first one you can learn).
 - The windows are stock Blizzard frames (dialog frame, buttons, checkboxes, scroll bars). With
   [DragonUI](https://github.com/NeticSoul/DragonUI) installed they wear DragonUI's retail skin:
   the metal frame with the round portrait, red buttons and gold category bars.
