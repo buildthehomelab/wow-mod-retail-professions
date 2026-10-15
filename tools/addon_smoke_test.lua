@@ -378,7 +378,7 @@ local function serve(msg)
 	print("  -> " .. msg)
 	-- Flags: recipes, map pins, milling, perks. Perks: multicraft 0-25%, resourcefulness 0-20%
 	-- giving 30% back, casts 0-50% faster.
-	if cmd == "HELLO" then reply("HELLO:" .. req .. ":1:15:777:300:100:0:3:0:25:0:20:30:0:50")
+	if cmd == "HELLO" then reply("HELLO:" .. req .. ":1:31:777:300:100:0:3:0:25:0:20:30:0:50")
 	elseif cmd == "Y" then
 		-- Peacebloom, Mageroyal (a second pigment one time in four) and a herb past the skill.
 		reply("YR:" .. req .. ":M:3")
@@ -402,7 +402,17 @@ local function serve(msg)
 		reply("LE:" .. req)
 	elseif cmd == "W" then
 		reply("WR:" .. req .. ":3914:4355")
+		-- Old-style rows (7 fields) and guide rows (a note and tooltip details), more than fit.
 		reply("WD:" .. req .. ":V,1474,Rann Flamespinner,Elwynn Forest,100,1,Friendly with Stormwind;D,100,Gruff Swiftbite,Elwynn%2C Forest,550,10-11,-;X,0,-,-,1234,10-20,-")
+		reply("WD:" .. req .. ":N,8696,Henry Stern,Razorfen Downs,0,0,-,-,Talk to them to learn the recipe%0ANeeds Tailoring 125"
+			.. ";Q,862,Dig Rat Stew,The Barrens,30,25,Grub,daily,Quest giver: Grub - The Barrens%0ALevel 30 quest%2C from level 25"
+			.. ";X,0,-,-,40,80-83,Ulduar,trash,From 40 kinds of creatures%2C level 80-83%0AMostly in Ulduar")
+		reply("WD:" .. req .. ":D,6,Kobold Vermin,Elwynn Forest,1200,2-3,-,rare,Level 2-3%0AA rare spawn"
+			.. ";V,1475,Token Seller,Dalaran,0,0,-,3 Dalaran Cooking Award,Costs 3 Dalaran Cooking Award"
+			.. ";C,44113,Small Spice Bag,-,1500,0,-,Reward from the daily quest Sewer Stew (Dalaran),Reward from the daily quest Sewer Stew (Dalaran)%0ALocked: open it with Lockpicking"
+			.. ";P,0,12 kinds of creatures%2C level 20-35,-,0,0,-,-,Pickpocketed from 12 kinds of creatures"
+			.. ";O,2843,Battered Chest,Westfall,500,0,-,-,In 5%25 of them"
+			.. ";L,0,Outland,-,3,0,-,-,-")
 		reply("WE:" .. req)
 	elseif cmd == "M" then reply("M:" .. req .. ":ok:Elwynn Forest (44%2C 65)")
 	else print("  !! unknown command " .. cmd) end
@@ -607,6 +617,30 @@ step("unlearned recipe: where to learn, map pin", function ()
 	tick(0.5)
 	assert(textShown("Elwynn Forest %(44, 65%)"), "map answer not shown")
 	assert(textShown("Not learned %- needs 130"), "skill requirement not shown")
+end)
+
+step("sources read like a guide: notes on the line, details on hover, the rest folded", function ()
+	assert(textShown("Taught by|r  Henry Stern"), "scripted teacher not shown")
+	assert(textShown("World drop|r from trash in Ulduar"), "raid trash world drop not named")
+	assert(textShown("%(daily%)"), "quest note not shown")
+	assert(textShown("And %d+ more sources"), "overflow line not shown")
+	local function rowWith(pattern)
+		return find(function (f)
+			return f.__kind == "Button" and rawget(f, "text") and f.text.__text:find(pattern) and f:IsVisible()
+		end)
+	end
+	local quest = rowWith("Dig Rat Stew")
+	assert(quest, "quest row not shown")
+	quest.__scripts.OnEnter(quest)
+	local text = table.concat(tipLines, "\n")
+	assert(text:find("Quest giver: Grub"), "quest details not in the tooltip: " .. text)
+	assert(quest.map:IsShown(), "no map pin for a quest giver")
+	local more = rowWith("And %d+ more sources")
+	more.__scripts.OnEnter(more)
+	text = table.concat(tipLines, "\n")
+	assert(text:find("Small Spice Bag") and text:find("Outland, once it opens"), "folded sources not listed: " .. text)
+	assert(text:find("3 Dalaran Cooking Award") or rowWith("Token Seller"), "token price lost")
+	assert(not more.map:IsShown(), "map pin on the folded line")
 end)
 
 step("where-to-learn is asked once, however often the recipe redraws", function ()

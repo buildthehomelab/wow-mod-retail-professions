@@ -462,9 +462,22 @@ recipeItemButton:SetScript("OnEnter", function (self) itemTooltip(self, self.lin
 recipeItemButton:SetScript("OnLeave", RPF.HideItemTooltip)
 recipeItemButton:SetScript("OnClick", function (self) linkOrNothing(self.link) end)
 
+-- Kinds the server can flag on the map: friendly ones always, the rest with HELLO_GUIDE.
+local PIN_ALWAYS = { T = true, V = true }
+local PIN_GUIDE = { N = true, G = true, D = true, P = true, K = true, O = true, Q = true, R = true }
+
+local function canPin(src)
+	if not RPF.Has(RPF.HELLO_MAP_PINS) or (src.id or 0) == 0 then return false end
+	-- A quest's pin goes on its giver; without one known there's nothing to flag.
+	if (src.kind == "Q" or src.kind == "R") and (src.c or "") == "" then return false end
+	return PIN_ALWAYS[src.kind] or (PIN_GUIDE[src.kind] and RPF.Has(RPF.HELLO_GUIDE)) or false
+end
+
+-- Each line says the essentials; hovering it shows the rest (who gives a quest, what a vendor
+-- wants, where a bag comes from).
 local sourceRows = {}
 for i = 1, MAX_SOURCES do
-	local row = CreateFrame("Frame", nil, pane)
+	local row = CreateFrame("Button", nil, pane)
 	row:SetHeight(18)
 	row:SetPoint("TOPLEFT", recipeItemButton, "BOTTOMLEFT", 0, -2 - (i - 1) * 18)
 	row:SetPoint("RIGHT", pane, "RIGHT", -PAD, 0)
@@ -473,17 +486,27 @@ for i = 1, MAX_SOURCES do
 	row.map = RPF.CreateButton(row, "Map", 44, 18)
 	row.map:SetPoint("RIGHT", row, "RIGHT", 0, 0)
 	row.text:SetPoint("RIGHT", row.map, "LEFT", -6, 0)
+	row.text:SetWordWrap(false)
 	row.map:SetScript("OnClick", function (self)
 		local src = self:GetParent().source
 		if not src then return end
+		local who = (src.kind == "Q" or src.kind == "R") and (src.c ~= "" and src.c or src.name) or src.name
 		RPF.ShowOnMap(src.kind, src.id, function (where, err)
 			if where then
-				RPF.Status(src.name .. ": " .. where .. ". Marked on your map when it's on this continent.")
+				RPF.Status(who .. ": " .. where .. ". Marked on your map when it's on this continent.")
 			else
-				RPF.Status("Couldn't find " .. src.name .. " where you can reach it.", true)
+				RPF.Status("Couldn't find " .. who .. " where you can reach it.", true)
 			end
 		end)
 	end)
+	row:SetScript("OnEnter", function (self)
+		if self.tip then
+			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+			self.tip(GameTooltip)
+			GameTooltip:Show()
+		end
+	end)
+	row:SetScript("OnLeave", function () GameTooltip:Hide() end)
 	sourceRows[i] = row
 end
 
@@ -492,6 +515,8 @@ sourceNote:SetPoint("TOPLEFT", recipeItemButton, "BOTTOMLEFT", 0, -2)
 sourceNote:SetPoint("RIGHT", pane, "RIGHT", -PAD, 0)
 
 local GOLD = "|cffffd200"
+local GREY = "|cffb0b0b0"
+local DIM = "|cff9d9d9d"
 
 local function chanceText(x100)
 	x100 = tonumber(x100) or 0
@@ -501,7 +526,25 @@ local function chanceText(x100)
 end
 
 local function where(src)
-	return src.zone ~= "" and (" - |cffb0b0b0" .. src.zone .. "|r") or ""
+	return src.zone ~= "" and (" - " .. GREY .. src.zone .. "|r") or ""
+end
+
+-- The server's few words for the line: a token price, a holiday, "rare", "daily".
+local function noted(src)
+	local note = src.note or ""
+	if note == "" then return "" end
+	return " |cffff8040(" .. note .. ")|r"
+end
+
+-- "World drop in Ulduar", "World drop, level 40-50 (Eastern Kingdoms, Kalimdor)".
+local function worldDropText(src)
+	local places = src.c or ""
+	if src.note == "trash" and places ~= "" then
+		return string.format("%sWorld drop|r from trash in %s %s(level %s)|r", GOLD, places, GREY, tostring(src.b))
+	end
+	local text = string.format("%sWorld drop|r from %s creatures, level %s", GOLD, tostring(src.a), tostring(src.b))
+	if places ~= "" then text = text .. " " .. GREY .. "(" .. places .. ")|r" end
+	return text
 end
 
 local function sourceText(src, r)
@@ -510,29 +553,92 @@ local function sourceText(src, r)
 		local at = tonumber(src.a) or 0
 		return at <= 1 and (GOLD .. "Learned|r with the profession") or string.format("%sLearned|r automatically at skill %d", GOLD, at)
 	elseif k == "T" then
-		return string.format("%sTrainer|r  %s%s - %s", GOLD, src.name, where(src), RPF.Money(src.a))
+		local text = string.format("%sTrainer|r  %s%s - %s", GOLD, src.name, where(src), RPF.Money(src.a))
+		local skill = tonumber(src.b) or 0
+		if skill > (M.rank or 0) then text = text .. string.format(" |cffff4040(at %d)|r", skill) end
+		return text .. noted(src)
+	elseif k == "N" then
+		return string.format("%sTaught by|r  %s%s", GOLD, src.name, where(src)) .. noted(src)
+	elseif k == "G" then
+		return string.format("%sLearned from|r  %s%s", GOLD, src.name, where(src)) .. noted(src)
 	elseif k == "V" then
 		local text = string.format("%sVendor|r  %s%s", GOLD, src.name, where(src))
 		if (tonumber(src.a) or 0) > 0 then text = text .. " - " .. RPF.Money(src.a) end
-		if tostring(src.b) == "1" then text = text .. " |cffb0b0b0(limited)|r" end
+		text = text .. noted(src)
+		if tostring(src.b) == "1" then text = text .. " " .. GREY .. "(limited)|r" end
 		if src.c and src.c ~= "" then text = text .. " |cffff8040" .. src.c .. "|r" end
 		return text
 	elseif k == "D" then
-		return string.format("%sDrop|r  %s |cffb0b0b0(level %s)|r%s%s", GOLD, src.name, tostring(src.b), where(src), chanceText(src.a))
+		return string.format("%sDrop|r  %s %s(level %s)|r%s%s", GOLD, src.name, GREY, tostring(src.b), where(src), chanceText(src.a)) .. noted(src)
+	elseif k == "P" or k == "K" then
+		local verb = k == "P" and "Pickpocket" or "Skinning"
+		if src.id == 0 then return string.format("%s%s|r  %s", GOLD, verb, src.name) end
+		return string.format("%s%s|r  %s %s(level %s)|r%s%s", GOLD, verb, src.name, GREY, tostring(src.b), where(src), chanceText(src.a))
 	elseif k == "X" then
-		return string.format("%sWorld drop|r from %s creatures, level %s", GOLD, tostring(src.a), tostring(src.b))
+		return worldDropText(src)
 	elseif k == "O" then
 		return string.format("%sFound in|r  %s%s%s", GOLD, src.name, where(src), chanceText(src.a))
 	elseif k == "C" then
-		return string.format("%sInside|r  %s%s", GOLD, src.name, chanceText(src.a))
+		local text = string.format("%sInside|r  %s%s", GOLD, src.name, chanceText(src.a))
+		if (src.note or "") ~= "" then text = text .. " " .. GREY .. "- " .. src.note .. "|r" end
+		return text
 	elseif k == "Q" or k == "R" then
-		return string.format("%s%s|r  %s |cffb0b0b0(level %s)|r%s", GOLD, k == "Q" and "Quest" or "Quest reward", src.name,
-			tostring(src.a), where(src))
+		return string.format("%s%s|r  %s %s(level %s)|r%s", GOLD, k == "Q" and "Quest" or "Quest reward", src.name,
+			GREY, tostring(src.a), where(src)) .. noted(src)
 	elseif k == "S" then
 		local from = src.name ~= "" and ("while making " .. src.name) or ("from " .. (M.skillName or "") .. " research")
 		return string.format("%sDiscovery|r %s at skill %s%s", GOLD, from, tostring(src.b), chanceText(src.a))
+	elseif k == "L" then
+		local n = tonumber(src.a) or 0
+		return string.format("%sAnd %d more in %s, once it opens to you|r", DIM, n, src.name)
 	end
 	return src.name
+end
+
+-- What hovering a line shows: the line itself, then the server's details.
+local TIP_TITLE = {
+	A = "Learned automatically", T = "Trainer", N = "Taught by", G = "Learned from", V = "Vendor", D = "Drop",
+	P = "Pickpocket", K = "Skinning", X = "World drop", O = "Found in", C = "Inside", Q = "Quest", R = "Quest reward",
+	S = "Discovery", L = "Not open to you yet",
+}
+
+local function sourceTip(src)
+	return function (tip)
+		local title = TIP_TITLE[src.kind] or ""
+		local name = src.name ~= "" and src.name or nil
+		if src.kind == "X" or src.kind == "L" or src.kind == "S" or (src.kind == "P" or src.kind == "K") and src.id == 0 then
+			name = nil
+		end
+		tip:SetText(name and (title .. ": " .. name) or title)
+		if src.zone ~= "" then tip:AddLine(src.zone, 0.7, 0.7, 0.7) end
+		local any = false
+		for line in (src.details or ""):gmatch("[^\n]+") do
+			tip:AddLine(line, 1, 1, 1, true)
+			any = true
+		end
+		if src.kind == "L" then
+			tip:AddLine("Those sources are on a continent your progression hasn't reached.", 1, 1, 1, true)
+		elseif src.kind == "S" then
+			tip:AddLine("Each craft has a small chance to teach it, once your skill is high enough.", 1, 1, 1, true)
+		elseif not any and src.kind == "X" then
+			tip:AddLine("Any of those creatures can drop it, and it may turn up on the auction house.", 1, 1, 1, true)
+		end
+		if canPin(src) then tip:AddLine("Map: mark it on your world map.", 0.6, 0.6, 0.6) end
+	end
+end
+
+-- "on the auction house from 12g" for a recipe item that can be traded, when prices are known.
+local function recipeItemMarket(recipeItem)
+	local P = RPF.Profit
+	if not P or P.state == "missing" or M.linked then return "" end
+	P.Fetch({ recipeItem })
+	local p = P.Get(recipeItem)
+	if not p then return "" end
+	if p.soulbound then return " " .. DIM .. "(binds when picked up)|r" end
+	if p.lowest > 0 then
+		return string.format(" %s- on the auction house from|r %s", DIM, P.Short(p.lowest))
+	end
+	return ""
 end
 
 local whereToken = 0
@@ -571,23 +677,38 @@ local function drawSources(r, anchor)
 		if recipeItem > 0 then
 			local info = RPF.Item(recipeItem)
 			recipeItemButton.link = info and info.link or ("item:" .. recipeItem)
-			recipeItemButton.text:SetText(GOLD .. "Recipe item|r  " .. (info and info.link or ("item " .. recipeItem)))
+			recipeItemButton.text:SetText(GOLD .. "Recipe item|r  " .. (info and info.link or ("item " .. recipeItem))
+				.. recipeItemMarket(recipeItem))
 			recipeItemButton:Show()
 		else
 			recipeItemButton.text:SetText("")
 			recipeItemButton:Show()
-			recipeItemButton:SetHeight(1)
 		end
 		recipeItemButton:SetHeight(recipeItem > 0 and 16 or 1)
 
+		-- More than fit: the last line sums up the rest, and its tooltip lists them.
+		local rows = result.rows
 		local n = 0
-		for _, src in ipairs(result.rows) do
-			if n >= MAX_SOURCES then break end
+		for i, src in ipairs(rows) do
 			n = n + 1
 			local row = sourceRows[n]
+			if n == MAX_SOURCES and #rows > MAX_SOURCES then
+				local rest = {}
+				for j = i, #rows do table.insert(rest, rows[j]) end
+				row.source = nil
+				row.text:SetText(string.format("%sAnd %d more sources (hover to see them)|r", DIM, #rest))
+				row.tip = function (tip)
+					tip:SetText("More sources")
+					for _, more in ipairs(rest) do tip:AddLine(sourceText(more, r), 1, 1, 1) end
+				end
+				row.map:Hide()
+				row:Show()
+				break
+			end
 			row.source = src
 			row.text:SetText(sourceText(src, r))
-			if (src.kind == "T" or src.kind == "V") and RPF.Has(RPF.HELLO_MAP_PINS) then row.map:Show() else row.map:Hide() end
+			row.tip = sourceTip(src)
+			if canPin(src) then row.map:Show() else row.map:Hide() end
 			row:Show()
 		end
 		if n == 0 then

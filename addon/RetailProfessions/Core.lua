@@ -12,6 +12,7 @@ RPF.HELLO_RECIPES = 1   -- L and W: every recipe of a profession, and where to l
 RPF.HELLO_MAP_PINS = 2  -- M: a map flag on a trainer or vendor
 RPF.HELLO_REFINE = 4    -- Y and X: what herbs and ore give, and milling or prospecting them
 RPF.HELLO_PERKS = 8     -- crafts can make a second batch, give reagents back and cast faster
+RPF.HELLO_GUIDE = 16    -- W rows carry a note and tooltip details; M pins drops, objects and quest givers
 
 -- What a craft of a recipe can get on top (the perks field of an L row).
 RPF.PERK_MULTICRAFT = 1
@@ -24,6 +25,7 @@ RPF.SRC_ITEM = 2       -- a recipe item, from a vendor, a drop, a quest or a che
 RPF.SRC_QUEST = 4      -- a quest teaches the spell itself
 RPF.SRC_DISCOVERY = 8
 RPF.SRC_AUTO = 16      -- learned with the profession or at a skill level
+RPF.SRC_NPC = 32       -- someone or something in the world teaches it when asked
 
 local floor = math.floor
 
@@ -707,14 +709,16 @@ function RPF.WhereToLearn(spell, handler)
 		local out = { recipeItem = tonumber(result.meta[2]) or 0, rows = {} }
 		for _, r in ipairs(result.rows) do
 			table.insert(out.rows, { kind = r[1], id = tonumber(r[2]) or 0, name = RPF.Unescape(tostring(r[3] or "-")),
-				zone = RPF.Unescape(tostring(r[4] or "-")), a = r[5], b = r[6], c = r[7] and RPF.Unescape(tostring(r[7])) or nil })
+				zone = RPF.Unescape(tostring(r[4] or "-")), a = r[5], b = r[6], c = r[7] and RPF.Unescape(tostring(r[7])) or nil,
+				note = RPF.Unescape(tostring(r[8] or "-")), details = RPF.Unescape(tostring(r[9] or "-")) })
 		end
 		whereCache[spell] = out
 		deliver(out)
 	end)
 end
 
--- Puts a flag on the world map at the nearest spawn of a trainer or vendor.
+-- Puts a flag on the world map at the nearest spawn of a source: a trainer, vendor or teacher,
+-- and with HELLO_GUIDE also a creature that drops it, an object or a quest's giver.
 function RPF.ShowOnMap(kind, entry, handler)
 	RPF.Request("M", { kind, tostring(entry) }, function (result, err)
 		if handler then handler(result and RPF.Unescape(result[2] or "") or nil, err) end

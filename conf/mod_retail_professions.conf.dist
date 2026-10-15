@@ -32,6 +32,7 @@ RetailProfessions.SkillCapByEra = 1
 #    RetailProfessions.HideLockedContinents
 #        Description: Leave out trainers, vendors and drops on a continent (or in a dungeon of an
 #                     expansion) mod-individual-progression hasn't opened for the player yet.
+#                     The list then ends with "And 3 more in Outland, once it opens to you".
 #        Default:     1
 #
 
