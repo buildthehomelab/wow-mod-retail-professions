@@ -200,7 +200,7 @@ namespace RetailProfessions
             uint32 orange = sWorld->getIntConfig(CONFIG_SKILL_CHANCE_ORANGE);
             uint32 grey = sWorld->getIntConfig(CONFIG_SKILL_CHANCE_GREY);
             uint32 gain = sWorld->getIntConfig(CONFIG_SKILL_GAIN_CRAFTING);
-            uint32 flags = HELLO_RECIPES | HELLO_MAP_PINS | (sConfig.refine ? HELLO_REFINE : 0)
+            uint32 flags = HELLO_RECIPES | HELLO_MAP_PINS | HELLO_GUIDE | (sConfig.refine ? HELLO_REFINE : 0)
                 | (sConfig.perks ? HELLO_PERKS : 0);
             Send(player, "HELLO:" + req + ":" + std::to_string(PROTOCOL_VERSION) + ":"
                 + std::to_string(flags) + ":" + std::to_string(Index::Stamp())

@@ -2,8 +2,13 @@
  * mod-retail-professions: every recipe of every profession, and where each one is learned.
  *
  * Built once at startup from data the core already has in memory (SkillLineAbility.dbc, spells,
- * trainers, vendors, quests, item templates and spawns) plus four world DB tables the core
- * doesn't keep in a readable form (the loot tables and skill_discovery_template).
+ * trainers, vendors, quests, item templates and spawns) plus world DB tables the core doesn't
+ * keep in a readable form (the loot tables, skill_discovery_template, the SmartAI casts that
+ * teach a recipe and the creatures that only spawn for a holiday).
+ *
+ * The answer to W is meant to read like a guide: what a vendor wants in tokens, which holiday
+ * a vendor comes with, which raid's trash a "world drop" really drops in, where the bag or
+ * lockbox holding a recipe comes from, who gives a quest and where.
  *
  * Who sees what:
  *   - L lists recipes the player's race and class can learn and that something teaches to
@@ -17,6 +22,7 @@
 #include "CreatureData.h"
 #include "DBCStores.h"
 #include "DatabaseEnv.h"
+#include "GameEventMgr.h"
 #include "GameObjectData.h"
 #include "ItemTemplate.h"
 #include "Log.h"
@@ -71,6 +77,7 @@ namespace RetailProfessions::Index
         constexpr std::size_t MAX_DROP_SPAWNS = 3;
 
         constexpr uint32 MAP_OUTLAND = 530;
+        constexpr uint32 MAP_NORTHREND = 571;
         constexpr uint32 MAP_EBON_HOLD = 609;
         constexpr uint32 ZONE_ISLE_OF_QUEL_DANAS = 4080;
         constexpr std::array<uint32, 6> ZONES_OPEN_ON_OUTLAND_MAP = {
@@ -94,7 +101,23 @@ namespace RetailProfessions::Index
             uint32 creature = 0;
             uint32 cost = 0;
             uint32 reqSkill = 0;
+            uint32 reqLevel = 0;
             std::array<uint32, 3> reqAbility = {}; // e.g. a specialization: Goblin Engineer, Armorsmith
+        };
+
+        // Someone or something that teaches a recipe through a script: a gossip option, a book.
+        // What the option asks for comes from its conditions (the first alternative of them).
+        struct Teacher
+        {
+            uint32 id = 0;
+            bool object = false;
+            uint32 gossipMenu = 0;
+            uint32 gossipOption = 0;
+            uint32 reqSkill = 0;
+            uint32 reqSkillValue = 0;
+            std::vector<uint32> reqSpells; // e.g. Goblin Engineer
+            std::vector<uint32> reqItems;
+            std::vector<uint32> reqQuests; // rewarded before
         };
 
         // The L row's slot for an enchant that goes on any weapon, one- or two-handed; the client's
@@ -136,6 +159,7 @@ namespace RetailProfessions::Index
             uint8 teams = 0;
             std::vector<AutoRow> autoRows;
             std::vector<TrainerSource> trainers;
+            std::vector<Teacher> teachers;
             std::vector<uint32> recipeItems;
             std::vector<uint32> quests;
             std::vector<DiscoverySource> discoveries;
@@ -151,19 +175,28 @@ namespace RetailProfessions::Index
         {
             uint32 creature = 0;
             uint32 maxcount = 0;
+            uint32 extendedCost = 0;
             bool gold = true;
+            uint32 event = 0;      // sold only while this game event runs (game_event_npc_vendor)
         };
 
+        // Where an item comes from: a recipe item, or a bag or lockbox a recipe item is found in.
         struct ItemSources
         {
             std::vector<Vendor> vendors;
             std::vector<Drop> creatures;
+            std::vector<Drop> pickpocket;
+            std::vector<Drop> skinning;
             std::vector<Drop> objects;
             std::vector<Drop> containers;
+            std::vector<Drop> fishing; // id = zone or area
             std::vector<uint32> quests;
+            bool mail = false;         // comes in the mail (mail_loot_template)
             uint32 worldDropCreatures = 0;
             uint32 worldMinLevel = 0;
             uint32 worldMaxLevel = 0;
+            std::vector<uint32> worldMaps; // where most of a world drop's creatures are, most first
+            bool worldInstances = false;   // ... and they are dungeons or raids
             uint8 teams = 0;
         };
 
@@ -185,6 +218,10 @@ namespace RetailProfessions::Index
             std::unordered_map<uint32, std::vector<Spawn>> creatureSpawns;
             std::unordered_map<uint32, std::vector<Spawn>> objectSpawns;
             std::unordered_set<uint32> spawnedCreatures; // every creature entry with a spawn
+            std::unordered_map<uint32, uint32> creatureMap; // creature entry -> map of its first spawn
+            std::unordered_map<uint32, uint32> eventOnly;   // creature entry -> the game event all its spawns need
+            std::unordered_map<uint32, uint32> questGivers; // quest -> creature entry
+            std::unordered_map<uint32, uint32> questObjects; // quest -> gameobject entry
             uint32 stamp = 0;
         };
 
@@ -415,7 +452,8 @@ namespace RetailProfessions::Index
             for (auto const& [entry, creature] : *sObjectMgr->GetCreatureTemplates())
             {
                 Trainer::Trainer* trainer = sObjectMgr->GetTrainer(entry);
-                if (!trainer || trainer->GetTrainerType() != Trainer::Type::Tradeskill)
+                // Class trainers too: death knights learn their runes from one.
+                if (!trainer || (trainer->GetTrainerType() != Trainer::Type::Tradeskill && trainer->GetTrainerType() != Trainer::Type::Class))
                     continue;
 
                 for (Trainer::Spell const& spell : trainer->GetSpells())
@@ -423,10 +461,113 @@ namespace RetailProfessions::Index
                     auto itr = sData.recipes.find(TaughtSpell(spell.SpellId));
                     if (itr == sData.recipes.end())
                         continue;
-                    itr->second.trainers.push_back({ entry, spell.MoneyCost, spell.ReqSkillRank, spell.ReqAbility });
+                    itr->second.trainers.push_back({ entry, spell.MoneyCost, spell.ReqSkillRank, spell.ReqLevel, spell.ReqAbility });
                     creatures.insert(entry);
                 }
             }
+        }
+
+        // NPCs and objects whose script teaches a recipe: SmartAI casts of a spell that teaches one
+        // (Henry Stern's tea, Knot Thimblejack's ogre suit, the teleporter engineers, the books
+        // in Blackrock Depths), plus the ones scripted in the core.
+        void ReadTeachers(std::unordered_set<uint32>& creatures, std::unordered_set<uint32>& objects)
+        {
+            struct CoreTeacher
+            {
+                uint32 creature, spell, gossipMenu, gossipOption;
+            };
+            // The gossip option whose conditions say what it asks for.
+            static constexpr std::array<CoreTeacher, 1> CORE_TEACHERS = { {
+                { 9037, 14894, 1945, 0 }, // Gloom'rel: Smelt Dark Iron (boss_tomb_of_seven.cpp)
+            } };
+
+            std::unordered_map<uint32, std::vector<std::pair<uint32, std::size_t>>> byMenu; // menu -> recipe, teacher index
+            auto add = [&](uint32 spell, uint32 id, bool object, uint32 menu, uint32 option)
+            {
+                auto itr = sData.recipes.find(TaughtSpell(spell));
+                if (itr == sData.recipes.end() || !id)
+                    return;
+                std::vector<Teacher>& teachers = itr->second.teachers;
+                if (std::any_of(teachers.begin(), teachers.end(), [&](Teacher const& t) { return t.id == id && t.object == object; }))
+                    return;
+                Teacher teacher;
+                teacher.id = id;
+                teacher.object = object;
+                teacher.gossipMenu = menu;
+                teacher.gossipOption = option;
+                teachers.push_back(teacher);
+                if (menu)
+                    byMenu[menu].emplace_back(itr->first, teachers.size() - 1);
+                (object ? objects : creatures).insert(id);
+            };
+
+            constexpr uint32 SMART_EVENT_GOSSIP_SELECT = 62;
+            if (QueryResult result = WorldDatabase.Query("SELECT CAST(entryorguid AS SIGNED), CAST(source_type AS UNSIGNED), "
+                "CAST(event_type AS UNSIGNED), CAST(event_param1 AS UNSIGNED), CAST(event_param2 AS UNSIGNED), "
+                "CAST(action_param1 AS UNSIGNED) FROM smart_scripts WHERE source_type IN (0, 1) AND action_type IN (11, 85, 86, 134)"))
+                do
+                {
+                    Field* f = result->Fetch();
+                    uint32 spell = uint32(f[5].Get<uint64>());
+                    if (!sData.recipes.count(TaughtSpell(spell)))
+                        continue;
+                    int64 entryOrGuid = f[0].Get<int64>();
+                    bool object = f[1].Get<uint64>() == 1;
+                    uint32 id = 0;
+                    if (entryOrGuid > 0)
+                        id = uint32(entryOrGuid);
+                    else if (!object)
+                    {
+                        if (CreatureData const* data = sObjectMgr->GetCreatureData(uint32(-entryOrGuid)))
+                            id = data->id;
+                    }
+                    else if (GameObjectData const* data = sObjectMgr->GetGameObjectData(uint32(-entryOrGuid)))
+                        id = data->id;
+                    bool gossip = f[2].Get<uint64>() == SMART_EVENT_GOSSIP_SELECT;
+                    add(spell, id, object, gossip ? uint32(f[3].Get<uint64>()) : 0, gossip ? uint32(f[4].Get<uint64>()) : 0);
+                } while (result->NextRow());
+
+            for (CoreTeacher const& t : CORE_TEACHERS)
+                if (sObjectMgr->GetCreatureTemplate(t.creature))
+                    add(t.spell, t.creature, false, t.gossipMenu, t.gossipOption);
+
+            // What each gossip option asks for: skill, spells known (a specialization), items, quests done.
+            if (byMenu.empty())
+                return;
+            std::vector<uint32> menus;
+            for (auto const& [menu, list] : byMenu)
+                menus.push_back(menu);
+            constexpr uint32 SOURCE_GOSSIP_OPTION = 15;
+            constexpr uint32 COND_ITEM = 2, COND_SKILL = 7, COND_QUESTREWARDED = 8, COND_SPELL = 25;
+            QueryByIds(Acore::StringFormat("SELECT CAST(SourceGroup AS UNSIGNED), CAST(SourceEntry AS UNSIGNED), "
+                "CAST(ConditionTypeOrReference AS UNSIGNED), CAST(ConditionValue1 AS UNSIGNED), CAST(ConditionValue2 AS UNSIGNED) "
+                "FROM conditions WHERE SourceTypeOrReferenceId = {} AND ElseGroup = 0 AND NegativeCondition = 0 "
+                "AND SourceGroup IN ({{}})", SOURCE_GOSSIP_OPTION), menus,
+                [&](Field* f)
+                {
+                    uint32 menu = uint32(f[0].Get<uint64>());
+                    uint32 option = uint32(f[1].Get<uint64>());
+                    uint32 type = uint32(f[2].Get<uint64>());
+                    uint32 value1 = uint32(f[3].Get<uint64>());
+                    uint32 value2 = uint32(f[4].Get<uint64>());
+                    for (auto const& [spell, index] : byMenu[menu])
+                    {
+                        Teacher& t = sData.recipes[spell].teachers[index];
+                        if (t.gossipOption != option)
+                            continue;
+                        if (type == COND_SKILL)
+                        {
+                            t.reqSkill = value1;
+                            t.reqSkillValue = value2;
+                        }
+                        else if (type == COND_SPELL)
+                            t.reqSpells.push_back(value1);
+                        else if (type == COND_ITEM)
+                            t.reqItems.push_back(value1);
+                        else if (type == COND_QUESTREWARDED)
+                            t.reqQuests.push_back(value1);
+                    }
+                });
         }
 
         // Recipe items: the "Pattern: ..." that teaches a spell when used.
@@ -452,7 +593,7 @@ namespace RetailProfessions::Index
             }
         }
 
-        void ReadVendors(std::unordered_set<uint32> const& recipeItems, std::unordered_set<uint32>& creatures)
+        void ReadVendors(std::unordered_set<uint32> const& wanted, std::unordered_set<uint32>& creatures)
         {
             for (auto const& [entry, creature] : *sObjectMgr->GetCreatureTemplates())
             {
@@ -462,28 +603,57 @@ namespace RetailProfessions::Index
 
                 for (VendorItem const* item : vendor->m_items)
                 {
-                    if (!item || !recipeItems.count(item->item))
+                    if (!item || !wanted.count(item->item))
                         continue;
                     ItemTemplate const* proto = sObjectMgr->GetItemTemplate(item->item);
-                    sData.items[item->item].vendors.push_back({ entry, item->maxcount, !proto || item->IsGoldRequired(proto) });
+                    sData.items[item->item].vendors.push_back({ entry, item->maxcount, item->ExtendedCost,
+                        !proto || item->IsGoldRequired(proto), 0 });
                     creatures.insert(entry);
                 }
             }
+
+            // Items a vendor only sells during a holiday; the core adds them when it starts.
+            if (QueryResult result = WorldDatabase.Query("SELECT CAST(eventEntry AS UNSIGNED), CAST(guid AS UNSIGNED), "
+                "CAST(item AS UNSIGNED), CAST(maxcount AS UNSIGNED), CAST(ExtendedCost AS UNSIGNED) FROM game_event_npc_vendor"))
+                do
+                {
+                    Field* f = result->Fetch();
+                    uint32 item = uint32(f[2].Get<uint64>());
+                    CreatureData const* data = wanted.count(item) ? sObjectMgr->GetCreatureData(uint32(f[1].Get<uint64>())) : nullptr;
+                    if (!data)
+                        continue;
+                    std::vector<Vendor>& vendors = sData.items[item].vendors;
+                    auto itr = std::find_if(vendors.begin(), vendors.end(), [&](Vendor const& v) { return v.creature == data->id; });
+                    uint32 event = uint32(f[0].Get<uint64>());
+                    if (itr != vendors.end())
+                    {
+                        itr->event = event; // the event was on at startup
+                        continue;
+                    }
+                    ItemTemplate const* proto = sObjectMgr->GetItemTemplate(item);
+                    uint32 extendedCost = uint32(f[4].Get<uint64>());
+                    bool gold = !proto || proto->HasFlag2(ITEM_FLAG2_DONT_IGNORE_BUY_PRICE) || !extendedCost;
+                    vendors.push_back({ data->id, uint32(f[3].Get<uint64>()), extendedCost, gold, event });
+                    creatures.insert(data->id);
+                } while (result->NextRow());
         }
 
-        void ReadQuests(std::unordered_set<uint32> const& recipeItems)
+        // Quests rewarding one of `wanted`; with `spells`, also the quests that teach a recipe.
+        void ReadQuests(std::unordered_set<uint32> const& wanted, bool spells)
         {
             for (auto const& [id, quest] : sObjectMgr->GetQuestTemplates())
             {
                 for (uint32 item : quest->RewardItemId)
-                    if (item && recipeItems.count(item))
+                    if (item && wanted.count(item))
                         sData.items[item].quests.push_back(id);
                 for (uint32 item : quest->RewardChoiceItemId)
-                    if (item && recipeItems.count(item))
+                    if (item && wanted.count(item))
                         sData.items[item].quests.push_back(id);
 
-                std::array<uint32, 2> spells = { uint32(std::max(0, quest->GetRewSpellCast())), quest->GetRewSpell() };
-                for (uint32 spell : spells)
+                if (!spells)
+                    continue;
+                std::array<uint32, 2> rewardSpells = { uint32(std::max(0, quest->GetRewSpellCast())), quest->GetRewSpell() };
+                for (uint32 spell : rewardSpells)
                 {
                     if (!spell)
                         continue;
@@ -495,51 +665,155 @@ namespace RetailProfessions::Index
             }
         }
 
-        // The loot tables: which creatures, chests and containers can hold a recipe item, directly
-        // or through reference tables. A reference shared by many creatures is a world drop.
-        void ReadLoot(std::unordered_set<uint32> const& recipeItemSet, std::unordered_set<uint32>& creatures,
+        // Who gives each quest that matters here, for its place and a map pin: a spawned NPC
+        // if there is one, else an object.
+        void ReadQuestGivers(std::unordered_set<uint32>& creatures, std::unordered_set<uint32>& objects)
+        {
+            std::unordered_set<uint32> quests;
+            for (auto const& [spell, recipe] : sData.recipes)
+                quests.insert(recipe.quests.begin(), recipe.quests.end());
+            for (auto const& [item, sources] : sData.items)
+                quests.insert(sources.quests.begin(), sources.quests.end());
+
+            for (auto const& [creature, quest] : *sObjectMgr->GetCreatureQuestRelationMap())
+            {
+                if (!quests.count(quest) || !sData.spawnedCreatures.count(creature))
+                    continue;
+                if (sData.questGivers.emplace(quest, creature).second)
+                    creatures.insert(creature);
+            }
+            for (auto const& [object, quest] : *sObjectMgr->GetGOQuestRelationMap())
+            {
+                if (!quests.count(quest) || sData.questGivers.count(quest))
+                    continue;
+                if (sData.questObjects.emplace(quest, object).second)
+                    objects.insert(object);
+            }
+        }
+
+        struct LootRow
+        {
+            uint32 entry = 0;
+            uint32 item = 0;
+            uint32 chance = 0; // percent x100
+            uint32 group = 0;
+            uint32 reference = 0;
+            uint32 rolls = 1;  // a reference row is processed MaxCount times
+        };
+
+        // Rows of a loot table that name one of `items`, or (with `refs`) point at one of those
+        // reference tables. A row without a chance of its own gets its share of its group: what
+        // the group's explicit chances leave, split evenly between the rows that have none. Grouped
+        // references are members of their group like items (LootTemplate::AddEntry).
+        std::vector<LootRow> ReadLootRows(std::string const& table, std::vector<uint32> const& items, std::vector<uint32> const& refs)
+        {
+            std::vector<LootRow> rows;
+            auto read = [&](std::string const& where, std::vector<uint32> const& ids)
+            {
+                QueryByIds(Acore::StringFormat("SELECT CAST(Entry AS UNSIGNED), CAST(Item AS UNSIGNED), "
+                    "CAST(ROUND(ABS(Chance) * 100) AS UNSIGNED), CAST(GroupId AS UNSIGNED), CAST(Reference AS UNSIGNED), "
+                    "CAST(MaxCount AS UNSIGNED) FROM {} WHERE {} IN ({{}})", table, where), ids,
+                    [&](Field* f)
+                    {
+                        uint32 reference = uint32(f[4].Get<uint64>());
+                        rows.push_back({ uint32(f[0].Get<uint64>()), uint32(f[1].Get<uint64>()), uint32(f[2].Get<uint64>()),
+                            uint32(f[3].Get<uint64>()), reference, reference ? std::clamp<uint32>(uint32(f[5].Get<uint64>()), 1, 10) : 1 });
+                    });
+            };
+            if (!items.empty())
+                read("Reference = 0 AND Item", items);
+            if (!refs.empty())
+                read("Reference", refs);
+
+            std::vector<uint32> grouped;
+            for (LootRow const& row : rows)
+                if (!row.chance && row.group)
+                    grouped.push_back(row.entry);
+            if (grouped.empty())
+                return rows;
+            std::sort(grouped.begin(), grouped.end());
+            grouped.erase(std::unique(grouped.begin(), grouped.end()), grouped.end());
+
+            std::unordered_map<uint64, uint32> shares; // entry << 8 | group -> chance x100
+            QueryByIds(Acore::StringFormat("SELECT CAST(Entry AS UNSIGNED), CAST(GroupId AS UNSIGNED), "
+                "CAST(SUM(Chance = 0) AS UNSIGNED), CAST(ROUND(SUM(ABS(Chance)) * 100) AS UNSIGNED) FROM {} "
+                "WHERE GroupId > 0 AND Entry IN ({{}}) GROUP BY Entry, GroupId", table), grouped,
+                [&](Field* f)
+                {
+                    uint32 unset = uint32(f[2].Get<uint64>());
+                    uint32 used = uint32(f[3].Get<uint64>());
+                    if (unset)
+                        shares[(f[0].Get<uint64>() << 8) | f[1].Get<uint64>()] = (used < 10000 ? 10000 - used : 0) / unset;
+                });
+            for (LootRow& row : rows)
+                if (!row.chance && row.group)
+                {
+                    auto itr = shares.find((uint64(row.entry) << 8) | row.group);
+                    if (itr != shares.end())
+                        row.chance = itr->second;
+                }
+            return rows;
+        }
+
+        // An item at chance `a` (x100) inside a reference rolled at chance `b`, `rolls` times:
+        // the chance of at least one.
+        uint32 Combine(uint32 a, uint32 b, uint32 rolls = 1)
+        {
+            if (!a || !b)
+                return 0;
+            double once = std::min(1.0, double(a) * double(b) / 1e8);
+            double any = 1.0 - std::pow(1.0 - once, double(std::max<uint32>(1, rolls)));
+            return std::max<uint32>(1, uint32(std::lround(any * 10000.0)));
+        }
+
+        // The loot tables: which creatures (killed, pickpocketed, skinned), chests, containers,
+        // fishing spots and mails can hold one of `wanted`, directly or through reference tables.
+        // A reference shared by many creatures is a world drop.
+        void ReadLoot(std::unordered_set<uint32> const& wanted, std::unordered_set<uint32>& creatures,
             std::unordered_set<uint32>& objects)
         {
-            std::vector<uint32> recipeItems = Keys(recipeItemSet);
-            if (recipeItems.empty())
+            std::vector<uint32> items = Keys(wanted);
+            if (items.empty())
                 return;
 
             // Loot ids -> what uses them.
-            std::unordered_map<uint32, std::vector<uint32>> creaturesByLoot;
+            std::unordered_map<uint32, std::vector<uint32>> creaturesByLoot, creaturesByPickpocket, creaturesBySkinning;
             for (auto const& [entry, creature] : *sObjectMgr->GetCreatureTemplates())
+            {
                 if (creature.lootid)
                     creaturesByLoot[creature.lootid].push_back(entry);
+                if (creature.pickpocketLootId)
+                    creaturesByPickpocket[creature.pickpocketLootId].push_back(entry);
+                if (creature.SkinLootId)
+                    creaturesBySkinning[creature.SkinLootId].push_back(entry);
+            }
 
             std::unordered_map<uint32, std::vector<uint32>> objectsByLoot;
             for (auto const& [entry, object] : *sObjectMgr->GetGameObjectTemplates())
                 if (uint32 loot = object.GetLootId())
                     objectsByLoot[loot].push_back(entry);
 
-            // reference id -> (recipe item, chance) it can roll, following nested references.
+            // reference id -> (item, chance) it can roll, following nested references.
             std::unordered_map<uint32, std::vector<Drop>> refItems;
-            QueryByIds("SELECT CAST(Entry AS UNSIGNED), CAST(Item AS UNSIGNED), CAST(ROUND(ABS(Chance) * 100) AS UNSIGNED) "
-                "FROM reference_loot_template WHERE Reference = 0 AND Item IN ({})", recipeItems,
-                [&](Field* f) { refItems[uint32(f[0].Get<uint64>())].push_back({ uint32(f[1].Get<uint64>()), uint32(f[2].Get<uint64>()) }); });
+            for (LootRow const& row : ReadLootRows("reference_loot_template", items, {}))
+                refItems[row.entry].push_back({ row.item, row.chance });
 
             std::vector<uint32> frontier;
             for (auto const& [ref, drops] : refItems)
                 frontier.push_back(ref);
             for (int depth = 0; depth < 4 && !frontier.empty(); ++depth)
             {
-                std::vector<std::pair<uint32, uint32>> parents; // parent ref, child ref
-                QueryByIds("SELECT CAST(Entry AS UNSIGNED), CAST(Reference AS UNSIGNED) FROM reference_loot_template "
-                    "WHERE Reference IN ({})", frontier,
-                    [&](Field* f) { parents.emplace_back(uint32(f[0].Get<uint64>()), uint32(f[1].Get<uint64>())); });
+                std::vector<LootRow> parents = ReadLootRows("reference_loot_template", {}, frontier);
                 frontier.clear();
-                for (auto const& [parent, child] : parents)
+                for (LootRow const& parent : parents)
                 {
-                    std::vector<Drop> childDrops = refItems[child];
-                    bool isNew = !refItems.count(parent);
-                    std::vector<Drop>& into = refItems[parent];
+                    std::vector<Drop> childDrops = refItems[parent.reference];
+                    bool isNew = !refItems.count(parent.entry);
+                    std::vector<Drop>& into = refItems[parent.entry];
                     for (Drop const& drop : childDrops)
-                        into.push_back({ drop.id, 0 });
+                        into.push_back({ drop.id, Combine(drop.chance, parent.chance, parent.rolls) });
                     if (isNew)
-                        frontier.push_back(parent);
+                        frontier.push_back(parent.entry);
                 }
             }
 
@@ -547,13 +821,12 @@ namespace RetailProfessions::Index
             for (auto const& [ref, drops] : refItems)
                 refs.push_back(ref);
 
-            // Per item: creature entry -> best chance, and the creatures reached via references.
-            std::unordered_map<uint32, std::unordered_map<uint32, uint32>> creatureDrops;
-            std::unordered_map<uint32, std::unordered_set<uint32>> refCreatures;
-            std::unordered_map<uint32, std::unordered_map<uint32, uint32>> objectDrops;
-            std::unordered_map<uint32, std::unordered_map<uint32, uint32>> containerDrops;
+            // Per item: source id -> best chance, and for creatures, the ones reached via references.
+            using Best = std::unordered_map<uint32, std::unordered_map<uint32, uint32>>;
+            Best creatureDrops, pickpocketDrops, skinningDrops, objectDrops, containerDrops, fishingDrops;
+            std::unordered_map<uint32, std::unordered_map<uint32, uint32>> refCreatures; // item -> creature -> chance
 
-            auto addDrop = [](auto& into, uint32 item, uint32 id, uint32 chance)
+            auto addDrop = [](Best& into, uint32 item, uint32 id, uint32 chance)
             {
                 uint32& best = into[item][id];
                 best = std::max(best, chance);
@@ -561,22 +834,18 @@ namespace RetailProfessions::Index
 
             auto readTable = [&](char const* table, auto&& onDrop)
             {
-                QueryByIds(Acore::StringFormat("SELECT CAST(Entry AS UNSIGNED), CAST(Item AS UNSIGNED), "
-                    "CAST(ROUND(ABS(Chance) * 100) AS UNSIGNED) FROM {} WHERE Reference = 0 AND Item IN ({{}})", table),
-                    recipeItems,
-                    [&](Field* f) { onDrop(uint32(f[0].Get<uint64>()), uint32(f[1].Get<uint64>()), uint32(f[2].Get<uint64>()), false); });
-                if (refs.empty())
-                    return;
-                QueryByIds(Acore::StringFormat("SELECT CAST(Entry AS UNSIGNED), CAST(Reference AS UNSIGNED), "
-                    "CAST(ROUND(ABS(Chance) * 100) AS UNSIGNED) FROM {} WHERE Reference IN ({{}})", table),
-                    refs,
-                    [&](Field* f)
+                for (LootRow const& row : ReadLootRows(table, items, refs))
+                {
+                    if (!row.reference)
                     {
-                        uint32 loot = uint32(f[0].Get<uint64>());
-                        uint32 refChance = uint32(f[2].Get<uint64>());
-                        for (Drop const& drop : refItems[uint32(f[1].Get<uint64>())])
-                            onDrop(loot, drop.id, drop.chance && refChance ? drop.chance * refChance / 10000 : 0, true);
-                    });
+                        onDrop(row.entry, row.item, row.chance, false);
+                        continue;
+                    }
+                    auto itr = refItems.find(row.reference);
+                    if (itr != refItems.end())
+                        for (Drop const& drop : itr->second)
+                            onDrop(row.entry, drop.id, Combine(drop.chance, row.chance, row.rolls), true);
+                }
             };
 
             readTable("creature_loot_template", [&](uint32 loot, uint32 item, uint32 chance, bool viaRef)
@@ -587,32 +856,50 @@ namespace RetailProfessions::Index
                 for (uint32 creature : itr->second)
                 {
                     if (viaRef)
-                        refCreatures[item].insert(creature);
+                    {
+                        uint32& best = refCreatures[item][creature];
+                        best = std::max(best, chance);
+                    }
                     else
                         addDrop(creatureDrops, item, creature, chance);
                 }
             });
 
-            readTable("gameobject_loot_template", [&](uint32 loot, uint32 item, uint32 chance, bool)
+            auto byOwners = [&](std::unordered_map<uint32, std::vector<uint32>> const& owners, Best& into)
             {
-                auto itr = objectsByLoot.find(loot);
-                if (itr == objectsByLoot.end())
-                    return;
-                for (uint32 object : itr->second)
-                    addDrop(objectDrops, item, object, chance);
-            });
+                return [&owners, &into, &addDrop](uint32 loot, uint32 item, uint32 chance, bool)
+                {
+                    auto itr = owners.find(loot);
+                    if (itr != owners.end())
+                        for (uint32 owner : itr->second)
+                            addDrop(into, item, owner, chance);
+                };
+            };
+            readTable("pickpocketing_loot_template", byOwners(creaturesByPickpocket, pickpocketDrops));
+            readTable("skinning_loot_template", byOwners(creaturesBySkinning, skinningDrops));
+            readTable("gameobject_loot_template", byOwners(objectsByLoot, objectDrops));
 
             readTable("item_loot_template", [&](uint32 container, uint32 item, uint32 chance, bool)
             {
-                addDrop(containerDrops, item, container, chance);
+                if (container != item)
+                    addDrop(containerDrops, item, container, chance);
+            });
+            readTable("fishing_loot_template", [&](uint32 area, uint32 item, uint32 chance, bool)
+            {
+                addDrop(fishingDrops, item, area, chance);
+            });
+            readTable("mail_loot_template", [&](uint32, uint32 item, uint32, bool)
+            {
+                sData.items[item].mail = true;
             });
 
             // Shared tables reach many templates that never spawn (event, test and unused ones);
-            // only spawned creatures count, for the size of a world drop and its level range.
+            // only spawned creatures count, for the size of a world drop, its level range and
+            // where it drops.
             for (auto& [item, all] : refCreatures)
             {
                 std::vector<uint32> list;
-                for (uint32 entry : all)
+                for (auto const& [entry, chance] : all)
                     if (sData.spawnedCreatures.count(entry))
                         list.push_back(entry);
                 ItemSources& sources = sData.items[item];
@@ -620,19 +907,50 @@ namespace RetailProfessions::Index
                 {
                     sources.worldDropCreatures = uint32(list.size());
                     sources.worldMinLevel = 255;
+                    std::unordered_map<uint32, uint32> perMap;
+                    uint32 inInstances = 0;
                     for (uint32 entry : list)
+                    {
                         if (CreatureTemplate const* creature = sObjectMgr->GetCreatureTemplate(entry))
                         {
                             sources.worldMinLevel = std::min<uint32>(sources.worldMinLevel, creature->minlevel);
                             sources.worldMaxLevel = std::max<uint32>(sources.worldMaxLevel, creature->maxlevel);
                         }
+                        auto map = sData.creatureMap.find(entry);
+                        if (map == sData.creatureMap.end())
+                            continue;
+                        ++perMap[map->second];
+                        MapEntry const* mapEntry = sMapStore.LookupEntry(map->second);
+                        if (mapEntry && mapEntry->Instanceable())
+                            ++inInstances;
+                    }
+                    // Mostly in dungeons or raids (a raid's trash shares one table): name them.
+                    // Otherwise the continents (not transports), leaving out a few strays.
+                    sources.worldInstances = inInstances * 2 > list.size();
+                    std::vector<std::pair<uint32, uint32>> ranked; // count, map
+                    for (auto const& [map, count] : perMap)
+                    {
+                        MapEntry const* mapEntry = sMapStore.LookupEntry(map);
+                        if (mapEntry && (sources.worldInstances ? mapEntry->Instanceable() : mapEntry->IsContinent()))
+                            ranked.emplace_back(count, map);
+                    }
+                    std::sort(ranked.begin(), ranked.end(), [](auto const& a, auto const& b)
+                        { return a.first != b.first ? a.first > b.first : a.second < b.second; });
+                    for (std::size_t i = 0; i < ranked.size() && i < 3 && ranked[i].first * 4 >= ranked.front().first; ++i)
+                        sources.worldMaps.push_back(ranked[i].second);
                 }
+                else if (!list.empty())
+                    for (uint32 entry : list)
+                        addDrop(creatureDrops, item, entry, all[entry]);
                 else
-                    for (uint32 entry : (list.empty() ? std::vector<uint32>(all.begin(), all.end()) : list))
-                        addDrop(creatureDrops, item, entry, 0);
+                    for (auto const& [entry, chance] : all)
+                        addDrop(creatureDrops, item, entry, chance);
             }
 
-            auto store = [](auto const& from, std::vector<Drop> ItemSources::*member, std::unordered_set<uint32>* interesting)
+            // A big shared pickpocket or skinning table (lockboxes) isn't worth a spawn lookup each:
+            // those are summed up rather than listed.
+            auto store = [](Best const& from, std::vector<Drop> ItemSources::*member, std::unordered_set<uint32>* interesting,
+                std::size_t listedUpTo)
             {
                 for (auto const& [item, byId] : from)
                 {
@@ -640,16 +958,36 @@ namespace RetailProfessions::Index
                     for (auto const& [id, chance] : byId)
                     {
                         into.push_back({ id, chance });
-                        if (interesting)
+                        if (interesting && byId.size() <= listedUpTo)
                             interesting->insert(id);
                     }
                     std::sort(into.begin(), into.end(), [](Drop const& a, Drop const& b)
                         { return a.chance != b.chance ? a.chance > b.chance : a.id < b.id; });
                 }
             };
-            store(creatureDrops, &ItemSources::creatures, &creatures);
-            store(objectDrops, &ItemSources::objects, &objects);
-            store(containerDrops, &ItemSources::containers, nullptr);
+            constexpr std::size_t ALL = std::numeric_limits<std::size_t>::max();
+            store(creatureDrops, &ItemSources::creatures, &creatures, ALL);
+            store(pickpocketDrops, &ItemSources::pickpocket, &creatures, GetConfig().worldDropThreshold);
+            store(skinningDrops, &ItemSources::skinning, &creatures, GetConfig().worldDropThreshold);
+            store(objectDrops, &ItemSources::objects, &objects, ALL);
+            store(containerDrops, &ItemSources::containers, nullptr, ALL);
+            store(fishingDrops, &ItemSources::fishing, nullptr, ALL);
+        }
+
+        // The bags, boxes and lockboxes recipe items are found in, which aren't recipe items
+        // themselves: where those come from is part of the answer.
+        std::unordered_set<uint32> ContainersOf(std::unordered_set<uint32> const& items)
+        {
+            std::unordered_set<uint32> out;
+            for (uint32 item : items)
+            {
+                auto itr = sData.items.find(item);
+                if (itr != sData.items.end())
+                    for (Drop const& d : itr->second.containers)
+                        if (!items.count(d.id))
+                            out.insert(d.id);
+            }
+            return out;
         }
 
         void ReadDiscoveries()
@@ -687,7 +1025,40 @@ namespace RetailProfessions::Index
         void CollectSpawnedCreatures()
         {
             for (auto const& [spawnId, data] : sObjectMgr->GetAllCreatureData())
+            {
                 sData.spawnedCreatures.insert(data.id);
+                sData.creatureMap.emplace(data.id, data.mapid);
+            }
+        }
+
+        // Creatures that are only out while a game event runs (a holiday's vendors, the
+        // Darkmoon Faire): every spawn of them belongs to one.
+        void ReadEventOnlyCreatures()
+        {
+            std::unordered_map<uint32, uint32> spawns;
+            for (auto const& [spawnId, data] : sObjectMgr->GetAllCreatureData())
+                ++spawns[data.id];
+
+            // entry -> spawns in events (a spawn can be in several), first event
+            std::unordered_map<uint32, std::pair<std::unordered_set<uint32>, uint32>> inEvents;
+            if (QueryResult result = WorldDatabase.Query("SELECT CAST(guid AS UNSIGNED), CAST(eventEntry AS SIGNED) "
+                "FROM game_event_creature WHERE eventEntry > 0"))
+                do
+                {
+                    Field* f = result->Fetch();
+                    uint32 guid = uint32(f[0].Get<uint64>());
+                    if (CreatureData const* data = sObjectMgr->GetCreatureData(guid))
+                    {
+                        auto& [guids, event] = inEvents[data->id];
+                        if (guids.empty())
+                            event = uint32(f[1].Get<int64>());
+                        guids.insert(guid);
+                    }
+                } while (result->NextRow());
+
+            for (auto const& [entry, inEvent] : inEvents)
+                if (inEvent.first.size() >= spawns[entry])
+                    sData.eventOnly[entry] = inEvent.second;
         }
 
         // Spawns of each trainer, vendor (MAX_SPAWNS, to find a near one), dropping creature and
@@ -793,6 +1164,9 @@ namespace RetailProfessions::Index
             }
             for (DiscoverySource const& d : recipe.discoveries)
                 consider(d.reqSkill);
+            for (Teacher const& t : recipe.teachers)
+                if (t.reqSkill == recipe.skill)
+                    consider(t.reqSkillValue);
             for (AutoRow const& row : recipe.autoRows)
                 consider(row.skill ? row.skill : 1);
             if (need != std::numeric_limits<uint32>::max())
@@ -811,6 +1185,9 @@ namespace RetailProfessions::Index
                     [](Vendor const& v) { return !Spawned(v.creature); }), sources.vendors.end());
                 PruneUnspawned(sources.creatures, sData.creatureSpawns);
                 PruneUnspawned(sources.objects, sData.objectSpawns);
+                for (std::vector<Drop>* list : { &sources.pickpocket, &sources.skinning })
+                    list->erase(std::remove_if(list->begin(), list->end(),
+                        [](Drop const& d) { return !sData.spawnedCreatures.count(d.id); }), list->end());
 
                 ItemTemplate const* item = sObjectMgr->GetItemTemplate(entry);
                 uint8 itemTeams = item ? TeamsOfRaceMask(item->AllowableRace == uint32(-1) ? 0 : item->AllowableRace) : TEAMBIT_BOTH;
@@ -819,7 +1196,8 @@ namespace RetailProfessions::Index
                 for (Vendor const& vendor : sources.vendors)
                     if (CreatureTemplate const* creature = sObjectMgr->GetCreatureTemplate(vendor.creature))
                         reach |= TeamsOfFaction(creature->faction);
-                if (!sources.creatures.empty() || !sources.objects.empty() || !sources.containers.empty() || sources.worldDropCreatures)
+                if (!sources.creatures.empty() || !sources.pickpocket.empty() || !sources.skinning.empty() || !sources.objects.empty()
+                    || !sources.containers.empty() || !sources.fishing.empty() || sources.mail || sources.worldDropCreatures)
                     reach |= TEAMBIT_BOTH;
                 for (uint32 questId : sources.quests)
                     if (Quest const* quest = sObjectMgr->GetQuestTemplate(questId))
@@ -833,7 +1211,19 @@ namespace RetailProfessions::Index
                 recipe.trainers.erase(std::remove_if(recipe.trainers.begin(), recipe.trainers.end(),
                     [](TrainerSource const& t) { return !Spawned(t.creature); }), recipe.trainers.end());
 
+                recipe.teachers.erase(std::remove_if(recipe.teachers.begin(), recipe.teachers.end(),
+                    [](Teacher const& t) { return t.object ? !sData.objectSpawns.count(t.id) : !Spawned(t.id); }), recipe.teachers.end());
+
                 uint8 teams = 0;
+                if (!recipe.teachers.empty())
+                {
+                    recipe.sources |= SRC_NPC;
+                    for (Teacher const& t : recipe.teachers)
+                    {
+                        CreatureTemplate const* creature = t.object ? nullptr : sObjectMgr->GetCreatureTemplate(t.id);
+                        teams |= creature ? TeamsOfFaction(creature->faction) : TEAMBIT_BOTH;
+                    }
+                }
                 if (!recipe.trainers.empty())
                 {
                     recipe.sources |= SRC_TRAINER;
@@ -1003,18 +1393,47 @@ namespace RetailProfessions::Index
             return best;
         }
 
-        bool CanUseCreature(Viewer const& viewer, uint32 entry, Spawn const** where)
+        // Where a creature or object is that nothing open to this player has yet: the region the
+        // first spawn is in, for a "more once it opens" note; empty when it isn't locked away.
+        std::string LockedRegion(Viewer const& viewer, std::vector<Spawn> const* spawns)
+        {
+            if (!spawns || spawns->empty() || viewer.everything || !GetConfig().hideLockedContinents)
+                return "";
+            for (Spawn const& spawn : *spawns)
+                if (IsOpen(viewer, spawn))
+                    return "";
+            Spawn const& spawn = spawns->front();
+            if (spawn.map == MAP_EBON_HOLD)
+                return "";
+            if (spawn.map == MAP_OUTLAND)
+                return spawn.zone == ZONE_ISLE_OF_QUEL_DANAS ? AreaName(ZONE_ISLE_OF_QUEL_DANAS) : MapName(MAP_OUTLAND);
+            MapEntry const* map = sMapStore.LookupEntry(spawn.map);
+            uint32 expansion = map ? map->Expansion() : 0;
+            if (expansion == 1)
+                return MapName(MAP_OUTLAND);
+            if (expansion >= 2)
+                return MapName(MAP_NORTHREND);
+            return "";
+        }
+
+        // A friendly creature the player can walk up to: its nearest open spawn. When it's only
+        // somewhere they can't go yet, `locked` (if given) gets the region.
+        bool CanUseCreature(Viewer const& viewer, uint32 entry, Spawn const** where, std::string* locked = nullptr)
         {
             CreatureTemplate const* creature = sObjectMgr->GetCreatureTemplate(entry);
             if (!creature || !IsFriendly(viewer, creature->faction))
                 return false;
             auto itr = sData.creatureSpawns.find(entry);
-            *where = BestSpawn(viewer, itr != sData.creatureSpawns.end() ? &itr->second : nullptr, true);
+            std::vector<Spawn> const* spawns = itr != sData.creatureSpawns.end() ? &itr->second : nullptr;
+            *where = BestSpawn(viewer, spawns, true);
+            if (!*where && locked)
+                *locked = LockedRegion(viewer, spawns);
             return *where != nullptr;
         }
 
         // A drop source is shown unless every spawn of it is somewhere the player can't go yet.
-        bool DropOpen(Viewer const& viewer, std::unordered_map<uint32, std::vector<Spawn>> const& all, uint32 id, Spawn const** where)
+        bool DropOpen(Viewer const& viewer, std::unordered_map<uint32, std::vector<Spawn>> const& all, uint32 id, Spawn const** where,
+            std::string* locked = nullptr)
         {
             auto itr = all.find(id);
             if (itr == all.end())
@@ -1023,6 +1442,8 @@ namespace RetailProfessions::Index
                 return true;
             }
             *where = BestSpawn(viewer, &itr->second, false);
+            if (!*where && locked)
+                *locked = LockedRegion(viewer, &itr->second);
             return *where != nullptr;
         }
 
@@ -1067,6 +1488,15 @@ namespace RetailProfessions::Index
             return true;
         }
 
+        // A scripted teacher's option shows only to those who know the spells it asks for.
+        bool TeacherTeaches(Player* player, Teacher const& t)
+        {
+            for (uint32 spell : t.reqSpells)
+                if (!player->HasSpell(spell))
+                    return false;
+            return true;
+        }
+
         bool QuestOpen(Player* player, Quest const* quest)
         {
             return !quest->GetAllowableRaces() || (quest->GetAllowableRaces() & player->getRaceMask());
@@ -1093,6 +1523,12 @@ namespace RetailProfessions::Index
                 if (CreatureTemplate const* creature = sObjectMgr->GetCreatureTemplate(t.creature))
                     if ((TeamsOfFaction(creature->faction) & team) && TrainerTeaches(player, t))
                         return true;
+            for (Teacher const& t : recipe.teachers)
+            {
+                CreatureTemplate const* creature = t.object ? nullptr : sObjectMgr->GetCreatureTemplate(t.id);
+                if ((!creature || (TeamsOfFaction(creature->faction) & team)) && TeacherTeaches(player, t))
+                    return true;
+            }
             for (uint32 questId : recipe.quests)
                 if (Quest const* quest = sObjectMgr->GetQuestTemplate(questId))
                     if (QuestOpen(player, quest))
@@ -1100,21 +1536,343 @@ namespace RetailProfessions::Index
             return false;
         }
 
+        // "Honored with Thorium Brotherhood", or empty.
         std::string ReputationText(ItemTemplate const* item)
         {
             if (!item || !item->RequiredReputationFaction)
-                return "-";
+                return "";
             FactionEntry const* faction = sFactionStore.LookupEntry(item->RequiredReputationFaction);
             if (!faction)
-                return "-";
+                return "";
             static char const* const RANKS[] = { "Hated", "Hostile", "Unfriendly", "Neutral", "Friendly", "Honored", "Revered", "Exalted" };
             uint32 rank = std::min<uint32>(item->RequiredReputationRank, 7);
-            return Escape(std::string(RANKS[rank]) + " with " + DbcString(faction->name));
+            return std::string(RANKS[rank]) + " with " + DbcString(faction->name);
         }
 
         std::string QuestZone(Quest const* quest)
         {
             return quest->GetZoneOrSort() > 0 ? AreaName(uint32(quest->GetZoneOrSort())) : "";
+        }
+
+        // ---- words for the guide ---------------------------------------------------------------
+
+        std::string Join(std::vector<std::string> const& parts, std::string_view sep)
+        {
+            std::string out;
+            for (std::string const& part : parts)
+            {
+                if (part.empty())
+                    continue;
+                if (!out.empty())
+                    out += sep;
+                out += part;
+            }
+            return out;
+        }
+
+        std::string ItemName(uint32 entry)
+        {
+            ItemTemplate const* item = sObjectMgr->GetItemTemplate(entry);
+            return item ? item->Name1 : "";
+        }
+
+        std::string SpellName(uint32 spell)
+        {
+            SpellInfo const* info = sSpellMgr->GetSpellInfo(spell);
+            return info ? DbcString(info->SpellName) : "";
+        }
+
+        std::string SkillName(uint32 skill)
+        {
+            SkillLineEntry const* line = sSkillLineStore.LookupEntry(skill);
+            return line ? DbcString(line->name) : "";
+        }
+
+        std::string QuestTitle(uint32 questId)
+        {
+            Quest const* quest = sObjectMgr->GetQuestTemplate(questId);
+            return quest ? quest->GetTitle() : "";
+        }
+
+        // A game event's name ("Winter Veil", "Darkmoon Faire (Elwynn Forest)").
+        std::string EventName(uint32 event)
+        {
+            GameEventMgr::GameEventDataMap const& events = sGameEventMgr->GetEventMap();
+            return event < events.size() ? events[event].Description : "";
+        }
+
+        std::string EventOnly(uint32 creature)
+        {
+            auto itr = sData.eventOnly.find(creature);
+            if (itr == sData.eventOnly.end())
+                return "";
+            std::string name = EventName(itr->second);
+            return name.empty() ? "during an event" : name + " only";
+        }
+
+        // What a vendor wants besides gold: "3 Dalaran Cooking Award", "40 Badge of Justice".
+        std::string CostText(uint32 extendedCost)
+        {
+            ItemExtendedCostEntry const* cost = sItemExtendedCostStore.LookupEntry(extendedCost);
+            if (!cost)
+                return "";
+            std::vector<std::string> parts;
+            for (uint32 i = 0; i < MAX_ITEM_EXTENDED_COST_REQUIREMENTS; ++i)
+                if (cost->reqitem[i] && cost->reqitemcount[i])
+                    parts.push_back(Acore::StringFormat("{} {}", cost->reqitemcount[i], ItemName(cost->reqitem[i])));
+            if (cost->reqhonorpoints)
+                parts.push_back(Acore::StringFormat("{} honor", cost->reqhonorpoints));
+            if (cost->reqarenapoints)
+                parts.push_back(Acore::StringFormat("{} arena points", cost->reqarenapoints));
+            if (cost->reqpersonalarenarating)
+                parts.push_back(Acore::StringFormat("{} personal arena rating", cost->reqpersonalarenarating));
+            return Join(parts, ", ");
+        }
+
+        // Rare spawns and bosses, worth a word next to their name.
+        std::string RankTag(CreatureTemplate const* creature)
+        {
+            if (creature->rank == CREATURE_ELITE_RARE || creature->rank == CREATURE_ELITE_RAREELITE)
+                return "rare";
+            if (creature->rank == CREATURE_ELITE_WORLDBOSS || (creature->flags_extra & CREATURE_FLAG_EXTRA_DUNGEON_BOSS))
+                return "boss";
+            return "";
+        }
+
+        std::string Levels(CreatureTemplate const* creature)
+        {
+            return creature->minlevel == creature->maxlevel ? std::to_string(creature->minlevel)
+                : Acore::StringFormat("{}-{}", creature->minlevel, creature->maxlevel);
+        }
+
+        std::string Percent(uint32 x100)
+        {
+            if (!x100)
+                return "";
+            return x100 >= 1000 ? Acore::StringFormat("{}%", x100 / 100) : Acore::StringFormat("{:.1f}%", x100 / 100.0f);
+        }
+
+        // Several creatures summed up: "12 kinds of creatures, level 20-35".
+        std::string CreatureSpread(std::vector<Drop> const& drops)
+        {
+            uint32 low = 255, high = 0;
+            for (Drop const& d : drops)
+                if (CreatureTemplate const* creature = sObjectMgr->GetCreatureTemplate(d.id))
+                {
+                    low = std::min<uint32>(low, creature->minlevel);
+                    high = std::max<uint32>(high, creature->maxlevel);
+                }
+            if (high < low)
+                return Acore::StringFormat("{} kinds of creatures", drops.size());
+            return Acore::StringFormat("{} kinds of creatures, level {}", drops.size(),
+                low == high ? std::to_string(low) : Acore::StringFormat("{}-{}", low, high));
+        }
+
+        std::string WorldPlaces(ItemSources const& sources)
+        {
+            std::vector<std::string> names;
+            for (uint32 map : sources.worldMaps)
+                names.push_back(MapName(map));
+            return Join(names, ", ");
+        }
+
+        // Where a quest is picked up: its giver and their place (the quest's own zone when it
+        // has one; profession quests are filed under the profession instead).
+        void QuestGiver(Viewer const& viewer, Quest const* quest, std::string& name, std::string& place)
+        {
+            name.clear();
+            place = QuestZone(quest);
+            auto giver = sData.questGivers.find(quest->GetQuestId());
+            if (giver != sData.questGivers.end())
+            {
+                if (CreatureTemplate const* creature = sObjectMgr->GetCreatureTemplate(giver->second))
+                {
+                    name = creature->Name;
+                    auto itr = sData.creatureSpawns.find(giver->second);
+                    if (Spawn const* where = BestSpawn(viewer, itr != sData.creatureSpawns.end() ? &itr->second : nullptr, false))
+                        place = PlaceName(*where);
+                }
+                return;
+            }
+            auto object = sData.questObjects.find(quest->GetQuestId());
+            if (object != sData.questObjects.end())
+                if (GameObjectTemplate const* go = sObjectMgr->GetGameObjectTemplate(object->second))
+                {
+                    name = go->name;
+                    auto itr = sData.objectSpawns.find(object->second);
+                    if (Spawn const* where = BestSpawn(viewer, itr != sData.objectSpawns.end() ? &itr->second : nullptr, false))
+                        place = PlaceName(*where);
+                }
+        }
+
+        std::string QuestRepeat(Quest const* quest)
+        {
+            if (quest->IsDaily())
+                return "daily";
+            if (quest->IsWeekly())
+                return "weekly";
+            if (quest->IsRepeatable())
+                return "repeatable";
+            return "";
+        }
+
+        // Tooltip lines about a quest: who gives it, what it needs first.
+        std::vector<std::string> QuestDetails(Viewer const& viewer, Quest const* quest)
+        {
+            std::vector<std::string> lines;
+            std::string giver, place;
+            QuestGiver(viewer, quest, giver, place);
+            if (!giver.empty())
+                lines.push_back("Quest giver: " + giver + (place.empty() ? "" : " - " + place));
+            if (quest->GetQuestLevel() > 0)
+                lines.push_back(Acore::StringFormat("Level {} quest, from level {}", quest->GetQuestLevel(), quest->GetMinLevel()));
+            else
+                lines.push_back(Acore::StringFormat("From level {}; it scales to your level", quest->GetMinLevel()));
+            if (quest->GetRequiredSkill() && quest->GetRequiredSkillValue())
+                lines.push_back(Acore::StringFormat("Needs {} {}", SkillName(quest->GetRequiredSkill()), quest->GetRequiredSkillValue()));
+            if (quest->GetPrevQuestId() > 0)
+                lines.push_back("After the quest " + QuestTitle(uint32(quest->GetPrevQuestId())));
+            std::string repeat = QuestRepeat(quest);
+            if (!repeat.empty())
+                lines.push_back("A " + repeat + " quest");
+            return lines;
+        }
+
+        // How to get hold of a bag, box or lockbox a recipe item is found in: short, then in full.
+        std::vector<std::string> ItemOrigin(Viewer const& viewer, uint32 entry)
+        {
+            std::vector<std::string> lines;
+            auto itr = sData.items.find(entry);
+            ItemTemplate const* item = sObjectMgr->GetItemTemplate(entry);
+            if (itr == sData.items.end())
+                return lines;
+            ItemSources const& sources = itr->second;
+            uint32 const limit = 3;
+
+            std::vector<uint32> quests;
+            for (uint32 questId : sources.quests)
+                if (Quest const* quest = sObjectMgr->GetQuestTemplate(questId))
+                    if (QuestOpen(viewer.player, quest) || viewer.everything)
+                        quests.push_back(questId);
+            for (std::size_t i = 0; i < quests.size() && i < limit; ++i)
+            {
+                Quest const* quest = sObjectMgr->GetQuestTemplate(quests[i]);
+                std::string giver, place;
+                QuestGiver(viewer, quest, giver, place);
+                std::string repeat = QuestRepeat(quest);
+                lines.push_back("Reward from the " + (repeat.empty() ? "" : repeat + " ") + "quest " + quest->GetTitle()
+                    + (place.empty() ? "" : " (" + place + ")"));
+            }
+            if (quests.size() > limit)
+                lines.push_back(Acore::StringFormat("... and {} more quests", quests.size() - limit));
+
+            for (Vendor const& v : sources.vendors)
+            {
+                Spawn const* where = nullptr;
+                if (!CanUseCreature(viewer, v.creature, &where))
+                    continue;
+                std::string cost = CostText(v.extendedCost);
+                lines.push_back("Sold by " + sObjectMgr->GetCreatureTemplate(v.creature)->Name + " (" + PlaceName(*where) + ")"
+                    + (cost.empty() ? "" : " for " + cost));
+                break;
+            }
+
+            if (!sources.creatures.empty())
+            {
+                if (sources.creatures.size() <= limit)
+                    for (Drop const& d : sources.creatures)
+                    {
+                        CreatureTemplate const* creature = sObjectMgr->GetCreatureTemplate(d.id);
+                        Spawn const* where = nullptr;
+                        if (creature && DropOpen(viewer, sData.creatureSpawns, d.id, &where))
+                            lines.push_back("Dropped by " + creature->Name + (where ? " (" + PlaceName(*where) + ")" : ""));
+                    }
+                else
+                    lines.push_back("Dropped by " + CreatureSpread(sources.creatures));
+            }
+            if (sources.worldDropCreatures)
+            {
+                std::string places = WorldPlaces(sources);
+                lines.push_back(Acore::StringFormat("World drop, level {}-{}", sources.worldMinLevel, sources.worldMaxLevel)
+                    + (places.empty() ? "" : " (" + places + ")"));
+            }
+            if (!sources.pickpocket.empty())
+                lines.push_back("Pickpocketed from " + (sources.pickpocket.size() == 1
+                    ? sObjectMgr->GetCreatureTemplate(sources.pickpocket.front().id)->Name : CreatureSpread(sources.pickpocket)));
+            if (!sources.skinning.empty())
+                lines.push_back("Skinned from " + (sources.skinning.size() == 1
+                    ? sObjectMgr->GetCreatureTemplate(sources.skinning.front().id)->Name : CreatureSpread(sources.skinning)));
+            for (std::size_t i = 0; i < sources.objects.size() && i < limit; ++i)
+                if (GameObjectTemplate const* object = sObjectMgr->GetGameObjectTemplate(sources.objects[i].id))
+                {
+                    Spawn const* where = nullptr;
+                    DropOpen(viewer, sData.objectSpawns, sources.objects[i].id, &where);
+                    lines.push_back("Found in " + object->name + (where ? " (" + PlaceName(*where) + ")" : ""));
+                }
+            if (!sources.fishing.empty())
+            {
+                std::vector<std::string> areas;
+                for (std::size_t i = 0; i < sources.fishing.size() && i < limit; ++i)
+                    areas.push_back(AreaName(sources.fishing[i].id));
+                lines.push_back("Fished up in " + Join(areas, ", "));
+            }
+            if (sources.mail)
+                lines.push_back("Arrives in the mail");
+            for (std::size_t i = 0; i < sources.containers.size() && i < limit; ++i)
+                lines.push_back("Inside " + ItemName(sources.containers[i].id));
+            if (item && item->LockID)
+                lines.push_back("Locked: open it with Lockpicking, or ask a rogue");
+            return lines;
+        }
+
+        // A few words for a container's line; ItemOrigin has the rest.
+        std::string ItemOriginNote(ItemSources const& sources, ItemTemplate const* item)
+        {
+            std::string note;
+            bool daily = std::any_of(sources.quests.begin(), sources.quests.end(), [](uint32 id)
+            {
+                Quest const* quest = sObjectMgr->GetQuestTemplate(id);
+                return quest && quest->IsDailyOrWeekly();
+            });
+            if (!sources.quests.empty())
+                note = daily ? "daily quest reward" : "quest reward";
+            else if (!sources.vendors.empty())
+                note = "sold by a vendor";
+            else if (!sources.creatures.empty() || sources.worldDropCreatures)
+                note = "dropped by creatures";
+            else if (!sources.pickpocket.empty())
+                note = "pickpocketed";
+            else if (!sources.objects.empty())
+                note = "found in chests";
+            else if (!sources.fishing.empty())
+                note = "fished up";
+            else if (sources.mail)
+                note = "comes in the mail";
+            else if (!sources.containers.empty())
+                note = "inside another container";
+            if (item && item->LockID)
+                note += note.empty() ? "locked" : ", locked";
+            return note;
+        }
+
+        // A W row out of its first seven fields (already escaped and joined) plus the note and
+        // tooltip lines, cut to fit one addon message: detail lines go from the end first, then
+        // the note gets shorter. SendRows never splits a row.
+        std::string FitRow(std::string const& head, std::string note, std::vector<std::string> details, std::size_t budget)
+        {
+            auto build = [&]() { return head + "," + Escape(note) + "," + Escape(Join(details, "\n")); };
+            std::string out = build();
+            while (out.size() > budget && !details.empty())
+            {
+                details.pop_back();
+                out = build();
+            }
+            while (out.size() > budget && !note.empty())
+            {
+                note.resize(note.size() > 8 ? note.size() - 8 : 0);
+                out = build();
+            }
+            return out;
         }
     }
 
@@ -1124,24 +1882,32 @@ namespace RetailProfessions::Index
         sData = Data();
 
         std::unordered_set<uint32> recipeItems;
-        std::unordered_set<uint32> service;  // trainers and vendors
+        std::unordered_set<uint32> service;  // trainers, vendors, teachers and quest givers
         std::unordered_set<uint32> droppers;
         std::unordered_set<uint32> objects;
 
         CollectSpawnedCreatures();
+        ReadEventOnlyCreatures();
         ReadRecipes();
         ReadTrainers(service);
+        ReadTeachers(service, objects);
         ReadRecipeItems(recipeItems);
         ReadVendors(recipeItems, service);
-        ReadQuests(recipeItems);
+        ReadQuests(recipeItems, true);
         ReadLoot(recipeItems, droppers, objects);
+        // Then the same for the bags and lockboxes recipe items are found in.
+        std::unordered_set<uint32> containers = ContainersOf(recipeItems);
+        ReadVendors(containers, service);
+        ReadQuests(containers, false);
+        ReadLoot(containers, droppers, objects);
+        ReadQuestGivers(service, objects);
         ReadDiscoveries();
         ReadSpawns(service, droppers, objects);
         Finish();
         ComputeStamp();
 
-        LOG_INFO("server.loading", ">> mod-retail-professions: indexed {} recipes ({} recipe items) in {} ms",
-            sData.recipes.size(), recipeItems.size(), GetMSTimeDiffToNow(oldMSTime));
+        LOG_INFO("server.loading", ">> mod-retail-professions: indexed {} recipes ({} recipe items, {} containers) in {} ms",
+            sData.recipes.size(), recipeItems.size(), containers.size(), GetMSTimeDiffToNow(oldMSTime));
     }
 
     uint32 Stamp()
@@ -1180,17 +1946,25 @@ namespace RetailProfessions::Index
         Send(player, "LE:" + req);
     }
 
-    // W:<req>:<spell> -> where the player can learn a recipe. Rows: kind, id, name, zone, a, b, c.
+    // W:<req>:<spell> -> where the player can learn a recipe.
+    // Rows: kind, id, name, zone, a, b, c, note, details. The note is a few words that go on the
+    // line (a vendor's token price, the holiday it comes with, "rare"); details are tooltip lines
+    // separated by '\n'. Kinds:
     //   A  learned automatically             a = skill (0 = with the profession)
-    //   T  trainer   id = creature           a = cost (copper), b = skill
+    //   T  trainer   id = creature           a = cost (copper), b = skill, c = level (0 = any)
+    //   N  taught by someone when asked (a script)  id = creature
+    //   G  taught by an object (a book, a tablet)   id = gameobject
     //   V  vendor    id = creature           a = price (copper, 0 = not gold), b = limited stock, c = reputation
     //   D  drop      id = creature           a = chance x100 (0 = unknown), b = "min-max" level
-    //   X  world drop                        a = how many creatures, b = "min-max" level
+    //   P  pickpocket, K skinning: as D; id 0 = summed up, name = "12 kinds of creatures, level 20-35"
+    //   X  world drop                        a = how many creatures, b = "min-max" level, c = where (instances
+    //                                        when it's dungeon or raid trash, else continents)
     //   O  object    id = gameobject         a = chance x100
-    //   C  container id = item               a = chance x100
-    //   Q  quest     id = quest              a = quest level, b = min level
+    //   C  container id = item               a = chance x100; note/details = where the container comes from
+    //   Q  quest     id = quest              a = quest level, b = min level, c = quest giver
     //   R  quest reward of the recipe item, same fields as Q
     //   S  discovery id = spell crafted (0 = any)   a = chance x100, b = skill
+    //   L  more sources where the player can't go yet: name = the region, a = how many
     void HandleWhere(Player* player, std::string const& req, std::vector<std::string_view> const& args)
     {
         uint32 spell = 0;
@@ -1210,39 +1984,135 @@ namespace RetailProfessions::Index
         Viewer viewer = MakeViewer(player);
         uint32 const limit = GetConfig().maxSourcesPerKind;
         std::vector<std::string> rows;
+        std::vector<std::pair<std::string, uint32>> locked; // region, sources there
+        std::size_t const budget = MAX_PAYLOAD - std::string("WD:" + req).size() - 1;
 
         auto row = [&](char kind, uint32 id, std::string const& name, std::string const& zone, std::string const& a,
-            std::string const& b = "0", std::string const& c = "-")
+            std::string const& b = "0", std::string const& c = "-", std::string const& note = "",
+            std::vector<std::string> const& details = {})
         {
-            rows.push_back(Acore::StringFormat("{},{},{},{},{},{},{}", kind, id, Escape(name), Escape(zone), a, b, c));
+            rows.push_back(FitRow(Acore::StringFormat("{},{},{},{},{},{},{}", kind, id, Escape(name), Escape(zone), a, b, c),
+                note, details, budget));
+        };
+        auto lockedAt = [&](std::string const& region)
+        {
+            if (region.empty())
+                return;
+            auto itr = std::find_if(locked.begin(), locked.end(), [&](auto const& l) { return l.first == region; });
+            if (itr == locked.end())
+                locked.emplace_back(region, 1);
+            else
+                ++itr->second;
+        };
+        auto distance = [&](Spawn const* where)
+        {
+            return where->map == player->GetMapId() ? player->GetExactDist2d(where->x, where->y) : 1e9f;
         };
 
         if (AutoRow const* autoRow = AutoRowFor(player, recipe))
             row('A', 0, "", "", std::to_string(autoRow->skill));
 
-        // Trainers: near ones first, one row per kind of trainer.
+        // Trainers: near ones first.
         {
             std::vector<std::pair<float, std::string>> found;
             for (TrainerSource const& t : recipe.trainers)
             {
                 Spawn const* where = nullptr;
-                if (!TrainerTeaches(player, t) || !CanUseCreature(viewer, t.creature, &where))
+                std::string region;
+                if (!TrainerTeaches(player, t))
                     continue;
+                if (!CanUseCreature(viewer, t.creature, &where, &region))
+                {
+                    lockedAt(region);
+                    continue;
+                }
                 CreatureTemplate const* creature = sObjectMgr->GetCreatureTemplate(t.creature);
-                float dist = where->map == player->GetMapId() ? player->GetExactDist2d(where->x, where->y) : 1e9f;
-                found.emplace_back(dist, Acore::StringFormat("T,{},{},{},{},{},-", t.creature, Escape(creature->Name),
-                    Escape(PlaceName(*where)), t.cost, t.reqSkill));
+                std::vector<std::string> details;
+                if (!creature->SubName.empty())
+                    details.push_back(creature->SubName);
+                if (t.reqSkill)
+                    details.push_back(Acore::StringFormat("Teaches it from {} {}", SkillName(recipe.skill), t.reqSkill));
+                if (t.reqLevel > 1)
+                    details.push_back(Acore::StringFormat("Needs level {}", t.reqLevel));
+                for (uint32 ability : t.reqAbility)
+                    if (ability)
+                        details.push_back("Needs " + SpellName(ability));
+                std::string event = EventOnly(t.creature);
+                if (!event.empty())
+                    details.push_back(event);
+                found.emplace_back(distance(where), FitRow(Acore::StringFormat("T,{},{},{},{},{},{}", t.creature,
+                    Escape(creature->Name), Escape(PlaceName(*where)), t.cost, t.reqSkill, t.reqLevel), event, details, budget));
             }
             std::sort(found.begin(), found.end(), [](auto const& a, auto const& b) { return a.first < b.first; });
             for (std::size_t i = 0; i < found.size() && i < limit; ++i)
                 rows.push_back(found[i].second);
         }
 
+        // Teachers with a script: a gossip option, a book to read.
+        for (Teacher const& t : recipe.teachers)
+        {
+            if (!TeacherTeaches(player, t))
+                continue;
+            std::vector<std::string> details;
+            std::string note;
+            if (t.reqSkill && t.reqSkillValue)
+                details.push_back(Acore::StringFormat("Needs {} {}", SkillName(t.reqSkill), t.reqSkillValue));
+            for (uint32 spellId : t.reqSpells)
+                details.push_back("Needs " + SpellName(spellId));
+            for (uint32 item : t.reqItems)
+            {
+                details.push_back("Needs " + ItemName(item) + " in your bags");
+                if (note.empty())
+                    note = "bring " + ItemName(item);
+            }
+            for (uint32 questId : t.reqQuests)
+            {
+                details.push_back("After the quest " + QuestTitle(questId));
+                if (note.empty())
+                    note = "after " + QuestTitle(questId);
+            }
+            Spawn const* where = nullptr;
+            std::string region;
+            if (t.object)
+            {
+                GameObjectTemplate const* object = sObjectMgr->GetGameObjectTemplate(t.id);
+                if (!object || !DropOpen(viewer, sData.objectSpawns, t.id, &where, &region))
+                {
+                    lockedAt(region);
+                    continue;
+                }
+                details.insert(details.begin(), "Use it to learn the recipe");
+                row('G', t.id, object->name, where ? PlaceName(*where) : "", "0", "0", "-", note, details);
+            }
+            else
+            {
+                if (!CanUseCreature(viewer, t.id, &where, &region))
+                {
+                    lockedAt(region);
+                    continue;
+                }
+                CreatureTemplate const* creature = sObjectMgr->GetCreatureTemplate(t.id);
+                details.insert(details.begin(), "Talk to them to learn the recipe");
+                std::string event = EventOnly(t.id);
+                if (!event.empty())
+                    details.push_back(event);
+                row('N', t.id, creature->Name, PlaceName(*where), "0", "0", "-", note.empty() ? event : note, details);
+            }
+        }
+
+        auto questRow = [&](char kind, Quest const* quest)
+        {
+            std::string giver, place;
+            QuestGiver(viewer, quest, giver, place);
+            row(kind, quest->GetQuestId(), quest->GetTitle(), place,
+                std::to_string(quest->GetQuestLevel() > 0 ? uint32(quest->GetQuestLevel()) : std::max<uint32>(1, quest->GetMinLevel())),
+                std::to_string(quest->GetMinLevel()), Escape(giver), QuestRepeat(quest), QuestDetails(viewer, quest));
+        };
+
         for (uint32 questId : recipe.quests)
             if (Quest const* quest = sObjectMgr->GetQuestTemplate(questId))
                 if (QuestOpen(player, quest))
-                    row('Q', questId, quest->GetTitle(), QuestZone(quest), std::to_string(quest->GetQuestLevel()),
-                        std::to_string(quest->GetMinLevel()));
+                    questRow('Q', quest);
 
         for (DiscoverySource const& d : recipe.discoveries)
         {
@@ -1261,13 +2131,31 @@ namespace RetailProfessions::Index
             for (Vendor const& v : sources.vendors)
             {
                 Spawn const* where = nullptr;
-                if (!CanUseCreature(viewer, v.creature, &where))
+                std::string region;
+                if (!CanUseCreature(viewer, v.creature, &where, &region))
+                {
+                    lockedAt(region);
                     continue;
+                }
                 CreatureTemplate const* creature = sObjectMgr->GetCreatureTemplate(v.creature);
-                float dist = where->map == player->GetMapId() ? player->GetExactDist2d(where->x, where->y) : 1e9f;
-                vendors.emplace_back(dist, Acore::StringFormat("V,{},{},{},{},{},{}", v.creature, Escape(creature->Name),
-                    Escape(PlaceName(*where)), v.gold && item ? std::max(0, item->BuyPrice) : 0, v.maxcount ? 1 : 0,
-                    ReputationText(item)));
+                std::string cost = CostText(v.extendedCost);
+                std::string event = v.event ? EventName(v.event) : "";
+                event = event.empty() ? EventOnly(v.creature) : event + " only";
+                std::vector<std::string> details;
+                if (!creature->SubName.empty())
+                    details.push_back(creature->SubName);
+                if (!cost.empty())
+                    details.push_back("Costs " + cost + (v.gold && item && item->BuyPrice > 0 ? " and gold" : ""));
+                std::string reputation = ReputationText(item);
+                if (!reputation.empty())
+                    details.push_back("Needs " + reputation);
+                if (v.maxcount)
+                    details.push_back(Acore::StringFormat("Limited stock ({} at a time), restocks over time", v.maxcount));
+                if (!event.empty())
+                    details.push_back(event);
+                vendors.emplace_back(distance(where), FitRow(Acore::StringFormat("V,{},{},{},{},{},{}", v.creature,
+                    Escape(creature->Name), Escape(PlaceName(*where)), v.gold && item ? std::max(0, item->BuyPrice) : 0,
+                    v.maxcount ? 1 : 0, Escape(reputation)), Join({ cost, event }, ", "), details, budget));
             }
             std::sort(vendors.begin(), vendors.end(), [](auto const& a, auto const& b) { return a.first < b.first; });
             for (std::size_t i = 0; i < vendors.size() && i < limit; ++i)
@@ -1276,8 +2164,7 @@ namespace RetailProfessions::Index
             for (uint32 questId : sources.quests)
                 if (Quest const* quest = sObjectMgr->GetQuestTemplate(questId))
                     if (QuestOpen(player, quest))
-                        row('R', questId, quest->GetTitle(), QuestZone(quest), std::to_string(quest->GetQuestLevel()),
-                            std::to_string(quest->GetMinLevel()));
+                        questRow('R', quest);
 
             uint32 shown = 0;
             for (Drop const& d : sources.creatures)
@@ -1285,17 +2172,72 @@ namespace RetailProfessions::Index
                 if (shown >= limit)
                     break;
                 Spawn const* where = nullptr;
+                std::string region;
                 CreatureTemplate const* creature = sObjectMgr->GetCreatureTemplate(d.id);
-                if (!creature || !DropOpen(viewer, sData.creatureSpawns, d.id, &where))
+                if (!creature)
                     continue;
+                if (!DropOpen(viewer, sData.creatureSpawns, d.id, &where, &region))
+                {
+                    lockedAt(region);
+                    continue;
+                }
+                std::string tag = RankTag(creature);
+                std::string event = EventOnly(d.id);
+                std::vector<std::string> details = { "Level " + Levels(creature) };
+                if (d.chance)
+                    details.push_back("Drops it " + Percent(d.chance) + " of the time");
+                if (tag == "rare")
+                    details.push_back("A rare spawn: it isn't always there");
+                if (!event.empty())
+                    details.push_back(event);
                 row('D', d.id, creature->Name, where ? PlaceName(*where) : "", std::to_string(d.chance),
-                    std::to_string(creature->minlevel) + "-" + std::to_string(creature->maxlevel));
+                    std::to_string(creature->minlevel) + "-" + std::to_string(creature->maxlevel), "-", Join({ tag, event }, ", "), details);
                 ++shown;
             }
 
             if (sources.worldDropCreatures)
+            {
+                std::string places = WorldPlaces(sources);
+                std::vector<std::string> details = { Acore::StringFormat("From {} kinds of creatures, level {}-{}",
+                    sources.worldDropCreatures, sources.worldMinLevel, sources.worldMaxLevel) };
+                if (!places.empty())
+                    details.push_back((sources.worldInstances ? "Mostly in " : "Mostly on ") + places);
+                if (item && item->Bonding != BIND_WHEN_PICKED_UP)
+                    details.push_back("It binds when equipped, so it also turns up on the auction house");
                 row('X', 0, "", "", std::to_string(sources.worldDropCreatures),
-                    std::to_string(sources.worldMinLevel) + "-" + std::to_string(sources.worldMaxLevel));
+                    std::to_string(sources.worldMinLevel) + "-" + std::to_string(sources.worldMaxLevel), Escape(places),
+                    sources.worldInstances ? "trash" : "", details);
+            }
+
+            // Pickpocketing and skinning: name a few, or sum up a big shared table.
+            auto creatureList = [&](char kind, std::vector<Drop> const& drops, char const* verb)
+            {
+                if (drops.empty())
+                    return;
+                if (drops.size() > limit)
+                {
+                    row(kind, 0, CreatureSpread(drops), "", "0", "0", "-", "", { std::string(verb) + " " + CreatureSpread(drops) });
+                    return;
+                }
+                for (Drop const& d : drops)
+                    if (CreatureTemplate const* creature = sObjectMgr->GetCreatureTemplate(d.id))
+                    {
+                        Spawn const* where = nullptr;
+                        std::string region;
+                        if (!DropOpen(viewer, sData.creatureSpawns, d.id, &where, &region))
+                        {
+                            lockedAt(region);
+                            continue;
+                        }
+                        std::vector<std::string> details = { "Level " + Levels(creature) };
+                        if (d.chance)
+                            details.push_back(Percent(d.chance) + " of the time");
+                        row(kind, d.id, creature->Name, where ? PlaceName(*where) : "", std::to_string(d.chance),
+                            std::to_string(creature->minlevel) + "-" + std::to_string(creature->maxlevel), "-", RankTag(creature), details);
+                    }
+            };
+            creatureList('P', sources.pickpocket, "Pickpocketed from");
+            creatureList('K', sources.skinning, "Skinned from");
 
             shown = 0;
             for (Drop const& d : sources.objects)
@@ -1303,10 +2245,19 @@ namespace RetailProfessions::Index
                 if (shown >= limit)
                     break;
                 Spawn const* where = nullptr;
+                std::string region;
                 GameObjectTemplate const* object = sObjectMgr->GetGameObjectTemplate(d.id);
-                if (!object || !DropOpen(viewer, sData.objectSpawns, d.id, &where))
+                if (!object)
                     continue;
-                row('O', d.id, object->name, where ? PlaceName(*where) : "", std::to_string(d.chance));
+                if (!DropOpen(viewer, sData.objectSpawns, d.id, &where, &region))
+                {
+                    lockedAt(region);
+                    continue;
+                }
+                std::vector<std::string> details;
+                if (d.chance)
+                    details.push_back("In " + Percent(d.chance) + " of them");
+                row('O', d.id, object->name, where ? PlaceName(*where) : "", std::to_string(d.chance), "0", "-", "", details);
                 ++shown;
             }
 
@@ -1317,32 +2268,75 @@ namespace RetailProfessions::Index
                     break;
                 if (ItemTemplate const* container = sObjectMgr->GetItemTemplate(d.id))
                 {
-                    row('C', d.id, container->Name1, "", std::to_string(d.chance));
+                    std::vector<std::string> origin = ItemOrigin(viewer, d.id);
+                    if (d.chance)
+                        origin.insert(origin.begin(), "Holds it " + Percent(d.chance) + " of the time");
+                    auto citr = sData.items.find(d.id);
+                    std::string note = citr != sData.items.end() ? ItemOriginNote(citr->second, container) : "";
+                    row('C', d.id, container->Name1, "", std::to_string(d.chance), "0", "-", note, origin);
                     ++shown;
                 }
             }
         }
+
+        for (auto const& [region, count] : locked)
+            row('L', 0, region, "", std::to_string(count));
 
         Send(player, "WR:" + req + ":" + std::to_string(spell) + ":" + std::to_string(recipeItem));
         SendRows(player, "WD:" + req, rows);
         Send(player, "WE:" + req);
     }
 
-    // M:<req>:<T|V>:<creature> -> flags the nearest spawn on the map (when it's on the player's
-    // continent) and answers where it is.
+    // M:<req>:<kind>:<id> -> flags the nearest spawn on the map (when it's on the player's
+    // continent) and answers where it is. Kinds as in W: T, V, N (a friendly creature), D, P, K
+    // (any creature), O, G (an object), Q, R (id = quest: its giver).
     void HandleMapPin(Player* player, std::string const& req, std::vector<std::string_view> const& args)
     {
-        uint32 entry = 0;
-        if (args.size() < 4 || !ParseUInt(args[3], entry))
+        uint32 id = 0;
+        if (args.size() < 4 || args[2].empty() || !ParseUInt(args[3], id))
         {
             SendError(player, req, "bad");
             return;
         }
 
         Viewer viewer = MakeViewer(player);
+        char kind = args[2][0];
+        bool object = kind == 'O' || kind == 'G';
+        bool friendly = kind == 'T' || kind == 'V' || kind == 'N';
+        if (kind == 'Q' || kind == 'R')
+        {
+            auto giver = sData.questGivers.find(id);
+            auto go = sData.questObjects.find(id);
+            if (giver != sData.questGivers.end())
+                id = giver->second;
+            else if (go != sData.questObjects.end())
+            {
+                id = go->second;
+                object = true;
+            }
+            else
+                id = 0;
+        }
+
         Spawn const* where = nullptr;
-        CreatureTemplate const* creature = sObjectMgr->GetCreatureTemplate(entry);
-        if (!creature || !CanUseCreature(viewer, entry, &where))
+        std::string name;
+        if (object)
+        {
+            if (GameObjectTemplate const* go = sObjectMgr->GetGameObjectTemplate(id))
+            {
+                DropOpen(viewer, sData.objectSpawns, id, &where);
+                name = go->name;
+            }
+        }
+        else if (CreatureTemplate const* creature = sObjectMgr->GetCreatureTemplate(id))
+        {
+            if (friendly)
+                CanUseCreature(viewer, id, &where);
+            else
+                DropOpen(viewer, sData.creatureSpawns, id, &where);
+            name = creature->Name;
+        }
+        if (!where)
         {
             SendError(player, req, "none");
             return;
@@ -1360,13 +2354,13 @@ namespace RetailProfessions::Index
 
         if (where->map == player->GetMapId())
         {
-            WorldPacket data(SMSG_GOSSIP_POI, 4 + 4 + 4 + 4 + 4 + creature->Name.size() + 1);
+            WorldPacket data(SMSG_GOSSIP_POI, 4 + 4 + 4 + 4 + 4 + name.size() + 1);
             data << uint32(POI_FLAGS);
             data << float(where->x);
             data << float(where->y);
             data << uint32(POI_ICON_RED_FLAG);
             data << uint32(0);
-            data << creature->Name;
+            data << name;
             player->SendDirectMessage(&data);
             text += Acore::StringFormat(", {} yards away", uint32(player->GetExactDist2d(where->x, where->y)));
         }

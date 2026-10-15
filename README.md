@@ -54,10 +54,27 @@ crafting speed**, earned by skill.
   that puts the shortfall on your shopping list. Only what isn't on the list yet is added, so
   asking twice doesn't double it (Shift-click adds it all on top, for a second recipe that needs
   the same reagent). RetailAH's Buy tab opens on that list and counts it down as you buy.
-- For a recipe you haven't learned: **where to learn it**. Trainers (nearest first, with the
-  cost), vendors (price, limited stock, reputation needed), drops (creature, zone, level,
-  chance), world drops (how many creatures, level range), chests, containers, quests and
-  discoveries. **Map** puts a flag on the trainer or vendor.
+- For a recipe you haven't learned: **where to learn it**, written like a guide. Hover a line
+  for the details.
+  - Trainers, nearest first, with the cost and the skill they teach it at. Death knights' runes
+    come from their class trainer.
+  - People and objects that teach it through a script (Henry Stern's tea, Knot Thimblejack's
+    ogre suit, the teleporter engineers, the books in Blackrock Depths, Gloom'rel's Smelt Dark
+    Iron) with what the option asks for: skill, specialization, an item, a quest done first.
+  - Vendors: the price in gold or in tokens ("3 Dalaran Cooking Award", badges, honor), limited
+    stock, the reputation needed, and the holiday for vendors that only come with one (Winter
+    Veil, the Darkmoon Faire).
+  - Drops: creature, zone or dungeon, level, chance (a loot group's share when the row has no
+    chance of its own), rare spawns and bosses marked. Pickpocketing and skinning too.
+  - World drops say where they really drop: "from trash in Black Temple", or the continents.
+  - Bags, crates and lockboxes say where they come from: the quest that rewards them (a daily
+    or not, and where), the vendor, the creatures, the fishing spot, the mail, or that it's
+    locked.
+  - Quests show their giver and where they stand (profession quests have no zone of their own),
+    the level, the skill they ask for, the quest before them and whether they repeat.
+  - Discoveries, and a last line for sources on a continent your progression hasn't opened.
+  - The recipe item shows its lowest buyout when RetailAH is on the realm.
+  - **Map** puts a flag on a trainer, vendor, teacher, dropping creature, object or quest giver.
 
 **Milling and Prospecting**
 - A **Milling** tab (scribes) and a **Prospecting** tab (jewelcrafters) under the profession

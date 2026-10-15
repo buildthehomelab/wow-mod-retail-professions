@@ -48,6 +48,7 @@ namespace RetailProfessions
         HELLO_MAP_PINS = 0x2, // M flags a trainer or vendor on the map
         HELLO_REFINE   = 0x4, // Y lists what herbs and ore give, X mills or prospects them
         HELLO_PERKS    = 0x8, // crafts can proc; HELLO carries the odds, L rows say which recipes
+        HELLO_GUIDE    = 0x10, // W rows carry a note and details; M pins drops, objects and quest givers
     };
 
     // What a craft of a recipe can get on top (the perks field of an L row).
@@ -66,6 +67,7 @@ namespace RetailProfessions
         SRC_QUEST     = 0x04, // a quest teaches the spell itself
         SRC_DISCOVERY = 0x08,
         SRC_AUTO      = 0x10, // learned with the profession, or on reaching a skill level
+        SRC_NPC       = 0x20, // someone (or something) in the world teaches it when asked
     };
 
     struct Config
