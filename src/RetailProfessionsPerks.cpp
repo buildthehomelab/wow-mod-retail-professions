@@ -19,7 +19,9 @@
  *     gold out of nothing as soon as the product sells for most of what it cost.
  *
  * The core has no hook where a cast time can be changed, so the speed is applied right after
- * Spell::prepare: the cast is shortened and its start sent to the client again.
+ * Spell::prepare: the cast is shortened and its start sent to the client again. The same place
+ * fixes a core gap first: many recipes get quicker as the profession skill rises (the client
+ * shows it), but the core always casts them at their base time.
  *
  * Which craft made an item is read from the spell the core is executing for the player
  * (Player::m_spellModTakingSpell, set around a spell's effects), never remembered between calls.
@@ -299,6 +301,51 @@ namespace RetailProfessions::Perks
             Config const& config = GetConfig();
             return config.enabled && config.perks;
         }
+
+        // SpellCastTimes.dbc rows whose time falls as the profession skill rises (3.3.5a). The
+        // core loads only the base time, not the per-level step or the floor. 1,862 recipes use
+        // them (Ruby Pendant of Fire is 37); the few other spells on them aren't tradeskills.
+        struct SkillScaledCast
+        {
+            uint32 id;
+            int32 base;
+            int32 perLevel;
+            int32 minimum;
+        };
+
+        constexpr std::array<SkillScaledCast, 8> SKILL_SCALED_CASTS = { {
+            { 10, 1000, -100, 500 },
+            { 11, 2000, -100, 1000 },
+            { 12, 5000, -100, 2500 },
+            { 13, 30000, -1000, 10000 },
+            { 35, 12500, -250, 5000 },
+            { 37, 25000, -400, 8000 },
+            { 38, 45000, -500, 15000 },
+            { 39, 50000, -500, 25000 },
+        } };
+
+        // The cast time the client shows for a recipe (tooltip, GetSpellInfo): one level per 5
+        // skill in the recipe's profession, counted from the spell's base level, as cmangos and
+        // vmangos work it out (Player::GetSpellRank). `full` when the spell doesn't scale.
+        int32 SkillCastTime(Player* player, SpellInfo const* info, int32 full)
+        {
+            if (!info->CastTimeEntry)
+                return full;
+            auto row = std::find_if(SKILL_SCALED_CASTS.begin(), SKILL_SCALED_CASTS.end(),
+                [info](SkillScaledCast const& r) { return r.id == info->CastTimeEntry->ID; });
+            // A DBC with other numbers in it isn't the one these were read from.
+            if (row == SKILL_SCALED_CASTS.end() || row->base != info->CastTimeEntry->CastTime)
+                return full;
+
+            SkillLineAbilityMapBounds bounds = sSpellMgr->GetSkillLineAbilityMapBounds(info->Id);
+            if (bounds.first == bounds.second)
+                return full;
+            int32 rank = player->GetSkillValue(bounds.first->second->SkillLine);
+            if (info->MaxLevel && rank >= int32(info->MaxLevel * 5))
+                rank = int32(info->MaxLevel * 5);
+            int32 castTime = row->base + row->perLevel * (rank / 5 - int32(info->BaseLevel));
+            return std::max(castTime, row->minimum);
+        }
     }
 
     // Right after Spell::prepare: the cast bar has been sent with the full time.
@@ -307,8 +354,7 @@ namespace RetailProfessions::Perks
         if (!caster || !info->HasAttribute(SPELL_ATTR0_IS_TRADESKILL) || !caster->IsPlayer())
             return;
         Config const& config = GetConfig();
-        Craft const* craft = Active() ? CraftOf(info->Id) : nullptr;
-        if (!craft || !(craft->flags & PERK_SPEED) || spell->getState() != SPELL_STATE_PREPARING)
+        if (!config.enabled || spell->getState() != SPELL_STATE_PREPARING)
             return;
 
         // Only the spell's own cast time: something else changed it already (the Chef's Hat
@@ -316,15 +362,23 @@ namespace RetailProfessions::Perks
         int32 full = spell->GetCastTime();
         if (full <= 0 || uint32(full) != info->CalcCastTime())
             return;
-        float faster = Between(config.speedMin, config.speedMax, Mastery(caster->ToPlayer(), *craft));
-        int32 shorter = std::max<int32>(int32(float(full) * (100.0f - faster) / 100.0f), MIN_CAST_TIME);
-        if (shorter >= full)
+
+        // The core always takes the base time, so a recipe the client says takes 8 seconds
+        // takes 25. This applies with the perks off too.
+        int32 castTime = SkillCastTime(caster->ToPlayer(), info, full);
+        Craft const* craft = Active() ? CraftOf(info->Id) : nullptr;
+        if (craft && (craft->flags & PERK_SPEED))
+        {
+            float faster = Between(config.speedMin, config.speedMax, Mastery(caster->ToPlayer(), *craft));
+            castTime = std::max<int32>(int32(float(castTime) * (100.0f - faster) / 100.0f), MIN_CAST_TIME);
+        }
+        if (castTime == full)
             return;
 
         // m_casttime is protected and nothing sets it from outside. A class derived from Spell
         // may name the member, and a pointer to it works on any Spell.
         struct Access : Spell { using Spell::m_casttime; };
-        spell->*(&Access::m_casttime) = shorter;
+        spell->*(&Access::m_casttime) = castTime;
         spell->ReSetTimer();
         spell->SendSpellStart();
     }

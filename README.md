@@ -108,7 +108,8 @@ crafting speed**, earned by skill.
     transmutes, prismatic shards), where a proc would mint materials out of nothing;
   - recipes made only from what vendors sell without limit, where a second batch would be gold
     out of nothing.
-- Skill counts with its bonuses (a racial +15), as the window shows it. Bots only get the speed.
+- Skill counts with its bonuses (a racial +15), as the window shows it. Bots only get the speed (and the
+  skill-scaled cast time below, like everyone).
 - Recipes at the very top of an era's skill cap never turn grey, so they get little or nothing.
   `RetailProfessions.Perks.*.Min` gives every recipe a base if you want one.
 
@@ -203,6 +204,12 @@ craft creates its item (`OnPlayerCreateItem`), from the recipe's yellow and grey
 speed is applied right after `Spell::prepare`: the cast is shortened and its start is sent to
 the client again. Which recipes loop is worked out at startup from every recipe's reagents and
 product.
+
+The same hook fixes a core gap, with the perks on or off. About 1,860 recipes (most Classic
+and TBC gear) get quicker as your skill rises: `SpellCastTimes.dbc` has a base time, a step per
+level and a floor, and for a recipe the level is your skill / 5. The client shows that time,
+but the core only loads the base, so Ruby Pendant of Fire said 8 seconds at 258 Jewelcrafting
+and took 25. The module casts at the time the client shows; the speed perk comes off that.
 
 The profit view asks mod-retail-ah's server for prices under that module's `RAH` prefix (its `K`
 request, which needs no auctioneer). Without it, or with `RetailAH.CraftPrices = 0`, the view
