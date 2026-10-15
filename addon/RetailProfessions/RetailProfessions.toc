@@ -1,8 +1,8 @@
 ## Interface: 30300
 ## Title: Retail Professions
-## Notes: A retail-style profession window: search, filters, skill-up odds, unlearned recipes and where to learn them, a recipe tracker, Mill All and Prospect All, multicraft and resourcefulness odds with a proc log, a professions book (K) and a craft-for-profit view priced from the auction house. Backed by the mod-retail-professions server module.
+## Notes: A retail-style profession window: search, filters, skill-up odds, unlearned recipes and where to learn them, a recipe tracker, Mill All and Prospect All, multicraft and resourcefulness odds with a proc log, a professions book (K), a craft-for-profit view priced from the auction house and a Home tab with what to do next and the most profitable crafts across every profession. Backed by the mod-retail-professions server module.
 ## Author: buildthehomelab
-## Version: 1.8.2
+## Version: 1.9.0
 ## OptionalDeps: DragonUI, ReagentBankUI
 ## SavedVariables: RetailProfessionsDB
 ## SavedVariablesPerCharacter: RetailProfessionsCharDB
@@ -17,6 +17,7 @@ Frame.lua
 Detail.lua
 ProcLog.lua
 Secure.lua
+Home.lua
 Tabs.lua
 Book.lua
 Tracker.lua

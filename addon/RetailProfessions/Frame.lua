@@ -368,6 +368,9 @@ local controls = CreateFrame("Frame", nil, content)
 controls:SetPoint("TOPLEFT", right, "BOTTOMLEFT", 0, -4)
 controls:SetPoint("BOTTOMRIGHT", content, "BOTTOMRIGHT", 0, 0)
 
+-- The Home view (Home.lua) lays itself over these under the skill bar.
+RPF.content, RPF.header, RPF.panes = content, header, { left, right, controls }
+
 local createAllButton = RPF.CreateButton(controls, CREATE_ALL or "Create All", 110, 22)
 createAllButton:SetPoint("LEFT", controls, "LEFT", 0, 0)
 
@@ -865,7 +868,7 @@ local function updateHeader()
 	if frame.portrait then RPF.SetPortrait(frame.portrait, texture) else profIcon:SetTexture(texture) end
 	-- Someone else's linked profession: their name in the title.
 	local refine = RPF.Refine.Active()
-	title:SetText(refine and refine.name or M.linked and ((M.linkedName or "") .. " - " .. (M.skillName or ""))
+	title:SetText(RPF.Home.Active() and "Home" or refine and refine.name or M.linked and ((M.linkedName or "") .. " - " .. (M.skillName or ""))
 		or (M.skillName or "Professions"))
 	skillBar:SetMinMaxValues(0, math.max(1, M.maxRank or 1))
 	skillBar:SetValue(M.rank or 0)
@@ -927,6 +930,7 @@ Rebuild = function (viewOnly)
 		for _, row in ipairs(rows) do if row.recipe then selected = row.recipe break end end
 	end
 	RPF.Select(selected, RPF.selected == nil)
+	RPF.Fire("REBUILT")
 end
 RPF.Rebuild = Rebuild
 

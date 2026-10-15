@@ -1,6 +1,6 @@
--- Profession tabs down the right edge of the window, like the spellbook's: one per profession
--- you know that has a window, so you can switch without the spellbook, and under them one for
--- Milling and one for Prospecting when you know them.
+-- Profession tabs down the right edge of the window, like the spellbook's: Home (Home.lua) at
+-- the top, one per profession you know that has a window, so you can switch without the
+-- spellbook, and under them one for Milling and one for Prospecting when you know them.
 
 local RPF = RetailProfessions
 local M = RPF.Model
@@ -16,6 +16,7 @@ local COLUMN_TOP, COLUMN_BOTTOM = 36, 14
 local PITCH, MIN_PITCH = 42, 24
 local PAD, GAP = 3, 4
 local REFINE_GAP = 8
+local HOME_GAP = 8
 -- Under DragonUI the plate's left edge goes beneath the metal frame (whose outer edge lies
 -- about 4 inside the window's own), so the tab grows out of the window. The stock dialog border
 -- is drawn by the window itself, under its children, so there the plate stops short of it.
@@ -81,9 +82,10 @@ local function setChecked(tab, on)
 	end
 end
 
--- How far apart `count` tabs go: PITCH, or less when that many don't fit in the column.
-local function pitchFor(count, refine)
-	local room = frame:GetHeight() - COLUMN_TOP - COLUMN_BOTTOM - (refine and REFINE_GAP or 0)
+-- How far apart `count` tabs go: PITCH, or less when that many don't fit in the column with
+-- `gaps` of space between its groups.
+local function pitchFor(count, gaps)
+	local room = frame:GetHeight() - COLUMN_TOP - COLUMN_BOTTOM - gaps
 	return math.max(MIN_PITCH, math.min(PITCH, math.floor(room / math.max(count, 1))))
 end
 
@@ -106,6 +108,15 @@ for i = 1, MAX_TABS do
 	end)
 end
 
+-- Home: what to do next and what earns most, across every profession. Nothing to cast: the
+-- window is already open.
+local homeTab = createTab("RetailProfessionsHomeTab", function ()
+	GameTooltip:SetText("Home")
+	GameTooltip:AddLine("What to do next and your most profitable crafts, across every profession.", 1, 1, 1, true)
+	return true
+end)
+homeTab.onClick = function () RPF.Home.SetActive(true) end
+
 -- Milling and Prospecting (Refine.lua) get a tab each under the professions: the herbs or ore
 -- you have, what they give, and Mill All.
 local refineTabs = {}
@@ -123,7 +134,8 @@ for _, code in ipairs({ "M", "P" }) do
 end
 
 local function refresh()
-	local viewing = RPF.Refine.Active()
+	local home = RPF.Home.Active()
+	local viewing = not home and RPF.Refine.Active()
 	local open, shown = {}, {}
 	if RetailProfessionsDB then
 		for _, known in ipairs(RPF.KnownProfessions()) do
@@ -141,22 +153,37 @@ local function refresh()
 		tab.kind = kind and shown[kind.skill] and kind or nil
 		if tab.kind then refining = refining + 1 end
 	end
-	local pitch = pitchFor(#open + refining, refining > 0)
+	-- Home sits over the professions, for your own only.
+	local hasHome = #open > 0 and not M.linked
+	local top = hasHome and 1 or 0
+	local drop = hasHome and HOME_GAP or 0
+	local pitch = pitchFor(top + #open + refining, drop + (refining > 0 and REFINE_GAP or 0))
+	if hasHome then
+		place(homeTab, 0, pitch, 0)
+		homeTab.icon:SetTexture(RPF.Home.ICON)
+		setChecked(homeTab, home)
+		homeTab:Show()
+	else
+		homeTab:Hide()
+	end
 
 	for i, tab in ipairs(tabs) do
 		local known = open[i]
 		if known then
 			local p = known.profession
 			tab.profession, tab.rank, tab.maxRank = p, known.rank, known.maxRank
-			place(tab, i - 1, pitch, 0)
+			place(tab, top + i - 1, pitch, drop)
 			tab.icon:SetTexture(p.texture)
 			local current = M.profession == p and not M.linked
-			setChecked(tab, current and not viewing)
+			setChecked(tab, current and not viewing and not home)
 			tab.icon:SetDesaturated(RPF.InCombat())
 			tab:Show()
-			if current and viewing then
-				-- Already open, showing its herbs or ore: the tab goes back to the recipes.
-				tab.onClick = function () RPF.Refine.SetView(nil) end
+			if current and (viewing or home) then
+				-- Already open, showing Home or its herbs or ore: the tab goes back to the recipes.
+				tab.onClick = function ()
+					RPF.Home.SetActive(false)
+					RPF.Refine.SetView(nil)
+				end
 				RPF.BindSpellButton(tab.button, nil, nil)
 			else
 				tab.onClick = nil
@@ -169,19 +196,22 @@ local function refresh()
 		end
 	end
 
-	local row = #open
+	local row = top + #open
 	for _, tab in ipairs(refineTabs) do
 		local kind = tab.kind
 		if kind then
 			local p = shown[kind.skill]
-			place(tab, row, pitch, REFINE_GAP)
+			place(tab, row, pitch, drop + REFINE_GAP)
 			row = row + 1
 			tab.icon:SetTexture(kind.texture or p.texture)
 			setChecked(tab, viewing == kind)
 			tab:Show()
 			if RPF.Refine.IsOpen(kind) then
 				tab.icon:SetDesaturated(false)
-				tab.onClick = function () RPF.Refine.SetView(kind.code) end
+				tab.onClick = function ()
+					RPF.Home.SetActive(false)
+					RPF.Refine.SetView(kind.code)
+				end
 				RPF.BindSpellButton(tab.button, nil, nil)
 			else
 				-- Another profession is open: open this one's, on its herbs or ore.
@@ -206,6 +236,7 @@ RPF.On("MOVED", refresh)
 RPF.On("HIDDEN", RPF.SyncSpellButtons)
 RPF.On("SECURE_STATE", function (on)
 	for _, tab in ipairs(tabs) do tab.icon:SetDesaturated(not on) end
+	homeTab.icon:SetDesaturated(false)
 	-- A tab that only changes the view works in combat too.
 	for _, tab in ipairs(refineTabs) do tab.icon:SetDesaturated(not on and tab.onClick == nil) end
 end)

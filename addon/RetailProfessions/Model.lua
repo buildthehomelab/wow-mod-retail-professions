@@ -316,6 +316,7 @@ function M.Scan()
 	M.recipes, M.bySpell, M.headers, M.unlearned = recipes, bySpell, headers, unlearned
 	M.hasServerData = list ~= nil
 	scanning = false
+	if not M.linked then RPF.Fire("SCANNED") end
 	return true
 end
 

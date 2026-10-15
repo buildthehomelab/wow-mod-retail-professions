@@ -137,6 +137,7 @@ function CloseDropDownMenus() end
 function UnitName() return "Tester" end
 function UnitRace() return "Human", "Human" end
 function UnitClass() return "Mage", "MAGE" end
+function UnitLevel() return 70 end
 function GetLocale() return "enUS" end
 function SpellIsTargeting() return false end
 function GetInventoryItemLink() return nil end
@@ -928,6 +929,118 @@ step("enchants filter by the slot they go on", function ()
 end)
 
 -----------------------------------------
+-- Home: what to do next and the most profitable crafts, across every profession
+
+local function homeTexts()
+	local out = {}
+	for _, row in ipairs(RPF.Home.rows.todo) do
+		if row.item then table.insert(out, row.item.text) end
+	end
+	return out
+end
+local function homeHas(pattern)
+	for _, t in ipairs(homeTexts()) do if t:find(pattern) then return t end end
+	return nil
+end
+
+step("home: its tab, the cards and the most profitable crafts", function ()
+	local tab = find(function (f) return f.__kind == "Button" and rawget(f, "button") == RetailProfessionsHomeTab end)
+	assert(tab and tab:IsShown(), "no Home tab")
+	-- A cooldown seen on this visit is remembered; the scan before the tab is clicked takes it.
+	local oldCooldown = GetTradeSkillCooldown
+	GetTradeSkillCooldown = function (i) if i == 2 then return 3600 end return nil end
+	RPF.Rebuild()
+	tick(0.5)
+	GetTradeSkillCooldown = oldCooldown
+	local cd = RetailProfessionsCharDB.homeCooldowns[2963]
+	assert(cd and cd.skill == 197, "the bolt's cooldown wasn't noted")
+	assert(RetailProfessionsCharDB.homeLearned[197][2385], "Tailoring's recipes weren't noted")
+
+	tab.__scripts.OnClick(tab)
+	tick(0.3)
+	assert(RPF.Home.Active() and RPF.Home.panel:IsShown(), "Home isn't showing")
+	assert(not RPF.list:IsVisible(), "the recipe list still shows under Home")
+	assert(RetailProfessionsFrame.title.__text == "Home", "title: " .. RetailProfessionsFrame.title.__text)
+	assert(tab.checked:IsShown(), "the Home tab isn't lit")
+	assert(not RetailProfessionsTab1.__shown, "the open profession's tab still casts")
+
+	-- The last test left the realm without prices: Refresh asks again.
+	buttonWithText("Refresh").__scripts.OnClick()
+	tick(0.5)
+	assert(RPF.Profit.state == "ok", "no prices after Refresh: " .. RPF.Profit.state)
+	local row1 = RPF.Home.rows.crafts[1]
+	local row2 = RPF.Home.rows.crafts[2]
+	-- Vest +2s 45c a craft, bolt +37c.
+	assert(row1.entry and row1.entry.recipe.spell == 2385, "first craft: " .. tostring(row1.entry and row1.entry.recipe.name))
+	assert(row1.cells.profit.__text:find("+2s 45c", 1, true), "vest profit: " .. row1.cells.profit.__text)
+	assert(row2.entry and row2.entry.recipe.spell == 2963, "second craft")
+	assert(textShown("What you have makes"), "no summary of what the bags make")
+
+	-- Cards: Tailoring (open, gold edge) and Mining.
+	local card1 = RPF.Home.rows.cards[1]
+	assert(card1.known.profession.id == 197 and card1.rank.__text == "120/150", "first card: " .. tostring(card1.rank.__text))
+	assert(RPF.Home.rows.cards[2].known.profession.id == 186, "no Mining card")
+	assert(RetailProfessionsHomeCard2:GetAttribute("spell") == "Smelting", "the Mining card doesn't open Smelting")
+
+	-- Sorted by what can be made: the bolt (bags make 2) comes first unless the vest's thread is there.
+	local have1 = row1.entry.have
+	find(function (f) return f.__kind == "Button" and rawget(f, "col") and f.col.key == "have" end).__scripts.OnClick()
+	tick(0.3)
+	assert(RetailProfessionsDB.homeSort == "have", "sort not kept")
+	assert(RPF.Home.rows.crafts[1].entry.have >= RPF.Home.rows.crafts[2].entry.have, "not sorted by Have")
+	RetailProfessionsDB.homeSort = nil
+	assert(have1 ~= nil)
+end)
+
+step("home: to do", function ()
+	local texts = table.concat(homeTexts(), " | ")
+	print("  to do: " .. texts)
+	-- The bolt's cooldown ran out.
+	RetailProfessionsCharDB.homeCooldowns[2963].at = 0
+	RPF.Home.Refresh()
+	assert(homeHas("^Bolt of Linen Cloth is ready$"), "no ready cooldown: " .. table.concat(homeTexts(), " | "))
+	-- Mining 50/75: Journeyman at the trainer; never opened here, so open it once.
+	assert(homeHas("^Train Journeyman Mining$"), "no train line")
+	assert(homeHas("^Open Mining once$"), "no open-once line")
+	-- Tailoring 120: both recipes are grey and the bracers come from a pattern, not the trainer.
+	assert(homeHas("^No Tailoring skill%-ups left$"), "no skill-up line")
+	assert(homeHas("^Craft "), "no craft-for-gold line")
+	local row = RPF.Home.rows.todo[1]
+	assert(not row.button.__shown, "a Tailoring line casts while Tailoring is open")
+	-- Mining's lines cast Smelting; the cast's click leaves the recipe to pick.
+	local mining
+	for _, r in ipairs(RPF.Home.rows.todo) do
+		if r.item and r.item.text == "Open Mining once" then mining = r.button end
+	end
+	assert(mining.__shown and mining:GetAttribute("spell") == "Smelting", "the Mining line doesn't cast Smelting")
+	-- Clicking the ready cooldown leaves Home on the recipe.
+	assert(row.item.text == "Bolt of Linen Cloth is ready", "first line: " .. row.item.text)
+	row.__scripts.OnClick(row)
+	tick(0.3)
+	assert(not RPF.Home.Active() and RPF.list:IsVisible(), "still on Home")
+	assert(RPF.selected and RPF.selected.spell == 2963, "the bolt isn't selected")
+	RetailProfessionsCharDB.homeCooldowns[2963] = nil
+end)
+
+step("home: a line in another profession picks its recipe once that opens", function ()
+	RPF.Home.SetActive(true)
+	tick(0.2)
+	-- As the secure button's PreClick does, then the cast opens the profession.
+	RPF.Home.Pend({ skill = 197, spell = 2385 })
+	fire("TRADE_SKILL_SHOW")
+	tick(0.5)
+	assert(not RPF.Home.Active(), "the profession opened on Home")
+	assert(RPF.selected and RPF.selected.spell == 2385, "the vest isn't selected: " .. tostring(RPF.selected and RPF.selected.name))
+	-- And the open profession's tab goes back from Home to its recipes.
+	RPF.Home.SetActive(true)
+	tick(0.2)
+	local tailoring = find(function (f) return f.__kind == "Button" and rawget(f, "button") == RetailProfessionsTab1 end)
+	tailoring.__scripts.OnClick(tailoring)
+	tick(0.2)
+	assert(not RPF.Home.Active(), "the profession tab didn't leave Home")
+end)
+
+-----------------------------------------
 -- Multicraft, Resourcefulness and crafting speed: skill-based, rolled by the server
 
 step("perks: a grey recipe gets the most, and only what it can", function ()
@@ -1202,6 +1315,8 @@ end)
 step("tabs: a full column stays inside the window", function ()
 	local function column()
 		local out = {}
+		local home = find(function (f) return f.__kind == "Button" and rawget(f, "button") == RetailProfessionsHomeTab end)
+		if home.__shown then table.insert(out, home) end
 		for i = 1, 12 do
 			local b = _G["RetailProfessionsTab" .. i]
 			if b and b.__shown then table.insert(out, b.region) end
@@ -1212,7 +1327,7 @@ step("tabs: a full column stays inside the window", function ()
 		return out
 	end
 	local few = column()
-	assert(#few == 4, "tabs before: " .. #few)
+	assert(#few == 5, "tabs before: " .. #few)
 	assert(few[1]:GetHeight() == 32, "a short column's tabs aren't full size: " .. few[1]:GetHeight())
 
 	local extra = { "Alchemy", "Blacksmithing", "Enchanting", "Engineering", "Jewelcrafting", "Leatherworking",
@@ -1226,7 +1341,7 @@ step("tabs: a full column stays inside the window", function ()
 	tick(0.5)
 
 	local all = column()
-	assert(#all == 14, "tabs with every profession: " .. #all)
+	assert(#all == 15, "tabs with every profession: " .. #all)
 	local size = all[1]:GetHeight()
 	assert(size < 32 and size >= 14, "a full column's tabs didn't shrink: " .. size)
 	local last
@@ -1245,7 +1360,7 @@ step("tabs: a full column stays inside the window", function ()
 	knownSpells.Prospecting = nil
 	fire("SKILL_LINES_CHANGED")
 	tick(0.5)
-	assert(#column() == 4 and column()[1]:GetHeight() == 32, "the tabs didn't grow back")
+	assert(#column() == 5 and column()[1]:GetHeight() == 32, "the tabs didn't grow back")
 end)
 
 step("closing the window closes the trade skill", function ()
