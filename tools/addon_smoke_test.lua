@@ -317,6 +317,8 @@ function ReagentBankUI:DockTradeSkillPanel()
 	self.tradeSkillPanel = bankPanel
 	bankPanel:Show()
 end
+-- Blizzard_TrainerUI is load-on-demand: it loads in the trainer step below.
+function IsAddOnLoaded() return false end
 function hooksecurefunc(t, name, fn)
 	if type(t) == "string" then t, name, fn = _G, t, name end
 	local orig = t[name]
@@ -1265,6 +1267,58 @@ step("classic switch", function ()
 	assert(loadedClassic > 0 and not RetailProfessionsFrame:IsShown(), "classic window not used")
 	SlashCmdList.RETAILPROFESSIONS("retail")
 	fire("TRADE_SKILL_CLOSE")
+end)
+
+-- A stripped stock trainer: the client moves its selection to the first learnable service before
+-- every TRAINER_UPDATE, and the stock handler reselects that and scrolls up to it.
+step("trainer keeps the picked recipe through a skill-up", function ()
+	local services = {}
+	for i = 1, 30 do table.insert(services, { "Recipe " .. i, "Apprentice", i % 3 == 0 and "unavailable" or "available" }) end
+	local selection = 1
+	function GetNumTrainerServices() return #services end
+	function GetTrainerServiceInfo(i) local s = services[i]; if s then return s[1], s[2], s[3] end end
+	function GetTrainerSelectionIndex() return selection end
+	CLASS_TRAINER_SKILL_HEIGHT, CLASS_TRAINER_SKILLS_DISPLAYED = 16, 11
+	CreateFrame("Frame", "ClassTrainerFrame")
+	local bar = CreateFrame("Slider", "ClassTrainerListScrollFrameScrollBar")
+	bar.value = 0
+	function bar:GetValue() return self.value end
+	function bar:SetValue(v) self.value = v end
+	function ClassTrainer_SetSelection(id) ClassTrainerFrame.selectedService = id; selection = id end
+	function ClassTrainerFrame_Update() end
+	ClassTrainerFrame:SetScript("OnEvent", function (self, event)
+		if event == "TRAINER_UPDATE" then
+			ClassTrainer_SetSelection(GetTrainerSelectionIndex())
+			bar:SetValue((GetTrainerSelectionIndex() - 1) * CLASS_TRAINER_SKILL_HEIGHT)
+		end
+	end)
+	ClassTrainerFrame:RegisterEvent("TRAINER_UPDATE")
+	fire("ADDON_LOADED", "Blizzard_TrainerUI")
+
+	bar:SetValue(10 * CLASS_TRAINER_SKILL_HEIGHT)
+	ClassTrainer_SetSelection(14)
+	selection = 1  -- skill-up
+	fire("TRAINER_UPDATE")
+	assert(selection == 14 and ClassTrainerFrame.selectedService == 14, "selection jumped to " .. selection)
+	assert(bar:GetValue() == 10 * CLASS_TRAINER_SKILL_HEIGHT, "list scrolled to " .. bar:GetValue())
+
+	table.remove(services, 14)  -- trained: it moves to "used", which the default filter hides
+	selection = 1
+	fire("TRAINER_UPDATE")
+	assert(selection == 1, "a trained recipe should leave the stock selection alone")
+
+	ClassTrainer_SetSelection(20)
+	services[20][3] = "used"  -- trained with the "used" filter on
+	selection = 1
+	fire("TRAINER_UPDATE")
+	assert(selection == 1, "a just-trained recipe should not be reselected")
+
+	ClassTrainer_SetSelection(25)
+	ClassTrainerFrame:Hide()
+	ClassTrainerFrame:Show()
+	selection = 1
+	fire("TRAINER_UPDATE")
+	assert(selection == 1, "a closed trainer kept its pick")
 end)
 
 print(errors == 0 and "smoke test passed" or (errors .. " error(s)"))
