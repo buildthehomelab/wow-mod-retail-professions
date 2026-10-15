@@ -18,7 +18,8 @@ crafting speed**, earned by skill.
 - The profession's **portrait**, a **skill bar** across the window ("Blacksmithing 24/75"; hover it
   for your rank) and a **chat link** button that shows everyone your recipes.
 - **Search** (the box at the top of the list) matches recipe names and **reagents** ("silk" finds
-  everything made from silk); hover the box for a reminder.
+  everything made from silk); recipes found by name come first, then the ones that use it. Hover
+  the box for a reminder.
 - **Filters**: Have materials, Has skill-up, Slot (head, chest, weapon ...; for enchants, the
   slot they go on), Show unlearned recipes, Only ones I can learn now, Count the reagent bank, plus expand / collapse all.
 - Recipes sit under gold category bars that fold. Each has a **skill-up chevron** in its colour

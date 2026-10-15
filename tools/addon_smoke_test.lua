@@ -512,6 +512,32 @@ step("search finds reagents too", function ()
 	RPF.filter.text = ""
 end)
 
+step("search lists name matches before reagent matches", function ()
+	-- Two groups, the first holding only a recipe made from the bolt: the bolt itself and its
+	-- group come first.
+	local saved = M.headers
+	local bolt, vest = M.bySpell[2963], M.bySpell[2385]
+	local robe = { name = "Linen Robe", spell = 1, reagents = { { id = 2996, n = 2, name = "Bolt of Linen Cloth" } } }
+	M.headers = {
+		{ name = "Cloth", recipes = { robe, vest } },
+		{ name = "Materials", recipes = { bolt } },
+	}
+	local rows = M.Rows({ text = "bolt of linen" }, {})
+	M.headers = saved
+	local seen = {}
+	for _, row in ipairs(rows) do table.insert(seen, row.header or row.recipe.name) end
+	assert(table.concat(seen, ", ") == "Materials, Bolt of Linen Cloth, Cloth, Linen Robe",
+		"search order: " .. table.concat(seen, ", "))
+
+	-- Inside one group too; without a search the client's order stands.
+	M.headers = { { name = "Cloth", recipes = { robe, bolt } } }
+	rows = M.Rows({ text = "linen cloth" }, {})
+	M.headers = saved
+	assert(rows[2].recipe == bolt and rows[3].recipe == robe, "name match not first in its group")
+	rows = M.Rows({}, {})
+	assert(rows[1].header == "Cloth", "unsearched order changed")
+end)
+
 step("have materials counts the reagent bank", function ()
 	RPF.filter.haveMats = true
 	RPF.Rebuild(true)

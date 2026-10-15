@@ -383,19 +383,28 @@ function M.Rows(state, collapsed)
 	local rank = M.rank or 0
 	local matches = M.Matcher(state)
 
-	local rows = {}
+	-- A search lists the recipes it found by name before the ones it found by a reagent
+	-- ("bolt of runecloth" puts the bolt above everything sewn from it), and the groups holding
+	-- a name match before the rest. Otherwise the client's order stands.
+	local named = {}
+	local groups = {}
 	local function addGroup(name, key, list, extra)
-		local shown = {}
+		local shown, byName, byReagent = {}, {}, {}
 		for _, r in ipairs(list) do
-			if matches(r) then table.insert(shown, r) end
+			if matches(r) then
+				if text and r.name:lower():find(text, 1, true) then
+					table.insert(byName, r)
+				else
+					table.insert(byReagent, r)
+				end
+			end
 		end
+		for _, r in ipairs(byName) do table.insert(shown, r) end
+		for _, r in ipairs(byReagent) do table.insert(shown, r) end
 		if #shown == 0 then return end
-		-- A search opens every group it found something in.
-		local isCollapsed = not text and collapsed[key] or false
-		table.insert(rows, { header = name, key = key, count = #shown, collapsed = isCollapsed, extra = extra })
-		if not isCollapsed then
-			for _, r in ipairs(shown) do table.insert(rows, { recipe = r }) end
-		end
+		local group = { name = name, key = key, list = shown, extra = extra }
+		table.insert(groups, group)
+		named[group] = #byName > 0
 	end
 
 	if state.favorites then
@@ -429,6 +438,23 @@ function M.Rows(state, collapsed)
 		for _, low in ipairs(order) do
 			local t = tiers[low]
 			addGroup("Unlearned: " .. t.title, "u:" .. low, t.list, string.format("%d-%d", math.max(1, low), low + 75))
+		end
+	end
+
+	local order = {}
+	if text then
+		for _, g in ipairs(groups) do if named[g] then table.insert(order, g) end end
+		for _, g in ipairs(groups) do if not named[g] then table.insert(order, g) end end
+	else
+		order = groups
+	end
+	local rows = {}
+	for _, g in ipairs(order) do
+		-- A search opens every group it found something in.
+		local isCollapsed = not text and collapsed[g.key] or false
+		table.insert(rows, { header = g.name, key = g.key, count = #g.list, collapsed = isCollapsed, extra = g.extra })
+		if not isCollapsed then
+			for _, r in ipairs(g.list) do table.insert(rows, { recipe = r }) end
 		end
 	end
 	return rows
