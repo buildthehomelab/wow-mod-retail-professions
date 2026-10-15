@@ -31,10 +31,11 @@ end
 
 -- Points a button at a region and a spell; nil spell or region retires it. `host` is the window
 -- the region belongs to: the button takes its strata and sits just above it, so anything opened
--- over the window covers the button too.
-function RPF.BindSpellButton(b, region, spell, host)
+-- over the window covers the button too. `defer` leaves the RPF.SyncSpellButtons to the caller,
+-- for binding many at once.
+function RPF.BindSpellButton(b, region, spell, host, defer)
 	b.region, b.spell, b.host = region, spell, host
-	RPF.SyncSpellButtons()
+	if not defer then RPF.SyncSpellButtons() end
 end
 
 local function place(b)

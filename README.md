@@ -113,6 +113,28 @@ crafting speed**, earned by skill.
 - Recipes at the very top of an era's skill cap never turn grey, so they get little or nothing.
   `RetailProfessions.Perks.*.Min` gives every recipe a base if you want one.
 
+**Home** (the house tab at the top of the column on the right)
+- One page for every profession you have, in the spirit of TradeSkillMaster's crafting overview,
+  in place of the list and the recipe until you pick a profession tab again.
+- A **card** per profession with its skill bar.
+- **To do**, most urgent first:
+  - cooldowns that are over (all transmutes on one line, since they share a timer),
+  - tracked recipes you now have the materials for,
+  - the recipe your materials earn the most from,
+  - per profession: the next rank to train (from 25 points short of the cap, with the level the
+    trainer asks for), new recipes waiting at the trainer, the best recipe to skill up on (one
+    you can make now first, then the likeliest skill-up, then the cheapest), and herbs to mill or
+    ore to prospect.
+- **Most profitable crafts**: every recipe you know that makes money at today's prices (priced
+  as below), with how many you can make, what that earns in all and how many sold lately. Click
+  a column to sort by it; **Can make now** hides the rest; **Refresh** asks for prices again. The
+  line under it says what everything your materials make would earn.
+- Click a line to go to its recipe. A line in another profession opens that profession first.
+  Clicking those doesn't work in combat.
+- The client only lists the open profession's recipes, so Home keeps a note of what each
+  profession knows (and its cooldowns) whenever you open it. A profession you haven't opened yet
+  says "Open ... once".
+
 **Craft for profit** (with [mod-retail-ah](https://github.com/buildthehomelab/wow-mod-retail-ah)'s server)
 - The **coin button** beside Filter turns the list into a ranking of the recipes you know, in the
   spirit of TradeSkillMaster: what the item sells for on the auction house (after the house cut)
@@ -254,8 +276,8 @@ and the crafting perks (`RetailProfessions.Perks.Enable` and a `Min` / `Max` per
 `lua tools/addon_smoke_test.lua addon/RetailProfessions` loads the addon against a stubbed
 3.3.5a API and a fake server and walks through opening a profession, filters, crafting, where to
 learn a recipe, tracking, the book, combat, the profit view (with a fake mod-retail-ah price
-server), the crafting perks, milling (its tab, Mill All, Stop, the reagent bank) and the classic
-switch.
+server), the Home tab (to do, the most profitable crafts, a line opening another profession), the
+crafting perks, milling (its tab, Mill All, Stop, the reagent bank) and the classic switch.
 
 ## Troubleshooting
 

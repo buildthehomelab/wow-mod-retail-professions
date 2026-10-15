@@ -72,8 +72,16 @@ timerFrame:SetScript("OnUpdate", function (self)
 			i = i + 1
 		end
 	end
+	-- Taken out first and run after: a callback may debounce something new, and adding keys to
+	-- a table while pairs walks it is an error.
+	local due = {}
 	for key, entry in pairs(debounced) do
-		if entry.at <= now then
+		if entry.at <= now then table.insert(due, key) end
+	end
+	for _, key in ipairs(due) do
+		local entry = debounced[key]
+		-- An earlier callback may have pushed this one back.
+		if entry and entry.at <= now then
 			debounced[key] = nil
 			entry.fn()
 		end
