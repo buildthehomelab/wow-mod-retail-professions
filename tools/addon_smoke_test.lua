@@ -1159,7 +1159,30 @@ step("home: the leveling guide's recipe, its route and its shopping", function (
 	assert(RPF.selected and RPF.selected.spell == 3914, "the bracers aren't selected")
 	assert(RPF.GetQuantity() == 7, "amount: " .. RPF.GetQuantity())
 	RPF.SetQuantity(1)
+	RPF.Home.SetActive(true)
+	tick(0.2)
+	-- Made now for later: what's in the bags counts.
+	routes[197] = { { 100, 130, seq = true, { 9, 3914 } } }
+	bags[4308] = 4
+	RPF.Home.Refresh()
+	assert(homeHas("^Level Tailoring: 5 Green Linen Bracers$"), "seq count: " .. table.concat(homeTexts(), " | "))
+	bags[4308] = 9
+	RPF.Home.Refresh()
+	assert(not homeHas("^Level Tailoring:"), "a finished seq step still shows: " .. table.concat(homeTexts(), " | "))
+	bags[4308] = nil
+	-- On its cooldown, or above the era's cap: no guide line.
+	bracers.cooldown = 3600
+	RPF.Home.Refresh()
+	assert(not homeHas("^Level Tailoring:"), "a recipe on its cooldown is suggested")
+	bracers.cooldown = nil
+	local cap = RPF.skillCap
+	RPF.skillCap = 100
+	RPF.Home.Refresh()
+	assert(not homeHas("^Level Tailoring:"), "a recipe above the era's cap is suggested")
+	RPF.skillCap = cap
 	routes[197], info.reqSkill, bracers.reqSkill = saved, savedReq, savedReq
+	RPF.Home.SetActive(false)
+	tick(0.2)
 end)
 
 step("home: the shipped routes name only recipes that make sense", function ()

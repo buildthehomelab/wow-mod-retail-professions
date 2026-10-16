@@ -314,10 +314,21 @@ local function routeRecipe(skill, spell, byKnown)
 end
 
 -- Whether making it now can raise the skill: known, or learnable at this skill, and not grey.
+-- An era's cap hides the recipes above it, as the recipe list and the trainer line do.
 local function raisesSkill(r, rank)
 	if not r or r.refine then return false end
-	if not r.learned and (r.reqSkill or 0) > rank then return false end
+	local need = r.reqSkill or 0
+	if not r.learned and need > rank then return false end
+	if RPF.skillCap and need > RPF.skillCap then return false end
 	return (skillUp(r, rank)) > 0
+end
+
+-- A recipe on its cooldown (research, transmutes) can't be made now: the open profession says
+-- for itself, the others from the note of the last visit.
+local function coolingDown(skill, r)
+	if isOpen(skill) then return (r.cooldown or 0) > 0 end
+	local cd = r.spell and charDB().homeCooldowns[r.spell]
+	return cd and cd.at > time() or false
 end
 
 -- A step that names no recipe: the ones it describes (a name start, or a reagent they use).
@@ -333,7 +344,8 @@ end
 
 -- The recipe a step has you make at this skill, and how many. "One of these": the first you know
 -- and have the materials for, else the first you know, else the guide's favourite. "In this
--- order": the first whose crafts aren't in your bags yet (they're made now to be used later).
+-- order": the first whose crafts aren't in your bags yet (they're made now to be used later), for
+-- what's still missing. Recipes on their cooldown wait.
 local function fromStep(route, i, skill, rank, byKnown)
 	local step = route[i]
 	if step.count then
@@ -349,9 +361,12 @@ local function fromStep(route, i, skill, rank, byKnown)
 	for e = 3, #step do
 		local count, spell = step[e][1], step[e][2]
 		local r = routeRecipe(skill, spell, byKnown)
-		local done = step.seq and r and r.item and r.item > 0 and unitsOf(r.item) >= count * (r.madeMin or 1)
-		if not done and raisesSkill(r, rank) then
-			local c = { recipe = r, count = step.seq and count or craftsLeft(route, i, rank, count) }
+		local n = count
+		if step.seq and r and r.item and r.item > 0 then
+			n = count - floor(unitsOf(r.item) / math.max(1, r.madeMin or 1))
+		end
+		if n > 0 and raisesSkill(r, rank) and not coolingDown(skill, r) then
+			local c = { recipe = r, count = step.seq and n or craftsLeft(route, i, rank, count) }
 			first = first or c
 			if r.learned then
 				known = known or c
@@ -442,7 +457,9 @@ local function guideTip(g)
 	end
 	local r = g.recipe
 	if r and #r.reagents > 0 and RPF.HasShoppingList() then
-		GameTooltip:AddLine(string.format("Shift-click to put the materials for %d on your shopping list.", g.count),
+		-- In a profession that isn't open the click still casts its spell, so it opens too.
+		local also = isOpen(g.skill) and "" or " (and opens the profession)"
+		GameTooltip:AddLine(string.format("Shift-click to put the materials for %d on your shopping list%s.", g.count, also),
 			0.5, 0.5, 0.5, true)
 	end
 end
@@ -576,14 +593,14 @@ local function todoFor(add, known)
 	end
 
 	-- What to craft for the next skill point: the leveling guide's recipe when it has one here,
-	-- else the likeliest skill-up you know.
+	-- else the likeliest skill-up you know. Until the guide's recipe is learned, both show.
 	if known.baseRank < maxRank then
 		-- The core rolls skill-ups on the skill without bonuses; trainers count them.
 		local g = guideFor(skill, known.baseRank)
-		local best = not (g and g.recipe) and bestSkillUp(recipes, known.baseRank)
-		if g and g.recipe then
-			add(guideLine(g, p, known.baseRank))
-		elseif best then
+		local guided = g and g.recipe
+		local best = not (guided and guided.learned) and bestSkillUp(recipes, known.baseRank)
+		if guided then add(guideLine(g, p, known.baseRank)) end
+		if best then
 			local color = M.DIFFICULTY_COLOR[best.difficulty] or M.DIFFICULTY_COLOR.easy
 			local sub = string.format("%s%d%%|r chance per craft", hex(color), best.chance)
 			if best.have > 0 then
@@ -596,8 +613,8 @@ local function todoFor(add, known)
 			-- A guide step that only describes what to make, with none of it known: its route still
 			-- shows in the tooltip.
 			add({ icon = best.recipe.icon or p.texture, text = string.format("Skill up %s: %s", p.localName, best.recipe.name),
-				sub = sub, action = { skill = skill, spell = best.recipe.spell }, guide = g })
-		elseif #learnable == 0 then
+				sub = sub, action = { skill = skill, spell = best.recipe.spell }, guide = not guided and g or nil })
+		elseif not guided and #learnable == 0 then
 			add({ icon = p.texture, text = "No " .. p.localName .. " skill-ups left",
 				sub = "Every recipe you know is grey: learn new ones from a trainer, a vendor or a drop.",
 				action = { skill = skill } })
