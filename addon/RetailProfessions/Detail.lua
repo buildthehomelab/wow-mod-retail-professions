@@ -194,7 +194,8 @@ end
 
 -----------------------------------------
 -- shopping list: what the amount in the window is short of, bags and reagent bank together,
--- and a button that puts it on ReagentBankUI's auction house shopping list
+-- and a button that puts it on ReagentBankUI's auction house shopping list. Recipes you haven't
+-- learned yet have one too, so the materials can be bought before the recipe.
 
 local SHOP_BUTTON_WIDTH = 150
 
@@ -228,7 +229,7 @@ end
 -- Draws under `anchor` and returns what comes next should hang from.
 local function drawShopping(r, anchor)
 	local count = RPF.GetQuantity()
-	local short = r.learned and not M.linked and RPF.HasShoppingList() and RPF.ShortFor(r, count) or {}
+	local short = not r.refine and not M.linked and RPF.HasShoppingList() and RPF.ShortFor(r, count) or {}
 	if #short == 0 then
 		shopRow:Hide()
 		return anchor
@@ -269,6 +270,11 @@ shopButton:SetScript("OnEnter", function (self)
 		.. "list. The auction house's Buy tab opens on that list and counts down as you buy.", 1, 1, 1, true)
 	GameTooltip:AddLine("Only what isn't on the list yet is added. Shift-click adds all of it on top, for another "
 		.. "recipe that needs the same reagent.", 0.7, 0.7, 0.7, true)
+	local r = RPF.selected
+	if r and not r.learned then
+		GameTooltip:AddLine("You don't know this recipe yet: the materials can wait in your bags until you learn it.",
+			0.7, 0.7, 0.7, true)
+	end
 	GameTooltip:Show()
 end)
 shopButton:SetScript("OnLeave", function () GameTooltip:Hide() end)
@@ -823,7 +829,7 @@ end
 
 shopButton:SetScript("OnClick", function ()
 	local r = RPF.selected
-	if not (r and r.learned) then return end
+	if not r or r.refine or M.linked then return end
 	-- Without the bank's counts everything in it would look missing.
 	if not RPF.BankCountsKnown() then
 		RPF.RequestBankSnapshot()
@@ -843,7 +849,7 @@ RPF.On("SELECTED", draw)
 -- The shopping line follows the amount.
 RPF.On("QUANTITY", function ()
 	local r = RPF.selected
-	if r and r.learned and RPF.frame:IsShown() then draw(r) end
+	if r and RPF.frame:IsShown() then draw(r) end
 end)
 RPF.On("HIDDEN", function () whereToken = whereToken + 1 end)
 
