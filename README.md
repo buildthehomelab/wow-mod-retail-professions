@@ -55,6 +55,8 @@ crafting speed**, earned by skill.
   that puts the shortfall on your shopping list. Only what isn't on the list yet is added, so
   asking twice doesn't double it (Shift-click adds it all on top, for a second recipe that needs
   the same reagent). RetailAH's Buy tab opens on that list and counts it down as you buy.
+  Recipes you haven't learned yet have the amount and the button too, so the materials can be
+  bought before the recipe.
 - For a recipe you haven't learned: **where to learn it**, written like a guide. Hover a line
   for the details.
   - Trainers, nearest first, with the cost and the skill they teach it at. Death knights' runes
@@ -140,9 +142,18 @@ crafting speed**, earned by skill.
   - tracked recipes you now have the materials for,
   - the recipe your materials earn the most from,
   - per profession: the next rank to train (from 25 points short of the cap, with the level the
-    trainer asks for), new recipes waiting at the trainer, the best recipe to skill up on (one
-    you can make now first, then the likeliest skill-up, then the cheapest), and herbs to mill or
-    ore to prospect.
+    trainer asks for), new recipes waiting at the trainer, what to make next for skill, and herbs
+    to mill or ore to prospect.
+- **What to make next** follows the leveling routes of the
+  [wow-professions.com WotLK guides](https://www.wow-professions.com/wotlk-classic) (1-450) for
+  Alchemy, Blacksmithing, Enchanting, Engineering, Inscription, Jewelcrafting, Leatherworking,
+  Tailoring, Cooking and First Aid: "Level Alchemy: 25 Elixir of Healing Power", with how many the
+  step still needs. Where the guide offers a choice, a recipe you know and have the materials for
+  comes first. A recipe you don't know yet says where it's learned. The tooltip shows the route
+  ahead; clicking opens the recipe with the amount set; Shift-click puts its materials on your
+  shopping list. Where the guide only describes what to make ("any orange Glyph", "uncommon
+  Northrend gems") or has nothing for your skill, the best skill-up you know stands in (one you
+  can make now first, then the likeliest skill-up, then the cheapest).
 - **Most profitable crafts**: every recipe you know that makes money at today's prices (priced
   as below), with how many you can make, what that earns in all and how many sold lately. Click
   a column to sort by it; **Can make now** hides the rest; **Refresh** asks for prices again. The
@@ -294,7 +305,8 @@ and the crafting perks (`RetailProfessions.Perks.Enable` and a `Min` / `Max` per
 `lua tools/addon_smoke_test.lua addon/RetailProfessions` loads the addon against a stubbed
 3.3.5a API and a fake server and walks through opening a profession, filters, crafting, where to
 learn a recipe, tracking, the book, combat, the profit view (with a fake mod-retail-ah price
-server), the Home tab (to do, the most profitable crafts, a line opening another profession), the
+server), the Home tab (to do, the leveling guide, the most profitable crafts, a line opening another
+profession), shopping for an unlearned recipe, the
 crafting perks, milling (its tab, Mill All, Stop, the reagent bank) and the classic switch.
 
 ## Troubleshooting

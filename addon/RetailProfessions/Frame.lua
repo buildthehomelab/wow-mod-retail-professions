@@ -640,8 +640,10 @@ local function updateControls()
 	local running = refine and RPF.Refine.job and true or false
 	RPF.SetEnabled(createButton, (learned and bags > 0 and not onCooldown) or running)
 	RPF.SetEnabled(createAllButton, learned and bags > 0 and not onCooldown and not enchant)
-	RPF.SetEnabled(plus, learned and not enchant and not (refine and job))
-	RPF.SetEnabled(minus, learned and not enchant and not (refine and job))
+	-- An unlearned recipe takes an amount too: its materials can go on the shopping list.
+	local amount = r and not M.linked and not enchant and not (refine and job)
+	RPF.SetEnabled(plus, amount)
+	RPF.SetEnabled(minus, amount)
 	if enchant then setQuantity(1) end
 	if running then
 		createButton:SetText("Stop")

@@ -827,6 +827,22 @@ step("what the amount is short of goes on the shopping list, once", function ()
 	RPF.SetQuantity(1)
 end)
 
+step("unlearned recipe: its materials go on the shopping list too", function ()
+	-- Green Linen Bracers, not learned: 2 Bolt of Linen Cloth and 1 Fine Thread each.
+	RPF.Select(M.bySpell[3914])
+	assert(not M.bySpell[3914].learned, "the bracers are learned")
+	RPF.SetQuantity(3)
+	assert(RPF.GetQuantity() == 3, "no amount on an unlearned recipe")
+	local add = buttonWithText("Add to Shopping List")
+	assert(add:IsVisible() and add:IsEnabled(), "no shopping row on an unlearned recipe")
+	assert(textShown("Short for 3|r"), "wrong shortfall")
+	add.__scripts.OnClick(add)
+	assert(ReagentBankUI.shopping[2321] == 3, "thread: " .. tostring(ReagentBankUI.shopping[2321]))
+	assert(ReagentBankUI.shopping[2996] == 6, "bolts: " .. tostring(ReagentBankUI.shopping[2996]))
+	ReagentBankUI.shopping = {}
+	RPF.SetQuantity(1)
+end)
+
 step("shift-click Enchant answers the replace-enchant question", function ()
 	RetailProfessionsDB.autoWithdraw = false
 	local r = M.bySpell[2963]
@@ -1098,6 +1114,66 @@ step("home: a line in another profession picks its recipe once that opens", func
 	tailoring.__scripts.OnClick(tailoring)
 	tick(0.2)
 	assert(not RPF.Home.Active(), "the profession tab didn't leave Home")
+end)
+
+step("home: the leveling guide's recipe, its route and its shopping", function ()
+	local routes = RPF.Guides.routes
+	local saved = routes[197]
+	-- Tailoring 120: the step 100-130 wants the vest (grey by now) or the bracers (learnable from
+	-- 110 here), the next one anything green.
+	routes[197] = {
+		{ 100, 130, any = true, { 20, 2385 }, { 20, 3914 } },
+		{ 130, 150, count = 5, prefix = "Green", hint = "anything green" },
+	}
+	local info, bracers = RPF.RecipeList(197)[3914], M.bySpell[3914]
+	local savedReq = bracers.reqSkill
+	info.reqSkill, bracers.reqSkill = 110, 110
+	RPF.Home.SetActive(true)
+	tick(0.2)
+	RPF.Home.Refresh()
+	-- 20 crafts for the step's 30 points, 10 points left: 7.
+	local line = homeHas("^Level Tailoring: 7 Green Linen Bracers$")
+	assert(line, "no guide line: " .. table.concat(homeTexts(), " | "))
+	assert(not homeHas("^No Tailoring skill%-ups left$"), "the guide line didn't take the skill-up line's place")
+	local row
+	for _, r in ipairs(RPF.Home.rows.todo) do
+		if r.item and r.item.text == line then row = r end
+	end
+	assert(row.item.sub:find("^Guide 100%-130: learn it from "), "sub: " .. row.item.sub)
+	-- The tooltip shows the route from here.
+	row.__scripts.OnEnter(row)
+	local tip = table.concat(tipLines, "\n")
+	assert(tip:find("Leveling guide from wow%-professions%.com"), "no route in the tooltip: " .. tip)
+	assert(tip:find("100%-130  20 Brown Linen Vest or 20 Green Linen Bracers"), "this step: " .. tip)
+	assert(tip:find("130%-150  5 of anything green"), "next step: " .. tip)
+	-- Shift-click: the materials for those 7 go on the shopping list, and Home stays.
+	IsShiftKeyDown = function () return true end
+	row.__scripts.OnClick(row)
+	IsShiftKeyDown = function () return false end
+	assert(ReagentBankUI.shopping[2321] == 7, "thread for 7: " .. tostring(ReagentBankUI.shopping[2321]))
+	assert(RPF.Home.Active(), "shift-click left Home")
+	ReagentBankUI.shopping = {}
+	-- A click opens the recipe with the amount the step still needs.
+	row.__scripts.OnClick(row)
+	tick(0.3)
+	assert(RPF.selected and RPF.selected.spell == 3914, "the bracers aren't selected")
+	assert(RPF.GetQuantity() == 7, "amount: " .. RPF.GetQuantity())
+	RPF.SetQuantity(1)
+	routes[197], info.reqSkill, bracers.reqSkill = saved, savedReq, savedReq
+end)
+
+step("home: the shipped routes name only recipes that make sense", function ()
+	-- Every step starts where the one before it did or later, and ends after it starts.
+	for skill, route in pairs(RPF.Guides.routes) do
+		assert(RPF.Guides.URL:format(route.slug):find("^https://"), "no page for " .. skill)
+		local last = 0
+		for i, step in ipairs(route) do
+			assert(step[1] >= last and step[2] > step[1], skill .. " step " .. i)
+			assert(step.count or #step >= 3, skill .. " step " .. i .. " names nothing")
+			for e = 3, #step do assert(step[e][1] > 0 and step[e][2] > 0, skill .. " step " .. i) end
+			last = step[1]
+		end
+	end
 end)
 
 -----------------------------------------

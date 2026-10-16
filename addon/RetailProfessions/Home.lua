@@ -3,8 +3,9 @@
 --
 --   * a card per profession with its skill bar,
 --   * To do: cooldowns that are ready, tracked recipes you now have the materials for, the most
---     gold your bags can turn into, the best recipe to skill up on, recipes waiting at the
---     trainer, the next rank to train, and herbs or ore to mill or prospect,
+--     gold your bags can turn into, what to make next for skill (the leveling guide's recipe,
+--     Guides.lua, else the best skill-up you know), recipes waiting at the trainer, the next
+--     rank to train, and herbs or ore to mill or prospect,
 --   * Most profitable crafts: every recipe you know that makes money at today's auction prices
 --     (Profit.lua), sortable by profit, by what your materials make in all, by how many you can
 --     make and by how well it sells.
@@ -100,6 +101,21 @@ RPF.On("COOLDOWN", function () RPF.Debounce("home-snapshot", 0.3, snapshot) end)
 
 local built = {} -- skill -> { set, list, recipes }
 
+-- A recipe of a profession that isn't open, shaped like the model's, from the server's list.
+local function fromList(skill, spell, info, learned)
+	local name, _, icon = GetSpellInfo(spell)
+	local isEnchant = info.targetsItem
+	if isEnchant == nil then isEnchant = info.item == 0 and (skill == 333 or skill == 776) end
+	local r = {
+		spell = spell, name = name or ("#" .. spell), learned = learned, skill = skill, item = info.item,
+		icon = (info.item > 0 and RPF.ItemIcon(info.item)) or icon, isEnchant = isEnchant, reagents = {},
+		madeMin = info.madeMin, madeMax = info.madeMax, reqSkill = info.reqSkill, sources = info.sources,
+		yellow = info.yellow, green = info.green, grey = info.grey, perks = info.perks,
+	}
+	for _, rg in ipairs(info.reagents) do table.insert(r.reagents, { id = rg.id, n = rg.n }) end
+	return r
+end
+
 -- The recipes you know in a profession, shaped like the model's: the model's own while it's
 -- open, otherwise rebuilt from the note of the last visit and the server's list. nil when the
 -- profession hasn't been opened yet, or its list is still on its way (RECIPES fires then).
@@ -114,19 +130,7 @@ function H.RecipesOf(skill)
 	local recipes = {}
 	for spell in pairs(set) do
 		local info = list[spell]
-		if info then
-			local name, _, icon = GetSpellInfo(spell)
-			local isEnchant = info.targetsItem
-			if isEnchant == nil then isEnchant = info.item == 0 and (skill == 333 or skill == 776) end
-			local r = {
-				spell = spell, name = name or ("#" .. spell), learned = true, skill = skill, item = info.item,
-				icon = (info.item > 0 and RPF.ItemIcon(info.item)) or icon, isEnchant = isEnchant, reagents = {},
-				madeMin = info.madeMin, madeMax = info.madeMax, reqSkill = info.reqSkill, sources = info.sources,
-				yellow = info.yellow, green = info.green, grey = info.grey, perks = info.perks,
-			}
-			for _, rg in ipairs(info.reagents) do table.insert(r.reagents, { id = rg.id, n = rg.n }) end
-			table.insert(recipes, r)
-		end
+		if info then table.insert(recipes, fromList(skill, spell, info, true)) end
 	end
 	table.sort(recipes, function (a, b) return a.name < b.name end)
 	built[skill] = { set = set, list = list, recipes = recipes }
@@ -274,6 +278,196 @@ local function bestSkillUp(recipes, rank)
 	return best
 end
 
+-----------------------------------------
+-- the leveling guide: wow-professions.com's route (Guides.lua), step by step
+
+-- The step `rank` is on, by index: the last one that starts at or below it. Past the end: nil.
+local function stepAt(route, rank)
+	local at
+	for i, step in ipairs(route) do
+		if step[1] <= rank then at = i else break end
+	end
+	if at == #route and rank >= route[at][2] then return nil end
+	return at
+end
+
+-- A step lasts until the next one starts, when that's later than the guide's own end.
+local function stepEnd(route, i)
+	local nextStep = route[i + 1]
+	return math.max(route[i][2], nextStep and nextStep[1] or 0)
+end
+
+-- The crafts of `count` (what the whole step takes) still to make from `rank`.
+local function craftsLeft(route, i, rank, count)
+	local from, to = route[i][1], stepEnd(route, i)
+	if to <= from then return count end
+	return math.max(1, math.min(count, math.ceil(count * (to - rank) / (to - from))))
+end
+
+-- A recipe on the route, known or not. nil when the realm's list doesn't have it.
+local function routeRecipe(skill, spell, byKnown)
+	if isOpen(skill) then return M.bySpell[spell] end
+	if byKnown[spell] then return byKnown[spell] end
+	local list = RPF.RecipeList(skill)
+	local info = list and list[spell]
+	return info and fromList(skill, spell, info, false) or nil
+end
+
+-- Whether making it now can raise the skill: known, or learnable at this skill, and not grey.
+local function raisesSkill(r, rank)
+	if not r or r.refine then return false end
+	if not r.learned and (r.reqSkill or 0) > rank then return false end
+	return (skillUp(r, rank)) > 0
+end
+
+-- A step that names no recipe: the ones it describes (a name start, or a reagent they use).
+local function describes(step, r)
+	if step.prefix and r.name:sub(1, #step.prefix) == step.prefix then return true end
+	for _, rg in ipairs(step.reagents and r.reagents or {}) do
+		for _, id in ipairs(step.reagents) do
+			if rg.id == id then return true end
+		end
+	end
+	return false
+end
+
+-- The recipe a step has you make at this skill, and how many. "One of these": the first you know
+-- and have the materials for, else the first you know, else the guide's favourite. "In this
+-- order": the first whose crafts aren't in your bags yet (they're made now to be used later).
+local function fromStep(route, i, skill, rank, byKnown)
+	local step = route[i]
+	if step.count then
+		local pool = {}
+		for _, r in ipairs(H.RecipesOf(skill) or {}) do
+			if r.learned and not r.refine and describes(step, r) then table.insert(pool, r) end
+		end
+		local best = bestSkillUp(pool, rank)
+		if best then return best.recipe, craftsLeft(route, i, rank, step.count) end
+		return nil
+	end
+	local first, known, ready
+	for e = 3, #step do
+		local count, spell = step[e][1], step[e][2]
+		local r = routeRecipe(skill, spell, byKnown)
+		local done = step.seq and r and r.item and r.item > 0 and unitsOf(r.item) >= count * (r.madeMin or 1)
+		if not done and raisesSkill(r, rank) then
+			local c = { recipe = r, count = step.seq and count or craftsLeft(route, i, rank, count) }
+			first = first or c
+			if r.learned then
+				known = known or c
+				if P.CanMake(r) > 0 then ready = ready or c end
+			end
+			if step.seq then break end
+		end
+	end
+	local c = ready or known or first
+	if c then return c.recipe, c.count end
+	return nil
+end
+
+-- What the guide has you make next: from the step the skill is on, or the next one or two when
+-- that step has nothing left to give (its recipes went grey, or this realm doesn't have them).
+-- A step that only describes what to make (no recipe of it known yet) comes back on its own.
+local function guideFor(skill, rank)
+	local route = RPF.Guides and RPF.Guides.routes[skill]
+	local i = route and stepAt(route, rank)
+	if not i then return nil end
+	local byKnown = {}
+	for _, r in ipairs(H.RecipesOf(skill) or {}) do
+		if r.spell then byKnown[r.spell] = r end
+	end
+	for j = i, math.min(i + 2, #route) do
+		local r, count = fromStep(route, j, skill, rank, byKnown)
+		if r then return { route = route, index = j, recipe = r, count = count, skill = skill } end
+	end
+	if route[i].hint then return { route = route, index = i, skill = skill } end
+	return nil
+end
+
+-- How to learn a recipe, in a word or two (the recipe pane has the whole story).
+local LEARN_FROM = {
+	{ RPF.SRC_TRAINER, "a trainer" }, { RPF.SRC_ITEM, "a recipe item" }, { RPF.SRC_QUEST, "a quest" },
+	{ RPF.SRC_NPC, "someone in the world" }, { RPF.SRC_DISCOVERY, "a discovery" },
+}
+local function learnFrom(sources)
+	for _, s in ipairs(LEARN_FROM) do
+		if bit.band(sources or 0, s[1]) ~= 0 then return s[2] end
+	end
+	return nil
+end
+
+local function guideLine(g, p, rank)
+	local r, step = g.recipe, g.route[g.index]
+	local sub = string.format("Guide %d-%d", step[1], step[2])
+	if step.hint then sub = sub .. " (" .. step.hint .. ")" end
+	if r.learned then
+		local chance, difficulty = skillUp(r, rank)
+		local color = M.DIFFICULTY_COLOR[difficulty] or M.DIFFICULTY_COLOR.easy
+		sub = sub .. string.format(": %s%d%%|r per craft", hex(color), chance)
+		local have = math.max(0, P.CanMake(r))
+		if have > 0 then sub = sub .. string.format(", you can make %d", have) end
+	else
+		local from = learnFrom(r.sources)
+		sub = sub .. ": learn it" .. (from and (" from " .. from) or " first")
+	end
+	return { icon = r.icon or p.texture, text = string.format("Level %s: %d %s", p.localName, g.count, r.name),
+		sub = sub, action = { skill = g.skill, spell = r.spell, count = g.count }, guide = g }
+end
+
+-- One step as a line: "25 Elixir of Healing Power", "15 Volatile Healing Potion or 2 more".
+local GUIDE_OPTIONS = 2
+local function stepText(step)
+	if step.count then return string.format("%d of %s", step.count, step.hint) end
+	local names = {}
+	for e = 3, #step do
+		if step.any and #names == GUIDE_OPTIONS then
+			table.insert(names, string.format("%d more", #step - e + 1))
+			break
+		end
+		table.insert(names, step[e][1] .. " " .. (GetSpellInfo(step[e][2]) or ("#" .. step[e][2])))
+	end
+	return table.concat(names, step.any and " or " or ", then ")
+end
+
+-- The route from here on, under a guide line's tooltip.
+local GUIDE_AHEAD = 6
+local function guideTip(g)
+	local route = g.route
+	GameTooltip:AddLine(" ")
+	GameTooltip:AddLine("Leveling guide from " .. RPF.Guides.SITE, 1, 0.82, 0)
+	for i = g.index, math.min(#route, g.index + GUIDE_AHEAD - 1) do
+		local step = route[i]
+		local c = i == g.index and 1 or 0.65
+		GameTooltip:AddLine(string.format("%d-%d  %s", step[1], step[2], stepText(step)), c, c, c, true)
+	end
+	local r = g.recipe
+	if r and #r.reagents > 0 and RPF.HasShoppingList() then
+		GameTooltip:AddLine(string.format("Shift-click to put the materials for %d on your shopping list.", g.count),
+			0.5, 0.5, 0.5, true)
+	end
+end
+
+-- Shift-click on a guide line: what its crafts are short of goes on the shopping list.
+function H.Shop(g)
+	local r = g and g.recipe
+	if not r then return end
+	if not RPF.HasShoppingList() then
+		RPF.Status("The shopping list comes with the reagent bank (ReagentBankUI).", true)
+		return
+	end
+	-- Without the bank's counts everything in it would look missing.
+	if not RPF.BankCountsKnown() then
+		RPF.RequestBankSnapshot()
+		RPF.Status("Still checking what your reagent bank holds. Try again in a moment.", true)
+		return
+	end
+	if RPF.AddToShoppingList(r, g.count) > 0 then
+		RPF.Status(string.format("The materials for %d %s are on your shopping list.", g.count, r.name))
+	else
+		RPF.Status("You have those materials, or they're on your shopping list already.")
+	end
+end
+
 -- Several cooldown recipes that share one timer (every transmute) come off it together: one line.
 local function readyCooldowns(add, byId)
 	local now, groups, order = time(), {}, {}
@@ -381,11 +575,15 @@ local function todoFor(add, known)
 			action = { skill = skill, spell = learnable[1].spell } })
 	end
 
-	-- What to craft for the next skill point.
+	-- What to craft for the next skill point: the leveling guide's recipe when it has one here,
+	-- else the likeliest skill-up you know.
 	if known.baseRank < maxRank then
 		-- The core rolls skill-ups on the skill without bonuses; trainers count them.
-		local best = bestSkillUp(recipes, known.baseRank)
-		if best then
+		local g = guideFor(skill, known.baseRank)
+		local best = not (g and g.recipe) and bestSkillUp(recipes, known.baseRank)
+		if g and g.recipe then
+			add(guideLine(g, p, known.baseRank))
+		elseif best then
 			local color = M.DIFFICULTY_COLOR[best.difficulty] or M.DIFFICULTY_COLOR.easy
 			local sub = string.format("%s%d%%|r chance per craft", hex(color), best.chance)
 			if best.have > 0 then
@@ -395,8 +593,10 @@ local function todoFor(add, known)
 			else
 				sub = sub .. ", get the materials"
 			end
+			-- A guide step that only describes what to make, with none of it known: its route still
+			-- shows in the tooltip.
 			add({ icon = best.recipe.icon or p.texture, text = string.format("Skill up %s: %s", p.localName, best.recipe.name),
-				sub = sub, action = { skill = skill, spell = best.recipe.spell } })
+				sub = sub, action = { skill = skill, spell = best.recipe.spell }, guide = g })
 		elseif #learnable == 0 then
 			add({ icon = p.texture, text = "No " .. p.localName .. " skill-ups left",
 				sub = "Every recipe you know is grey: learn new ones from a trainer, a vendor or a drop.",
@@ -471,12 +671,23 @@ local function bindAction(region, action)
 	region.action = action
 	local p = action and RPF.Profession(action.skill)
 	if action and p and p.openName and not isOpen(action.skill) then
-		region.button.preClick = function () H.Pend(action) end
+		region.button.preClick = function ()
+			if IsShiftKeyDown() and region.item and region.item.guide then H.Shop(region.item.guide) end
+			H.Pend(action)
+		end
 		RPF.BindSpellButton(region.button, region, p.openName, frame, true)
 	else
 		region.button.preClick = nil
 		RPF.BindSpellButton(region.button, nil, nil, nil, true)
 	end
+end
+
+-- Picks the recipe; a line from the leveling guide also sets the amount to what its step still
+-- needs (an enchant you know stays at one: it goes on one item at a time).
+local function openRecipe(action)
+	if not RPF.SelectSpell(action.spell) then return end
+	local r = RPF.selected
+	if action.count and r and not (r.learned and r.isEnchant) then RPF.SetQuantity(action.count) end
 end
 
 function H.Run(action)
@@ -491,7 +702,7 @@ function H.Run(action)
 	if action.code then
 		R.SetView(action.code)
 	elseif action.spell then
-		RPF.SelectSpell(action.spell)
+		openRecipe(action)
 	else
 		R.SetView(nil)
 	end
@@ -501,6 +712,10 @@ local function withSecure(region, name, onEnter)
 	region:SetScript("OnEnter", function (self) onEnter(self, self) end)
 	region:SetScript("OnLeave", RPF.HideItemTooltip)
 	region:SetScript("OnClick", function (self)
+		if IsShiftKeyDown() and self.item and self.item.guide and self.item.guide.recipe then
+			H.Shop(self.item.guide)
+			return
+		end
 		if IsModifiedClick("CHATLINK") and self.link then
 			ChatEdit_InsertLink(self.link)
 			return
@@ -645,6 +860,7 @@ local function todoEnter(row, owner)
 	GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
 	GameTooltip:SetText(item.text, 1, 1, 1, true)
 	GameTooltip:AddLine(item.sub, 0.8, 0.8, 0.8, true)
+	if item.guide then guideTip(item.guide) end
 	clickHint(item.action)
 	GameTooltip:Show()
 end
@@ -994,7 +1210,7 @@ RPF.On("REBUILT", function ()
 	local p = pending
 	if not p or M.linked or M.skill ~= p.action.skill then return end
 	pending = nil
-	if GetTime() - p.at < 5 and p.action.spell then RPF.SelectSpell(p.action.spell) end
+	if GetTime() - p.at < 5 and p.action.spell then openRecipe(p.action) end
 end)
 
 RPF.On("VIEW", function ()
