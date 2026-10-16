@@ -4,13 +4,17 @@
 -- you have, what the chosen amount is still short of with a button that puts it on the auction
 -- house shopping list, and for a recipe you haven't learned, where to learn it. A herb to mill
 -- or ore to prospect (Refine.lua) shows what it gives instead. A faint picture of the profession
--- sits behind it all.
+-- sits behind it all (with DragonUI's professions art, the card's drawing of it).
 
 local RPF = RetailProfessions
 local M = RPF.Model
 
 local pane = RPF.detailPane
 local PAD = 14
+-- With DragonUI's professions art the pane is its recipe card, drawing included: no watermark,
+-- the recipe icon in its ring (by quality) and its favorite star.
+local art = RPF.frame.profArt
+local OUTPUT_RINGS = { [0] = "ring-gray", [2] = "ring-green", [3] = "ring-blue", [4] = "ring-purple", [5] = "ring-orange" }
 local REAGENT_TEXT_WIDTH = 320
 local MAX_REAGENTS = 8
 local MAX_SOURCES = 9
@@ -55,6 +59,11 @@ icon.glow:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
 icon.glow:SetBlendMode("ADD")
 icon.glow:SetSize(84, 84)
 icon.glow:SetPoint("CENTER", icon, "CENTER")
+if art then
+	icon.glow:Hide()
+	icon.ring = icon:CreateTexture(nil, "OVERLAY")
+	icon.ring:SetPoint("CENTER", icon, "CENTER")
+end
 icon:SetScript("OnEnter", function (self)
 	itemTooltip(self, self.link)
 	if RPF.selected then
@@ -75,6 +84,8 @@ star:SetPoint("LEFT", nameText, "RIGHT", 6, 0)
 star.texture = star:CreateTexture(nil, "ARTWORK")
 star.texture:SetAllPoints(star)
 star.texture:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcon_1")
+-- DragonUI's star is 20 x 18.
+if art then star:SetSize(20, 18) end
 star:SetScript("OnClick", function ()
 	local r = RPF.selected
 	if r and r.spell then RPF.ToggleFavorite(r.spell) end
@@ -759,7 +770,14 @@ local function draw(r)
 	RPF.SetPortrait(icon.texture, (info and info.texture) or r.icon or (r.refine and RPF.Refine.Icon(r))
 		or "Interface\\Icons\\INV_Misc_QuestionMark")
 	local quality = info and info.quality or r.quality or 1
-	if quality >= 2 and not r.isEnchant then
+	if art then
+		-- DragonUI's rings: the bronze one sits round a 45 icon at 64, the quality ones round a
+		-- 43 at 68; an enchant (no item) gets the grey one.
+		local ring = OUTPUT_RINGS[r.isEnchant and 0 or quality]
+		art.Art.Set(icon.ring, ring or "ring-frame")
+		local size = icon:GetWidth() * (ring and 68 / 43 or 64 / 45)
+		icon.ring:SetSize(size, size)
+	elseif quality >= 2 and not r.isEnchant then
 		local qr, qg, qb = RPF.QualityColor(quality)
 		icon.glow:SetVertexColor(qr, qg, qb)
 		icon.glow:Show()
@@ -768,12 +786,16 @@ local function draw(r)
 	end
 	local _, _, _, hex = RPF.QualityColor(quality)
 	nameText:SetText((r.isEnchant and "|cffffffff" or hex) .. r.name .. "|r")
-	star.texture:SetDesaturated(not RPF.IsFavorite(r.spell))
-	star.texture:SetAlpha(RPF.IsFavorite(r.spell) and 1 or 0.45)
+	if art then
+		art.Art.Set(star.texture, RPF.IsFavorite(r.spell) and "favorite" or "favorite-off")
+	else
+		star.texture:SetDesaturated(not RPF.IsFavorite(r.spell))
+		star.texture:SetAlpha(RPF.IsFavorite(r.spell) and 1 or 0.45)
+	end
 	-- Favorites are kept by spell; a herb or ore has none.
 	if r.refine then star:Hide() end
 	local p = M.profession
-	watermark:SetTexture(p and p.texture or nil)
+	watermark:SetTexture(not art and p and p.texture or nil)
 
 	-- Under the name: what it needs (red when you don't have it), else what it makes.
 	local sub

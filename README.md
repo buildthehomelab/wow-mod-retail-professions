@@ -211,7 +211,11 @@ crafting speed**, earned by skill.
   jumps back to the first one you can learn).
 - The windows are stock Blizzard frames (dialog frame, buttons, checkboxes, scroll bars). With
   [DragonUI](https://github.com/NeticSoul/DragonUI) installed they wear DragonUI's retail skin:
-  the metal frame with the round portrait, red buttons and gold category bars.
+  the metal frame with the round portrait, red buttons and gold category bars. The profession
+  window goes further when DragonUI has its own professions window: it takes that window's art,
+  so it looks like DragonUI's professions overview (the profession's coloured skill bar, the
+  list's category bars and skill-up arrows, the recipe on a parchment card with the profession's
+  drawing, quality-ringed icons and slots, and its side tabs).
 - With [mod-reagent-bank-account](https://github.com/buildthehomelab/mod-reagent-bank-account)'s
   ReagentBankUI, everything its old profession sidebar did is in this window: the amount,
   crafting from the bank, Deposit leftovers and Add to Shopping List.

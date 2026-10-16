@@ -1,5 +1,6 @@
 -- RetailProfessions widgets (from RetailAH): buttons, inputs, panes and item buttons, dressed in DragonUI's retail art
--- when DragonUI is loaded and in a dark retail-like style of their own otherwise.
+-- when DragonUI is loaded and stock Blizzard frames otherwise; the profession window's pieces
+-- (skill bar, recipe card, slots) in the art of DragonUI's own professions window when it has one.
 
 local RPF = RetailProfessions
 
@@ -23,6 +24,45 @@ function RPF.Dragon()
 			and D.CharacterPanel and D.CharacterPanel.ReskinTab then
 		return D, D.CharacterPanel
 	end
+end
+
+-- The art of DragonUI's own professions window (DragonUI.Professions: backdrop, skill bars,
+-- list bars, recipe card and drawings) and the Forever metal frame it sits in, when this
+-- DragonUI has them. The profession window uses it; everything else keeps DragonUI's plain look.
+local CHROME_PIECES = { "ui-frame-metal-cornertopright", "ui-frame-metal-cornerbottomleft", "ui-frame-metal-cornerbottomright",
+	"_ui-frame-metal-edgetop", "_ui-frame-metal-edgebottom", "!ui-frame-metal-edgeleft", "!ui-frame-metal-edgeright" }
+
+function RPF.ProfArt()
+	local D = RPF.Dragon()
+	local P = D and D.Professions
+	local Art, UI, atlas = P and P.Art, D and D.ForeverUI, D and D.ForeverAtlas
+	if not (P and P.Atlas and P.Atlas["bg-crafting"] and P.Atlas["card-base"] and Art and Art.Set and Art.SetInset
+			and Art.SetClipped and Art.ThreeSlice and Art.NineSlice and Art.PlaceNineSlice and Art.RankText
+			and Art.CardDrawing and P.Fill and P.Fill.Create and P.Fill.Update and P.Professions
+			and P.Professions.EntryForLine and UI and UI.ApplyNineSlice and atlas) then
+		return nil
+	end
+	for _, name in ipairs(CHROME_PIECES) do
+		if not atlas[name] then return nil end
+	end
+	return P, D
+end
+
+-- The part of an atlas piece from x0 to x1 and y0 to y1, in the piece's own units.
+local function cropArt(P, tex, name, x0, x1, y0, y1)
+	local info = P.Atlas[name]
+	-- Sets the sheet and the shade DragonUI darkens it back with.
+	P.Art.Set(tex, name)
+	local l, r, t, b = info[4], info[5], info[6], info[7]
+	tex:SetTexCoord(l + (r - l) * x0 / info[2], l + (r - l) * x1 / info[2],
+		t + (b - t) * y0 / info[3], t + (b - t) * y1 / info[3])
+end
+
+-- Which of DragonUI's professions a skill line (its localized name) is: "Alchemy", "FirstAid"...
+function RPF.ProfArtKey(skillName)
+	local P = RPF.ProfArt()
+	local entry = P and skillName and P.Professions.EntryForLine(skillName)
+	return entry and entry.key or nil
 end
 
 local function solid(host, layer, r, g, b, a, sublevel)
@@ -51,18 +91,93 @@ local DIALOG_BACKDROP = {
 	insets = { left = 11, right = 12, top = 12, bottom = 11 },
 }
 
+-- DragonUI's professions window draws its backdrop at 665 x 570 under a 673 wide frame. The
+-- list column keeps its own width; past it (under the recipe card) the backdrop stretches to
+-- whatever width the window has.
+local BACKDROP_SPLIT = 330
+
+-- The crafting page of DragonUI's professions window: its backdrop under the metal frame with
+-- the professions portrait corner, the title and close button where it puts them.
+local function dressProfArt(frame, opts, D, CP, P, close)
+	local info = P.Atlas["bg-crafting"]
+	local height = math.min(info[3], frame:GetHeight() - 23)
+	local left = frame:CreateTexture(nil, "BACKGROUND")
+	cropArt(P, left, "bg-crafting", 0, BACKDROP_SPLIT, 0, height)
+	left:SetSize(BACKDROP_SPLIT, height)
+	left:SetPoint("TOPLEFT", frame, "TOPLEFT", 3, -21)
+	local right = frame:CreateTexture(nil, "BACKGROUND")
+	cropArt(P, right, "bg-crafting", BACKDROP_SPLIT, info[2], 0, height)
+	right:SetPoint("TOPLEFT", left, "TOPRIGHT", 0, 0)
+	right:SetPoint("BOTTOMRIGHT", frame, "TOPRIGHT", -4, -21 - height)
+
+	-- On its own frame above the content, so no child panel draws over the metal.
+	local chrome = CreateFrame("Frame", nil, frame)
+	chrome:SetAllPoints(frame)
+	chrome:SetFrameLevel(frame:GetFrameLevel() + 30)
+	chrome:EnableMouse(false)
+	local atlas = D.ForeverAtlas
+	-- DragonUI's own window registers it under this name too.
+	atlas["dragonui-professions-portraitcorner"] = atlas["dragonui-professions-portraitcorner"] or P.Atlas["portrait-corner"]
+	D.ForeverUI.ApplyNineSlice(chrome, {
+		corners = {
+			TopLeft = { "dragonui-professions-portraitcorner", -13, 16 },
+			TopRight = { "ui-frame-metal-cornertopright", 2, 16 },
+			BottomLeft = { "ui-frame-metal-cornerbottomleft", -13, -8 },
+			BottomRight = { "ui-frame-metal-cornerbottomright", 2, -8 },
+		},
+		edges = { Top = "_ui-frame-metal-edgetop", Bottom = "_ui-frame-metal-edgebottom",
+			Left = "!ui-frame-metal-edgeleft", Right = "!ui-frame-metal-edgeright" },
+	}, "BORDER")
+	frame.chrome = chrome
+	-- Under the corner's ring, which hides the edge SetPortraitToTexture leaves.
+	frame.portrait = frame:CreateTexture(nil, "BORDER")
+	frame.portrait:SetSize(58, 58)
+	frame.portrait:SetPoint("TOPLEFT", frame, "TOPLEFT", -4, 7)
+
+	frame.title = chrome:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	frame.title:SetHeight(12)
+	frame.title:SetPoint("TOPLEFT", frame, "TOPLEFT", 58, -5)
+	frame.title:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -24, -5)
+	frame.title:SetJustifyH("CENTER")
+
+	local exit, pressed, off, lit = atlas["redbutton-exit"], atlas["redbutton-exit-pressed"],
+		atlas["redbutton-exit-disabled"], atlas["redbutton-highlight"]
+	if exit and pressed and off and lit then
+		local function put(setter, getter, piece, mode)
+			close[setter](close, piece[1], mode)
+			local tex = close[getter](close)
+			if tex then tex:SetTexCoord(piece[4], piece[5], piece[6], piece[7]) end
+		end
+		put("SetNormalTexture", "GetNormalTexture", exit)
+		put("SetPushedTexture", "GetPushedTexture", pressed)
+		put("SetDisabledTexture", "GetDisabledTexture", off)
+		put("SetHighlightTexture", "GetHighlightTexture", lit, "ADD")
+		close:SetSize(24, 24)
+		close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -2, 1)
+	else
+		close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 2, 2)
+		if CP.ModernizeCloseButton then CP.ModernizeCloseButton(close, chrome, 1, 0) end
+	end
+	close:SetFrameLevel(chrome:GetFrameLevel() + 5)
+	frame.profArt = P
+end
+
 -- Dresses a window and gives it a title (frame.title), a close button (frame.closeButton) and a
 -- title bar to drag it by. DragonUI's metal frame on rock when DragonUI is loaded, otherwise the
 -- stock dialog frame. opts = { portrait = round portrait top-left (frame.portrait, DragonUI only;
--- set it with RPF.SetPortrait), closeName = global name for the close button, onMoved = fn }.
--- Returns true with DragonUI, and the y offset content starts at.
+-- set it with RPF.SetPortrait), profArt = the art of DragonUI's professions window when it has
+-- it (frame.profArt is set then; the portrait comes with it), closeName = global name for the
+-- close button, onMoved = fn }. Returns true with DragonUI, and the y offset content starts at.
 function RPF.DressWindow(frame, opts)
 	opts = opts or {}
 	local D, CP = RPF.Dragon()
 	local close = CreateFrame("Button", opts.closeName, frame, "UIPanelCloseButton")
 	frame.closeButton = close
+	local P = opts.profArt and RPF.ProfArt()
 
-	if D then
+	if P then
+		dressProfArt(frame, opts, D, CP, P, close)
+	elseif D then
 		local rock = tiled(frame, "BACKGROUND", -8, D._dir .. "UI\\ui-background-rock")
 		rock:SetPoint("TOPLEFT", frame, "TOPLEFT", 2, -21)
 		rock:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -2, 2)
@@ -159,6 +274,85 @@ function RPF.CreateInset(parent)
 	return pane
 end
 
+-- DragonUI's profession skill bar (needs RPF.ProfArt): its frame round the profession's own
+-- fill, which plays when the skill moves. bar:SetRank(name, rank, maxRank, key).
+local RANK_BAR_W, RANK_FILL_W = 453, 441
+
+function RPF.CreateRankBar(parent)
+	local P = RPF.ProfArt()
+	local Art = P.Art
+	local bar = CreateFrame("Frame", nil, parent)
+	bar:SetSize(RANK_BAR_W, 18)
+	local bg = bar:CreateTexture(nil, "BACKGROUND")
+	Art.Set(bg, "rankbar-bg", true)
+	bg:SetPoint("TOPLEFT", bar, "TOPLEFT", 0, 0)
+	bar.fx = P.Fill.Create(bar, RANK_BAR_W, 0, 18)
+	bar.fx:SetPoint("TOPLEFT", bar, "TOPLEFT", 5, -3)
+	-- The border and the rank go on a frame over the fill's.
+	local top = CreateFrame("Frame", nil, bar)
+	top:SetAllPoints(bar)
+	top:SetFrameLevel(bar.fx:GetFrameLevel() + 1)
+	local border = top:CreateTexture(nil, "ARTWORK")
+	Art.Set(border, "rankbar-border", true)
+	border:SetPoint("TOPLEFT", bar, "TOPLEFT", 0, 0)
+	bar.rank = Art.RankText(top)
+	bar.rank:SetCenter(bar, "TOPLEFT", 5 + RANK_FILL_W / 2, -12)
+
+	function bar:SetRank(name, rank, maxRank, key)
+		rank, maxRank = rank or 0, maxRank or 0
+		local ratio = maxRank > 0 and math.min(rank / maxRank, 1) or 0
+		P.Fill.Update(self.fx, key, ratio, maxRank > 0 and rank >= maxRank)
+		self.rank:Set(string.format("%s %d", name or "", rank), maxRank)
+	end
+	return bar
+end
+
+-- DragonUI's recipe card (needs RPF.ProfArt) on a pane: the parchment, the profession's drawing
+-- in its bottom right corner and the inside frame round it all. pane:SetCardArt(key, icon) picks
+-- the drawing; a profession without one gets its icon, toned like the drawings, in its place.
+local CARD_INSET = 4
+
+function RPF.DressCard(pane)
+	local P = RPF.ProfArt()
+	local Art = P.Art
+	local base = pane:CreateTexture(nil, "BACKGROUND")
+	Art.SetInset(base, "card-base", CARD_INSET)
+	base:ClearAllPoints()
+	base:SetPoint("TOPLEFT", pane, "TOPLEFT", CARD_INSET, -CARD_INSET)
+	base:SetPoint("BOTTOMRIGHT", pane, "BOTTOMRIGHT", -CARD_INSET, CARD_INSET)
+	local drawing = pane:CreateTexture(nil, "BORDER")
+	drawing:SetPoint("BOTTOMRIGHT", pane, "BOTTOMRIGHT", -CARD_INSET, CARD_INSET)
+	drawing:Hide()
+	local icon = pane:CreateTexture(nil, "BORDER")
+	icon:SetSize(96, 96)
+	icon:SetPoint("CENTER", pane, "BOTTOM", 0, 136)
+	icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	icon:SetDesaturated(true)
+	icon:SetVertexColor(0.85, 0.7, 0.5)
+	icon:SetAlpha(0.35)
+	icon:Hide()
+	Art.PlaceNineSlice(Art.NineSlice(pane, "ARTWORK", "insideframe", 53), pane, 53)
+
+	function pane:SetCardArt(key, iconPath)
+		local name = Art.CardDrawing(key)
+		if name then
+			-- Cut where the parchment ends, as DragonUI does.
+			local info = P.Atlas[name]
+			Art.SetClipped(drawing, name, info[2] - CARD_INSET, info[3] - CARD_INSET)
+			drawing:Show()
+		else
+			drawing:Hide()
+		end
+		if not name and iconPath then
+			icon:SetTexture(iconPath)
+			icon:Show()
+		else
+			icon:Hide()
+		end
+	end
+	return pane
+end
+
 -- A FauxScrollFrame's bar: DragonUI's thin one, or the stock one.
 function RPF.SkinScrollBar(scroll, scrollName)
 	local bar = _G[scrollName .. "ScrollBar"]
@@ -184,6 +378,73 @@ function RPF.CreateButton(parent, text, width, height)
 	local D = RPF.Dragon()
 	if D then D.SkinRedButton(btn) end
 	return btn
+end
+
+-- A button that opens a menu or switches a view, like the Filter button of DragonUI's
+-- professions window: the dark rounded button with its own hover and pressed art. Without that
+-- art, a button like any other. LockHighlight shows it switched on.
+function RPF.CreateMenuButton(parent, text, width)
+	local D = RPF.ProfArt() and RPF.Dragon()
+	if D then
+		local btn = CreateFrame("Button", uniqueName("MenuButton"), parent)
+		-- The art is drawn 4 past the button on every side; here the button takes it all.
+		btn:SetSize(width + 8, 26)
+		local states = {}
+		for _, s in ipairs({ { "SetNormalTexture", "" }, { "SetPushedTexture", "-pressed" }, { "SetHighlightTexture", "-hover" } }) do
+			local tex = btn:CreateTexture(nil, "BACKGROUND")
+			if not D:SafeSetAtlas(tex, "common-dropdown-b-button" .. s[2]) then
+				states = nil
+				break
+			end
+			btn[s[1]](btn, tex)
+			tex:ClearAllPoints()
+			tex:SetAllPoints(btn)
+			table.insert(states, tex)
+		end
+		if states then
+			local label = btn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+			label:SetPoint("CENTER", btn, "CENTER", 0, 0)
+			btn:SetFontString(label)
+			btn:SetPushedTextOffset(1, -1)
+			btn:SetText(text or "")
+			-- The art has the arrow.
+			btn.hasArrow = true
+			return btn
+		end
+		btn:Hide()
+	end
+	return RPF.CreateButton(parent, text, width, 22)
+end
+
+-- A small square button for an icon (needs RPF.ProfArt), as DragonUI's professions window
+-- draws its chat link button. btn.icon is the icon, centred.
+function RPF.CreateSquareButton(parent, size)
+	local P = RPF.ProfArt()
+	local btn = CreateFrame("Button", nil, parent)
+	btn:SetSize(size, size)
+	for _, s in ipairs({ { "SetNormalTexture", "link-normal" }, { "SetPushedTexture", "link-pressed" },
+			{ "SetHighlightTexture", "link-hover" } }) do
+		local tex = btn:CreateTexture(nil, "BACKGROUND")
+		P.Art.Set(tex, s[2])
+		btn[s[1]](btn, tex)
+		tex:ClearAllPoints()
+		tex:SetAllPoints(btn)
+	end
+	btn.icon = btn:CreateTexture(nil, "ARTWORK")
+	btn.icon:SetPoint("CENTER", btn, "CENTER", 0, 0)
+	return btn
+end
+
+-- An edit box in DragonUI's professions style (its dark field with the Forever edge) when the
+-- art is there; returns whether it was.
+function RPF.SkinProfArtEditBox(eb)
+	local D = RPF.ProfArt() and RPF.Dragon()
+	if not (D and D.ForeverUI.SkinEditBox) then return false end
+	local insets = { eb:GetTextInsets() }
+	if not pcall(D.ForeverUI.SkinEditBox, eb, { height = 20 }) then return false end
+	-- It sets its own insets; ours make room for what sits in the box.
+	if insets[1] then eb:SetTextInsets(unpack(insets)) end
+	return true
 end
 
 local function skinInput(eb)
@@ -257,13 +518,36 @@ modifierFrame:SetScript("OnEvent", function ()
 	if IsModifiedClick("COMPAREITEMS") then GameTooltip_ShowCompareItem() else hideCompare() end
 end)
 
--- A square item button with a quality border.
+-- DragonUI's professions slot frames, by quality; the bronze one for the rest. Offsets (for a
+-- 36 icon) put each on the icon's edge: the quality frames carry a shadow at the bottom right.
+local SLOT_FRAMES = { [2] = "slot-frame-green", [3] = "slot-frame-blue", [4] = "slot-frame-epic", [5] = "slot-frame-legendary" }
+
+local function placeSlotFrame(P, btn, quality)
+	local name = SLOT_FRAMES[quality]
+	local k = btn:GetWidth() / 36
+	P.Art.Set(btn.slotFrame, name or "square-frame")
+	btn.slotFrame:ClearAllPoints()
+	if name then
+		btn.slotFrame:SetPoint("TOPLEFT", btn, "TOPLEFT", -1.5 * k, 1.5 * k)
+		btn.slotFrame:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", 3.5 * k, -3.5 * k)
+	else
+		btn.slotFrame:SetPoint("TOPLEFT", btn, "TOPLEFT", -6.5 * k, 5.5 * k)
+		btn.slotFrame:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", 5.5 * k, -6.5 * k)
+	end
+end
+
+-- A square item button with a quality border: DragonUI's professions slot frame when it has one.
 function RPF.CreateItemButton(parent, size)
 	local btn = CreateFrame("Button", nil, parent)
 	btn:SetSize(size or 37, size or 37)
 	btn.icon = btn:CreateTexture(nil, "ARTWORK")
 	btn.icon:SetAllPoints(btn)
 	btn.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+	local P = RPF.ProfArt()
+	if P then
+		btn.slotFrame = btn:CreateTexture(nil, "OVERLAY")
+		placeSlotFrame(P, btn, nil)
+	end
 	btn.border = btn:CreateTexture(nil, "OVERLAY")
 	btn.border:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
 	btn.border:SetBlendMode("ADD")
@@ -279,7 +563,9 @@ function RPF.CreateItemButton(parent, size)
 
 	btn.SetItem = function (self, texture, quality, count)
 		self.icon:SetTexture(texture)
-		if quality and quality >= 2 then
+		if P then
+			placeSlotFrame(P, self, quality)
+		elseif quality and quality >= 2 then
 			local r, g, b = RPF.QualityColor(quality)
 			self.border:SetVertexColor(r, g, b)
 			self.border:Show()

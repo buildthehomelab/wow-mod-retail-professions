@@ -21,10 +21,14 @@ function RPF.CreateSpellButton(name)
 	hl:SetAllPoints(b)
 	hl:SetTexture("Interface\\Buttons\\ButtonHilight-Square")
 	hl:SetBlendMode("ADD")
+	b.highlight = hl
 	b:SetScript("OnEnter", function (self) if self.onEnter then self.onEnter(self) end end)
 	-- Runs before the cast, so what the cast opens can already know about it.
 	b:SetScript("PreClick", function (self) if self.preClick then self.preClick(self) end end)
-	b:SetScript("OnLeave", function () GameTooltip:Hide() end)
+	b:SetScript("OnLeave", function (self)
+		GameTooltip:Hide()
+		if self.onLeave then self.onLeave(self) end
+	end)
 	table.insert(buttons, b)
 	return b
 end

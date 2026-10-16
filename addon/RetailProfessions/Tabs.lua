@@ -7,21 +7,28 @@ local M = RPF.Model
 
 local frame = RPF.frame
 local dragon = RPF.Dragon() and true or false
+-- With DragonUI's professions art, its side tabs: the icon in a plate with a bronze edge that
+-- lies over the window's metal, gold edged when it's the open one.
+local art = frame.profArt
 -- Every profession with a window, should one character know them all.
 local MAX_TABS = 12
 -- The column runs from under the title bar to just above the window's bottom edge. A tab is an
 -- icon on a plate, PITCH apart; with more tabs than fit at that size (a dozen professions and
 -- both refine tabs), they all shrink until the column fits.
-local COLUMN_TOP, COLUMN_BOTTOM = 36, 14
-local PITCH, MIN_PITCH = 42, 24
-local PAD, GAP = 3, 4
+local COLUMN_TOP, COLUMN_BOTTOM = art and 60 or 36, 14
+local PITCH, MIN_PITCH = art and 52 or 42, 24
+local PAD, GAP = art and 0 or 3, art and 2 or 4
 local REFINE_GAP = 8
 local HOME_GAP = 8
 -- Under DragonUI the plate's left edge goes beneath the metal frame (whose outer edge lies
 -- about 4 inside the window's own), so the tab grows out of the window. The stock dialog border
 -- is drawn by the window itself, under its children, so there the plate stops short of it.
-local TAB_X = dragon and -1 or 1
+local TAB_X = art and 0 or dragon and -1 or 1
 local TUCK = dragon and 3 or 0
+-- DragonUI's tab art is 55 x 60 round a 55 square tab; its icon shows through a 45 x 44 hole.
+local ART_TAB = 55
+local ICON_X, ICON_Y, ICON_W, ICON_H = 2, -5.5, 45, 44
+local ICON_L, ICON_R, ICON_T, ICON_B = 0.096875, 0.940625, 0.0875, 0.9125
 
 local PLATE = {
 	bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
@@ -33,28 +40,56 @@ local PLATE = {
 -- A tab is drawn here and clicked through the secure button lying over it, which casts the
 -- spell that opens the profession. Where nothing has to be cast (the profession is already
 -- open and only the view changes), the button steps aside and the tab takes the click itself.
+-- One of DragonUI's tab pieces, centred on the tab.
+local function artPiece(tab, layer, name)
+	local t = tab:CreateTexture(nil, layer)
+	art.Art.Set(t, name)
+	t:SetPoint("CENTER", tab, "CENTER", 0, 0)
+	table.insert(tab.pieces, t)
+	return t
+end
+
+local function createArtTab(tab)
+	-- Over the metal frame, as DragonUI's lie.
+	tab:SetFrameLevel(frame:GetFrameLevel() + 32)
+	tab.pieces = {}
+	artPiece(tab, "BACKGROUND", "sidetab")
+	tab.icon = tab:CreateTexture(nil, "BORDER")
+	tab.icon:SetTexCoord(ICON_L, ICON_R, ICON_T, ICON_B)
+	artPiece(tab, "ARTWORK", "sidetab-border")
+	tab.checked = artPiece(tab, "OVERLAY", "sidetab-selected")
+	artPiece(tab, "HIGHLIGHT", "sidetab-hover")
+	-- The secure button over the tab takes the mouse, so it lights the tab through this copy.
+	tab.hoverLock = artPiece(tab, "OVERLAY", "sidetab-hover")
+	tab.hoverLock:Hide()
+end
+
 local function createTab(buttonName, tip)
 	local tab = CreateFrame("Button", nil, frame)
-	tab:SetFrameLevel(frame:GetFrameLevel() + 2)
-	tab.plate = CreateFrame("Frame", nil, tab)
-	tab.plate:SetFrameLevel(frame:GetFrameLevel() + 1)
-	tab.plate:SetPoint("TOPLEFT", tab, "TOPLEFT", -PAD - TUCK, PAD)
-	tab.plate:SetPoint("BOTTOMRIGHT", tab, "BOTTOMRIGHT", PAD, -PAD)
-	tab.plate:SetBackdrop(PLATE)
-	tab.plate:SetBackdropColor(0.03, 0.03, 0.03, 0.92)
-	tab.icon = tab:CreateTexture(nil, "ARTWORK")
-	tab.icon:SetAllPoints(tab)
-	-- Without the bevel painted into every icon.
-	tab.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-	tab.checked = tab:CreateTexture(nil, "OVERLAY")
-	tab.checked:SetTexture("Interface\\Buttons\\CheckButtonHilight")
-	tab.checked:SetBlendMode("ADD")
-	tab.checked:SetAllPoints(tab)
-	-- For the clicks the tab takes itself; the secure button has a highlight of its own.
-	local hl = tab:CreateTexture(nil, "HIGHLIGHT")
-	hl:SetTexture("Interface\\Buttons\\ButtonHilight-Square")
-	hl:SetBlendMode("ADD")
-	hl:SetAllPoints(tab)
+	if art then
+		createArtTab(tab)
+	else
+		tab:SetFrameLevel(frame:GetFrameLevel() + 2)
+		tab.plate = CreateFrame("Frame", nil, tab)
+		tab.plate:SetFrameLevel(frame:GetFrameLevel() + 1)
+		tab.plate:SetPoint("TOPLEFT", tab, "TOPLEFT", -PAD - TUCK, PAD)
+		tab.plate:SetPoint("BOTTOMRIGHT", tab, "BOTTOMRIGHT", PAD, -PAD)
+		tab.plate:SetBackdrop(PLATE)
+		tab.plate:SetBackdropColor(0.03, 0.03, 0.03, 0.92)
+		tab.icon = tab:CreateTexture(nil, "ARTWORK")
+		tab.icon:SetAllPoints(tab)
+		-- Without the bevel painted into every icon.
+		tab.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+		tab.checked = tab:CreateTexture(nil, "OVERLAY")
+		tab.checked:SetTexture("Interface\\Buttons\\CheckButtonHilight")
+		tab.checked:SetBlendMode("ADD")
+		tab.checked:SetAllPoints(tab)
+		-- For the clicks the tab takes itself; the secure button has a highlight of its own.
+		local hl = tab:CreateTexture(nil, "HIGHLIGHT")
+		hl:SetTexture("Interface\\Buttons\\ButtonHilight-Square")
+		hl:SetBlendMode("ADD")
+		hl:SetAllPoints(tab)
+	end
 	tab:Hide()
 
 	local function onEnter(self)
@@ -66,12 +101,23 @@ local function createTab(buttonName, tip)
 	tab:SetScript("OnClick", function () if tab.onClick then tab.onClick() end end)
 	tab.button = RPF.CreateSpellButton(buttonName)
 	tab.button.onEnter = onEnter
+	if art then
+		-- The tab's own hover art instead of the button's square.
+		tab.button.highlight:SetAlpha(0)
+		tab.button.onEnter = function (self)
+			tab.hoverLock:Show()
+			onEnter(self)
+		end
+		tab.button.onLeave = function () tab.hoverLock:Hide() end
+	end
 	return tab
 end
 
 -- The tab of what the window shows has a gold edge and its icon lit; the others stand back.
 local function setChecked(tab, on)
-	if on then
+	if art then
+		if on then tab.checked:Show() else tab.checked:Hide() end
+	elseif on then
 		tab.checked:Show()
 		tab.plate:SetBackdropBorderColor(1, 0.82, 0, 1)
 		tab.icon:SetVertexColor(1, 1, 1)
@@ -93,6 +139,16 @@ end
 local function place(tab, row, pitch, drop)
 	local size = pitch - GAP - 2 * PAD
 	tab:SetSize(size, size)
+	if art then
+		-- DragonUI's art and icon hole, scaled to the tab.
+		local k = size / ART_TAB
+		for _, t in ipairs(tab.pieces) do t:SetSize(ART_TAB * k, 60 * k) end
+		tab.icon:SetSize(ICON_W * k, ICON_H * k)
+		tab.icon:ClearAllPoints()
+		tab.icon:SetPoint("TOPLEFT", tab, "TOPLEFT", ICON_X * k, ICON_Y * k)
+		-- A secure button that went away under the mouse never said so.
+		tab.hoverLock:Hide()
+	end
 	tab:ClearAllPoints()
 	tab:SetPoint("TOPLEFT", frame, "TOPRIGHT", TAB_X, -COLUMN_TOP - PAD - row * pitch - drop)
 end
