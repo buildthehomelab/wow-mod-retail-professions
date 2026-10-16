@@ -430,7 +430,15 @@ function RPF.CreateSquareButton(parent, size)
 		tex:ClearAllPoints()
 		tex:SetAllPoints(btn)
 	end
-	btn.icon = btn:CreateTexture(nil, "ARTWORK")
+	-- The highlight layer draws over everything, the icon too: added on top, it only lights the
+	-- square instead of hiding the icon.
+	local lit = btn:GetHighlightTexture()
+	if lit then
+		lit:SetBlendMode("ADD")
+		lit:SetAlpha(0.4)
+	end
+	-- The button draws its state textures on ARTWORK; the icon goes over them.
+	btn.icon = btn:CreateTexture(nil, "OVERLAY")
 	btn.icon:SetPoint("CENTER", btn, "CENTER", 0, 0)
 	return btn
 end
