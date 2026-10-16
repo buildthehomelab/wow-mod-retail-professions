@@ -1,7 +1,8 @@
 -- The profession window, laid out like retail's (and WoW Forever's): the profession's portrait
 -- and a full-width skill bar with the chat link on top, the recipe list with its search and
 -- filter on the left, the selected recipe on the right (Detail.lua) with Create All, the amount
--- and Create under it. A stock Blizzard dialog frame, skinned by DragonUI when it's loaded.
+-- and Create under it. A stock Blizzard dialog frame, skinned by DragonUI when it's loaded, and
+-- dressed in DragonUI's own professions window art (RPF.ProfArt) when that DragonUI has it.
 -- Drag it by the title bar; it remembers where it was put.
 
 local RPF = RetailProfessions
@@ -39,6 +40,7 @@ end)
 
 local dragon, contentTop = RPF.DressWindow(frame, {
 	portrait = true,
+	profArt = true,
 	closeName = "RetailProfessionsFrameCloseButton",
 	onMoved = function ()
 		local point, _, relativePoint, x, y = frame:GetPoint(1)
@@ -47,10 +49,21 @@ local dragon, contentTop = RPF.DressWindow(frame, {
 	end,
 })
 local title = frame.title
+-- With DragonUI's professions art, the window is laid out as DragonUI's own professions window:
+-- the skill bar in the band along the top, the list in the column on the left and the recipe on
+-- a card to its right.
+local art = frame.profArt
+local ART_LIST_LEFT, ART_LIST_WIDTH, ART_CARD_LEFT, ART_TOP = 5, 304, 311, -72
+local ART_LIST_ROWS = 22
 
 local content = CreateFrame("Frame", nil, frame)
-content:SetPoint("TOPLEFT", frame, "TOPLEFT", dragon and 10 or 14, contentTop)
-content:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", dragon and -10 or -14, dragon and 10 or 14)
+if art then
+	content:SetPoint("TOPLEFT", frame, "TOPLEFT", ART_LIST_LEFT, -36)
+	content:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -8, 6)
+else
+	content:SetPoint("TOPLEFT", frame, "TOPLEFT", dragon and 10 or 14, contentTop)
+	content:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", dragon and -10 or -14, dragon and 10 or 14)
+end
 
 -----------------------------------------
 -- header: the skill bar across the window, and the chat link
@@ -58,7 +71,7 @@ content:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", dragon and -10 or -14, dra
 local header = CreateFrame("Frame", nil, content)
 header:SetPoint("TOPLEFT", content, "TOPLEFT", 0, 0)
 header:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, 0)
-header:SetHeight(26)
+header:SetHeight(art and 30 or 26)
 
 -- The stock frame has no portrait ring, so its icon sits beside the bar instead.
 local profIcon = header:CreateTexture(nil, "ARTWORK")
@@ -67,12 +80,18 @@ profIcon:SetPoint("LEFT", header, "LEFT", 2, 0)
 profIcon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
 if frame.portrait then profIcon:Hide() end
 
-local linkButton = CreateFrame("Button", nil, header)
-linkButton:SetSize(28, 28)
-linkButton:SetPoint("RIGHT", header, "RIGHT", -2, 2)
-linkButton:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIcon-Chat-Up")
-linkButton:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIcon-Chat-Down")
-linkButton:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
+local linkButton
+if art then
+	linkButton = RPF.CreateSquareButton(header, 23)
+	art.Art.Set(linkButton.icon, "link-icon", true)
+else
+	linkButton = CreateFrame("Button", nil, header)
+	linkButton:SetSize(28, 28)
+	linkButton:SetPoint("RIGHT", header, "RIGHT", -2, 2)
+	linkButton:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIcon-Chat-Up")
+	linkButton:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIcon-Chat-Down")
+	linkButton:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
+end
 linkButton:SetScript("OnClick", function ()
 	local link = GetTradeSkillListLink and GetTradeSkillListLink()
 	if not link then return end
@@ -87,16 +106,22 @@ end)
 linkButton:SetScript("OnLeave", function () GameTooltip:Hide() end)
 
 -- The craft proc log (ProcLog.lua), when the server rolls Multicraft and Resourcefulness.
-local logButton = CreateFrame("Button", nil, header)
-logButton:SetSize(22, 22)
-logButton:SetPoint("RIGHT", linkButton, "LEFT", -2, -2)
-do
+local logButton
+if art then
+	logButton = RPF.CreateSquareButton(header, 23)
+	logButton.icon:SetSize(17, 17)
+	logButton.icon:SetTexture("Interface\\Icons\\INV_Misc_Note_01")
+	logButton.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+else
+	logButton = CreateFrame("Button", nil, header)
+	logButton:SetSize(22, 22)
+	logButton:SetPoint("RIGHT", linkButton, "LEFT", -2, -2)
 	local icon = logButton:CreateTexture(nil, "ARTWORK")
 	icon:SetAllPoints(logButton)
 	icon:SetTexture("Interface\\Icons\\INV_Misc_Note_01")
 	icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	logButton:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
 end
-logButton:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
 logButton:SetScript("OnClick", function () RPF.ProcLog.Toggle() end)
 logButton:SetScript("OnEnter", function (self)
 	GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -107,14 +132,21 @@ logButton:SetScript("OnEnter", function (self)
 end)
 logButton:SetScript("OnLeave", function () GameTooltip:Hide() end)
 
--- The stock skill bar look (the character window's skill bars).
-local skillBar = CreateFrame("StatusBar", nil, header)
-skillBar:SetHeight(15)
-skillBar:SetPoint("LEFT", header, "LEFT", frame.portrait and 54 or 30, 0)
-skillBar:SetPoint("RIGHT", linkButton, "LEFT", -6, -2)
-skillBar:SetStatusBarTexture("Interface\\PaperDollInfoFrame\\UI-Character-Skills-Bar")
-skillBar:SetStatusBarColor(0.95, 0.6, 0.1)
-do
+local skillBar, skillText
+if art then
+	-- DragonUI's skill bar where its window has it, the chat link and the proc log after it.
+	skillBar = RPF.CreateRankBar(header)
+	skillBar:SetPoint("TOPLEFT", frame, "TOPLEFT", 110, -40)
+	linkButton:SetPoint("LEFT", skillBar, "RIGHT", -2, -4)
+	logButton:SetPoint("LEFT", linkButton, "RIGHT", 3, 0)
+else
+	-- The stock skill bar look (the character window's skill bars).
+	skillBar = CreateFrame("StatusBar", nil, header)
+	skillBar:SetHeight(15)
+	skillBar:SetPoint("LEFT", header, "LEFT", frame.portrait and 54 or 30, 0)
+	skillBar:SetPoint("RIGHT", linkButton, "LEFT", -6, -2)
+	skillBar:SetStatusBarTexture("Interface\\PaperDollInfoFrame\\UI-Character-Skills-Bar")
+	skillBar:SetStatusBarColor(0.95, 0.6, 0.1)
 	local bg = skillBar:CreateTexture(nil, "BACKGROUND")
 	bg:SetAllPoints(skillBar)
 	bg:SetTexture(0, 0, 0, 0.65)
@@ -123,9 +155,9 @@ do
 	border:SetPoint("BOTTOMRIGHT", skillBar, "BOTTOMRIGHT", 4, -4)
 	border:SetBackdrop({ edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 12 })
 	border:SetBackdropBorderColor(0.7, 0.7, 0.7, 1)
+	skillText = skillBar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	skillText:SetPoint("CENTER", skillBar, "CENTER", 0, 1)
 end
-local skillText = skillBar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-skillText:SetPoint("CENTER", skillBar, "CENTER", 0, 1)
 skillBar:EnableMouse(true)
 skillBar:SetScript("OnEnter", function (self)
 	GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
@@ -138,20 +170,37 @@ skillBar:SetScript("OnLeave", function () GameTooltip:Hide() end)
 -----------------------------------------
 -- left: search, filter, list
 
-local left = RPF.CreateInset(content)
-left:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -6)
-left:SetPoint("BOTTOMLEFT", content, "BOTTOMLEFT", 0, 0)
-left:SetWidth(LIST_WIDTH)
+local left
+if art then
+	-- The backdrop draws the column; nothing else goes under the list.
+	left = CreateFrame("Frame", nil, content)
+	left:SetPoint("TOPLEFT", frame, "TOPLEFT", ART_LIST_LEFT, ART_TOP)
+	left:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", ART_LIST_LEFT, 8)
+	left:SetWidth(ART_LIST_WIDTH)
+else
+	left = RPF.CreateInset(content)
+	left:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -6)
+	left:SetPoint("BOTTOMLEFT", content, "BOTTOMLEFT", 0, 0)
+	left:SetWidth(LIST_WIDTH)
+end
 
 local search = RPF.CreateEditBox(left, LIST_WIDTH - 136)
-search:SetPoint("TOPLEFT", left, "TOPLEFT", 14, -8)
+search:SetPoint("TOPLEFT", left, "TOPLEFT", art and 13 or 14, -8)
 search:SetTextInsets(16, 4, 0, 0)
+-- DragonUI's professions search box: its dark field and magnifying glass.
+local foreverSearch = art and RPF.SkinProfArtEditBox(search)
 do
 	local glass = search:CreateTexture(nil, "OVERLAY")
-	glass:SetTexture("Interface\\Minimap\\Tracking\\None")
-	glass:SetSize(14, 14)
-	glass:SetPoint("LEFT", search, "LEFT", 0, 0)
-	glass:SetVertexColor(0.7, 0.7, 0.7)
+	if foreverSearch and RPF.Dragon().ForeverUI.SetAtlas(glass, "common-search-magnifyingglass") then
+		glass:SetSize(10, 10)
+		glass:SetPoint("LEFT", search, "LEFT", 1, -1)
+		glass:SetVertexColor(0.6, 0.6, 0.6)
+	else
+		glass:SetTexture("Interface\\Minimap\\Tracking\\None")
+		glass:SetSize(14, 14)
+		glass:SetPoint("LEFT", search, "LEFT", 0, 0)
+		glass:SetVertexColor(0.7, 0.7, 0.7)
+	end
 	-- Short enough for the box, and cut off at its edge whatever the font; hovering says the rest.
 	local hint = search:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	hint:SetPoint("LEFT", search, "LEFT", 17, 0)
@@ -170,7 +219,7 @@ do
 	search:SetScript("OnLeave", function () GameTooltip:Hide() end)
 	-- DragonUI's skin turns the input border into a plain dark field; give the box an edge so
 	-- it reads as something to type in.
-	if dragon then
+	if dragon and not foreverSearch then
 		local edge = CreateFrame("Frame", nil, search)
 		edge:SetPoint("TOPLEFT", search, "TOPLEFT", -6, 3)
 		edge:SetPoint("BOTTOMRIGHT", search, "BOTTOMRIGHT", 2, -3)
@@ -181,9 +230,15 @@ do
 end
 
 -- The profit view (Profit.lua): the list ranked by what crafting and selling each recipe earns.
-local profitButton = RPF.CreateButton(left, "", 26, 22)
-profitButton:SetPoint("LEFT", search, "RIGHT", 6, 0)
-do
+local profitButton
+if art then
+	profitButton = RPF.CreateSquareButton(left, 23)
+	profitButton.icon:SetSize(17, 17)
+	profitButton.icon:SetTexture("Interface\\Icons\\INV_Misc_Coin_01")
+	profitButton.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+else
+	profitButton = RPF.CreateButton(left, "", 26, 22)
+	profitButton:SetPoint("LEFT", search, "RIGHT", 6, 0)
 	local coin = profitButton:CreateTexture(nil, "OVERLAY")
 	coin:SetTexture("Interface\\Icons\\INV_Misc_Coin_01")
 	coin:SetTexCoord(0.08, 0.92, 0.08, 0.92)
@@ -191,9 +246,16 @@ do
 	coin:SetPoint("CENTER", profitButton, "CENTER", 0, 0)
 end
 
-local filterButton = RPF.CreateButton(left, FILTER or "Filter", 78, 22)
-filterButton:SetPoint("LEFT", profitButton, "RIGHT", 4, 0)
-do
+local filterButton = art and RPF.CreateMenuButton(left, FILTER or "Filter", 89) or RPF.CreateButton(left, FILTER or "Filter", 78, 22)
+if art then
+	-- As DragonUI's: Filter at the column's top right, the search box filling up to it.
+	filterButton:SetPoint("TOPRIGHT", left, "TOPRIGHT", -4, -5)
+	profitButton:SetPoint("RIGHT", filterButton, "LEFT", -3, 0)
+	search:SetPoint("RIGHT", profitButton, "LEFT", -6, 0)
+else
+	filterButton:SetPoint("LEFT", profitButton, "RIGHT", 4, 0)
+end
+if not filterButton.hasArrow then
 	local arrow = filterButton:CreateTexture(nil, "OVERLAY")
 	arrow:SetTexture("Interface\\ChatFrame\\ChatFrameExpandArrow")
 	arrow:SetSize(10, 12)
@@ -211,7 +273,7 @@ local function isTracked(r)
 end
 
 list = RPF.CreateRecipeList(left, {
-	rows = LIST_ROWS,
+	rows = art and ART_LIST_ROWS or LIST_ROWS,
 	onSelect = function (r)
 		-- Picking a recipe hands the keyboard back to the game (C for the character window...).
 		search:ClearFocus()
@@ -226,8 +288,8 @@ list = RPF.CreateRecipeList(left, {
 	isFavorite = function (r) return RPF.IsFavorite(r.spell) end,
 	onTrackToggle = function (r) RPF.ToggleTracked(r) end,
 })
-list:SetPoint("TOPLEFT", left, "TOPLEFT", 6, -34)
-list:SetPoint("RIGHT", left, "RIGHT", -6, 0)
+list:SetPoint("TOPLEFT", left, "TOPLEFT", art and 8 or 6, art and -35 or -34)
+list:SetPoint("RIGHT", left, "RIGHT", art and -4 or -6, 0)
 RPF.list = list
 
 search:SetScript("OnTextChanged", function (self)
@@ -359,13 +421,21 @@ end
 -- right: the recipe, its options along the bottom edge (Track Recipe and, with ReagentBankUI,
 -- the two reagent bank ones), and Create All / amount / Create under it
 
-local right = RPF.CreateInset(content)
-right:SetPoint("TOPLEFT", left, "TOPRIGHT", 6, 0)
-right:SetPoint("BOTTOMRIGHT", content, "BOTTOMRIGHT", 0, 30)
+local right
+if art then
+	-- DragonUI's recipe card, where its window puts it.
+	right = RPF.DressCard(CreateFrame("Frame", nil, content))
+	right:SetPoint("TOPLEFT", frame, "TOPLEFT", ART_CARD_LEFT, ART_TOP)
+	right:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -8, 38)
+else
+	right = RPF.CreateInset(content)
+	right:SetPoint("TOPLEFT", left, "TOPRIGHT", 6, 0)
+	right:SetPoint("BOTTOMRIGHT", content, "BOTTOMRIGHT", 0, 30)
+end
 RPF.detailPane = right
 
 local controls = CreateFrame("Frame", nil, content)
-controls:SetPoint("TOPLEFT", right, "BOTTOMLEFT", 0, -4)
+controls:SetPoint("TOPLEFT", right, "BOTTOMLEFT", 0, art and -6 or -4)
 controls:SetPoint("BOTTOMRIGHT", content, "BOTTOMRIGHT", 0, 0)
 
 -- The Home view (Home.lua) lays itself over these under the skill bar.
@@ -382,6 +452,7 @@ quantity:SetPoint("CENTER", controls, "CENTER", 0, 0)
 quantity:SetJustifyH("CENTER")
 quantity:SetMaxLetters(3)
 quantity:SetText("1")
+if art then RPF.SkinProfArtEditBox(quantity) end
 
 local minus = CreateFrame("Button", nil, controls)
 minus:SetSize(22, 22)
@@ -872,13 +943,25 @@ local function updateHeader()
 	local refine = RPF.Refine.Active()
 	title:SetText(RPF.Home.Active() and "Home" or refine and refine.name or M.linked and ((M.linkedName or "") .. " - " .. (M.skillName or ""))
 		or (M.skillName or "Professions"))
-	skillBar:SetMinMaxValues(0, math.max(1, M.maxRank or 1))
-	skillBar:SetValue(M.rank or 0)
-	skillText:SetText(string.format("%s %d/%d", M.skillName or "", M.rank or 0, M.maxRank or 0))
+	if art then
+		local key = RPF.ProfArtKey(M.skillName)
+		-- Runeforging has no rank to show, as in DragonUI.
+		if key == "Runeforging" then
+			skillBar:Hide()
+		else
+			skillBar:Show()
+			skillBar:SetRank(M.skillName, M.rank, M.maxRank, key)
+		end
+		right:SetCardArt(key, texture)
+	else
+		skillBar:SetMinMaxValues(0, math.max(1, M.maxRank or 1))
+		skillBar:SetValue(M.rank or 0)
+		skillText:SetText(string.format("%s %d/%d", M.skillName or "", M.rank or 0, M.maxRank or 0))
+	end
 	if M.linked then linkButton:Hide() else linkButton:Show() end
 	local showLog = RPF.perks and not M.linked
 	if showLog then logButton:Show() else logButton:Hide() end
-	skillBar:SetPoint("RIGHT", showLog and logButton or linkButton, "LEFT", -6, showLog and 0 or -2)
+	if not art then skillBar:SetPoint("RIGHT", showLog and logButton or linkButton, "LEFT", -6, showLog and 0 or -2) end
 	if M.linked or refine then profitButton:Hide() else profitButton:Show() end
 	if profitView() then profitButton:LockHighlight() else profitButton:UnlockHighlight() end
 	filterButton:SetText(filtersActive() and ("|cff4fc3f7" .. (FILTER or "Filter") .. "|r") or (FILTER or "Filter"))

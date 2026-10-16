@@ -5,9 +5,23 @@
 local RPF = RetailProfessions
 local M = RPF.Model
 
-local ROW_HEIGHT = 18
-
 local dragon = RPF.Dragon() and true or false
+-- DragonUI's professions art: its category bars, selection and hover glows and skill-up
+-- arrows, recipes indented under their category as in its window.
+local art = RPF.ProfArt()
+local ROW_HEIGHT = art and 20 or 18
+local INDENT = 10
+local RECIPE_COLOR = { 0.886, 0.863, 0.839 }
+local SKILL_UP = { optimal = "skill-high", medium = "skill-medium", easy = "skill-low" }
+-- Under the selection glow with the art, as in DragonUI.
+local textLayer = art and "ARTWORK" or "OVERLAY"
+local headerFont = art and RPF.Dragon().ForeverUI.Fonts and RPF.Dragon().ForeverUI.Fonts.HighlightMedium or GameFontNormal
+
+local function showAll(regions, on)
+	for _, region in ipairs(regions) do
+		if on then region:Show() else region:Hide() end
+	end
+end
 
 local function solid(host, layer, r, g, b, a)
 	local tex = host:CreateTexture(nil, layer)
@@ -41,14 +55,17 @@ function RPF.CreateRecipeList(parent, spec)
 		b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
 		-- category bar: DragonUI gets retail's gold-edged bar, the stock look the plain heading
-		-- with a plus or minus button the Blizzard trade skill window has.
-		b.band = solid(b, "BACKGROUND", 0.2, 0.14, 0.04, dragon and 0.9 or 0)
+		-- with a plus or minus button the Blizzard trade skill window has. With the professions
+		-- art, its own bar (below) instead.
+		local bandAlpha = (dragon and not art) and 0.9 or 0
+		local ruleAlpha = (dragon and not art) and 0.55 or 0
+		b.band = solid(b, "BACKGROUND", 0.2, 0.14, 0.04, bandAlpha)
 		b.band:SetAllPoints(b)
-		b.ruleTop = solid(b, "BORDER", 1, 0.82, 0, dragon and 0.55 or 0)
+		b.ruleTop = solid(b, "BORDER", 1, 0.82, 0, ruleAlpha)
 		b.ruleTop:SetHeight(1)
 		b.ruleTop:SetPoint("TOPLEFT", b, "TOPLEFT")
 		b.ruleTop:SetPoint("TOPRIGHT", b, "TOPRIGHT")
-		b.rule = solid(b, "BORDER", 1, 0.82, 0, dragon and 0.55 or 0)
+		b.rule = solid(b, "BORDER", 1, 0.82, 0, ruleAlpha)
 		b.rule:SetHeight(1)
 		b.rule:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT")
 		b.rule:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT")
@@ -58,17 +75,48 @@ function RPF.CreateRecipeList(parent, spec)
 		b.toggle:SetSize(14, 14)
 		b.toggle:SetPoint("LEFT", b, "LEFT", 2, 0)
 
-		-- the stock trade skill highlight, for the selection and on hover
-		b.selected = b:CreateTexture(nil, "BORDER")
-		b.selected:SetTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
-		b.selected:SetBlendMode("ADD")
-		b.selected:SetVertexColor(1, 0.82, 0, 0.75)
-		b.selected:SetAllPoints(b)
-		local hl = b:CreateTexture(nil, "HIGHLIGHT")
-		hl:SetTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
-		hl:SetBlendMode("ADD")
-		hl:SetVertexColor(1, 1, 1, 0.35)
-		hl:SetAllPoints(b)
+		if not art then
+			-- the stock trade skill highlight, for the selection and on hover
+			b.selected = b:CreateTexture(nil, "BORDER")
+			b.selected:SetTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
+			b.selected:SetBlendMode("ADD")
+			b.selected:SetVertexColor(1, 0.82, 0, 0.75)
+			b.selected:SetAllPoints(b)
+			local hl = b:CreateTexture(nil, "HIGHLIGHT")
+			hl:SetTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
+			hl:SetBlendMode("ADD")
+			hl:SetVertexColor(1, 1, 1, 0.35)
+			hl:SetAllPoints(b)
+		else
+			-- DragonUI's: the header bar (and a lighter copy on hover), and for a recipe the gold
+			-- glow of the selection, the grey one on hover and its skill-up arrows.
+			local A = art.Art
+			b.headerArt = { A.ThreeSlice(b, "BACKGROUND", "header", 8) }
+			b.headerHover = { A.ThreeSlice(b, "HIGHLIGHT", "header", 8) }
+			for _, t in ipairs(b.headerHover) do
+				t:SetBlendMode("ADD")
+				t:SetAlpha(0.4)
+			end
+			-- Text on ARTWORK, the glow over it on OVERLAY, as DragonUI layers them.
+			b.selected = b:CreateTexture(nil, "OVERLAY")
+			A.Set(b.selected, "recipe-active")
+			b.selected:SetHeight(19)
+			b.selected:SetPoint("LEFT", b, "LEFT", INDENT, -1)
+			b.selected:SetPoint("RIGHT", b, "RIGHT", 0, -1)
+			b.hover = b:CreateTexture(nil, "HIGHLIGHT")
+			A.Set(b.hover, "recipe-hover")
+			b.hover:SetAlpha(0.5)
+			b.hover:SetHeight(21)
+			b.hover:SetPoint("LEFT", b, "LEFT", INDENT, -1)
+			b.hover:SetPoint("RIGHT", b, "RIGHT", 0, -1)
+			b.skill = b:CreateTexture(nil, "ARTWORK")
+			b.favorite = b:CreateTexture(nil, "ARTWORK")
+			A.Set(b.favorite, "favorite")
+			b.favorite:SetSize(14, 13)
+			b.favorite:SetPoint("LEFT", b, "LEFT", INDENT + 21, 0)
+			b.toggle:ClearAllPoints()
+			b.toggle:SetPoint("CENTER", b, "RIGHT", -16, 0)
+		end
 
 		-- skill-up chevron: two arrows, stacked
 		b.chevrons = {}
@@ -81,14 +129,14 @@ function RPF.CreateRecipeList(parent, spec)
 			b.chevrons[k] = c
 		end
 
-		b.count = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		b.count = b:CreateFontString(nil, textLayer, "GameFontHighlightSmall")
 		b.count:SetPoint("RIGHT", b, "RIGHT", -4, 0)
 		b.count:SetJustifyH("RIGHT")
 		b.tracked = b:CreateTexture(nil, "OVERLAY")
 		b.tracked:SetTexture("Interface\\Minimap\\Tracking\\None")
 		b.tracked:SetSize(12, 12)
 
-		b.text = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		b.text = b:CreateFontString(nil, textLayer, "GameFontHighlightSmall")
 		b.text:SetJustifyH("LEFT")
 		b.text:SetHeight(ROW_HEIGHT)
 
@@ -184,7 +232,14 @@ function RPF.CreateRecipeList(parent, spec)
 				for _, c in ipairs(b.chevrons) do c:Hide() end
 				b.tracked:Hide()
 				b.text:ClearAllPoints()
-				if dragon then
+				if art then
+					showAll(b.headerArt, true)
+					showAll(b.headerHover, true)
+					b.hover:Hide(); b.skill:Hide(); b.favorite:Hide(); b.fold:Hide()
+					art.Art.Set(b.toggle, row.collapsed and "header-plus" or "header-minus", true)
+					b.toggle:Show()
+					b.text:SetPoint("LEFT", b, "LEFT", 8, 0)
+				elseif dragon then
 					b.toggle:Hide()
 					b.fold:SetText(row.collapsed and "+" or "-")
 					b.fold:Show()
@@ -196,11 +251,11 @@ function RPF.CreateRecipeList(parent, spec)
 					b.text:SetPoint("LEFT", b.toggle, "RIGHT", 4, 0)
 				end
 				b.text:SetPoint("RIGHT", b.count, "LEFT", -4, 0)
-				b.text:SetFontObject(GameFontNormal)
+				b.text:SetFontObject(headerFont)
 				b.text:SetText(row.header)
 				b.text:SetTextColor(1, 0.82, 0)
 				b.count:ClearAllPoints()
-				b.count:SetPoint("RIGHT", b, "RIGHT", dragon and -20 or -4, 0)
+				b.count:SetPoint("RIGHT", b, "RIGHT", art and -30 or dragon and -20 or -4, 0)
 				b.count:SetText(row.extra and ("|cff9d9d9d" .. row.extra .. "|r") or "")
 				b:Show()
 			else
@@ -213,9 +268,29 @@ function RPF.CreateRecipeList(parent, spec)
 				local difficulty = M.DifficultyAt(r, rank) or "trivial"
 				local color = M.DIFFICULTY_COLOR[difficulty] or M.DIFFICULTY_COLOR.trivial
 				local showChevron = difficulty ~= "trivial" and not r.refine
-				for _, c in ipairs(b.chevrons) do
-					c:SetVertexColor(color[1], color[2], color[3], r.learned and 1 or 0.5)
-					if showChevron then c:Show() else c:Hide() end
+				local favorite = spec.isFavorite and spec.isFavorite(r)
+				if art then
+					showAll(b.headerArt, false)
+					showAll(b.headerHover, false)
+					b.hover:Show()
+					for _, c in ipairs(b.chevrons) do c:Hide() end
+					-- DragonUI's arrows: their right edge 27 in, the guaranteed one a point higher.
+					local up = showChevron and SKILL_UP[difficulty]
+					if up then
+						art.Art.Set(b.skill, up, true)
+						b.skill:ClearAllPoints()
+						b.skill:SetPoint("RIGHT", b, "LEFT", INDENT + 17, difficulty == "optimal" and 0 or -1)
+						b.skill:SetAlpha(r.learned and 1 or 0.5)
+						b.skill:Show()
+					else
+						b.skill:Hide()
+					end
+					if favorite then b.favorite:Show() else b.favorite:Hide() end
+				else
+					for _, c in ipairs(b.chevrons) do
+						c:SetVertexColor(color[1], color[2], color[3], r.learned and 1 or 0.5)
+						if showChevron then c:Show() else c:Hide() end
+					end
 				end
 
 				-- name [can make], with what the reagent bank adds in blue
@@ -228,18 +303,22 @@ function RPF.CreateRecipeList(parent, spec)
 					end
 				end
 				b.text:ClearAllPoints()
-				b.text:SetPoint("LEFT", b, "LEFT", 24, 0)
+				-- With the art, after the arrows where DragonUI has its names (and its star first).
+				local textLeft = art and (INDENT + 21 + (favorite and 16 or 0)) or 24
+				b.text:SetPoint("LEFT", b, "LEFT", textLeft, 0)
 				b.text:SetFontObject(GameFontHighlightSmall)
 				b.text:SetText(name)
+				-- DragonUI's names are a soft white; ours stay that way.
+				local white = art and RECIPE_COLOR or { 1, 1, 1 }
 				if not r.learned then
 					b.text:SetTextColor(0.55, 0.55, 0.55)
 				elseif r.refine then
 					-- White when there's enough to do it now.
-					if row.ready then b.text:SetTextColor(1, 1, 1) else b.text:SetTextColor(0.55, 0.55, 0.55) end
+					if row.ready then b.text:SetTextColor(white[1], white[2], white[3]) else b.text:SetTextColor(0.55, 0.55, 0.55) end
 				elseif difficulty == "trivial" then
 					b.text:SetTextColor(0.62, 0.62, 0.62)
 				else
-					b.text:SetTextColor(1, 1, 1)
+					b.text:SetTextColor(white[1], white[2], white[3])
 				end
 
 				if row.right then
@@ -262,7 +341,7 @@ function RPF.CreateRecipeList(parent, spec)
 				else
 					b.tracked:Hide()
 				end
-				if spec.isFavorite and spec.isFavorite(r) then
+				if favorite and not art then
 					b.text:SetText("|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_1:12|t " .. b.text:GetText())
 				end
 				b.text:SetPoint("RIGHT", anchor, "LEFT", -2, 0)

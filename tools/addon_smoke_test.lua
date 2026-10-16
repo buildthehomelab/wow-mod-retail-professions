@@ -268,14 +268,64 @@ function TradeSkillOnlyShowSkillUps() end
 function IsTradeSkillLinked() return nil end
 function GetTradeSkillListLink() return "|Htrade:3908:120:150|h[Tailoring]|h" end
 
--- With DRAGON=1, a DragonUI stand-in, so the skinned branches run too.
-if os.getenv("DRAGON") == "1" then
+-- With DRAGON=1, a DragonUI stand-in, so the skinned branches run too. DRAGON=2 adds its
+-- professions window's art (DragonUI.Professions), which the profession window then wears.
+local DRAGON = os.getenv("DRAGON")
+if DRAGON == "1" or DRAGON == "2" then
 	DragonUI_NineSlice = { GetLayout = function () return {} end, ApplyLayout = function () end }
 	DragonUI = {
 		_dir = "Interface\\AddOns\\DragonUI\\Textures\\", atlasinfo = {},
 		SafeSetAtlas = function () return true end, SkinRedButton = function () end,
 		CharacterPanel = { ReskinTab = function () end, ModernizeCloseButton = function () end,
 			SkinCheckbox = function () end, ReskinScrollBar = function () end },
+	}
+end
+if DRAGON == "2" then
+	local function piece(w, h) return { "Interface\\AddOns\\DragonUI\\Textures\\Professions\\Sheet", w, h, 0, 1, 0, 1 } end
+	local atlas = setmetatable({ ["bg-crafting"] = piece(665, 570), ["card-base"] = piece(360, 484),
+		["carddraw-Tailoring"] = piece(280, 255), ["carddraw-Mining"] = piece(280, 255) },
+		{ __index = function (_, name) return piece(20, 20) end })
+	DragonUI.Professions = {
+		Atlas = atlas,
+		Art = {
+			Set = function (tex, name, useSize)
+				local info = atlas[name]
+				tex.__art = name
+				if useSize then tex:SetSize(info[2], info[3]) end
+				return info
+			end,
+			SetInset = function (tex, name) tex.__art = name end,
+			SetClipped = function (tex, name, w, h) tex.__art = name tex:SetSize(w, h) end,
+			ThreeSlice = function (parent, layer)
+				return parent:CreateTexture(nil, layer), parent:CreateTexture(nil, layer), parent:CreateTexture(nil, layer)
+			end,
+			NineSlice = function (parent, layer)
+				local pieces = {}
+				for i = 1, 9 do if i ~= 5 then pieces[i] = parent:CreateTexture(nil, layer) end end
+				return pieces
+			end,
+			PlaceNineSlice = function () end,
+			RankText = function (parent)
+				return { SetCenter = function () end, Set = function (self, prefix, max) self.full = prefix .. "/" .. max end }
+			end,
+			CardDrawing = function (key)
+				local name = key and ("carddraw-" .. key)
+				return name and rawget(atlas, name) and name or nil
+			end,
+		},
+		Fill = {
+			Create = function (parent) return CreateFrame("Frame", nil, parent) end,
+			Update = function (fx, key, ratio, isFull) fx.key, fx.ratio, fx.isFull = key, ratio, isFull end,
+		},
+		-- Skill lines are the professions' names here, without spaces for the key.
+		Professions = { EntryForLine = function (line) return { key = (line:gsub(" ", "")) } end },
+	}
+	DragonUI.ForeverAtlas = setmetatable({}, { __index = function () return piece(20, 20) end })
+	DragonUI.ForeverUI = {
+		ApplyNineSlice = function () return {} end,
+		SkinEditBox = function (box) box.__forever = true end,
+		SetAtlas = function () return true end,
+		Fonts = { HighlightMedium = {} },
 	}
 end
 function SetPortraitToTexture(tex, path) tex.__portrait = path end
@@ -496,6 +546,27 @@ step("open tailoring", function ()
 	assert(tabs == 2, "tabs shown: " .. tabs)
 	assert(RetailProfessionsTab1:GetAttribute("spell") == "Tailoring", "tab spell")
 end)
+
+if DRAGON == "2" then
+	step("DragonUI's professions art: skill bar, card drawing, list bars", function ()
+		assert(RetailProfessionsFrame.profArt, "the window didn't take DragonUI's professions art")
+		local bar = find(function (f) return rawget(f, "fx") and rawget(f, "SetRank") end)
+		assert(bar and bar.fx.key == "Tailoring", "skill bar fill: " .. tostring(bar and bar.fx.key))
+		assert(bar.fx.ratio == M.rank / M.maxRank and not bar.fx.isFull, "skill bar ratio: " .. tostring(bar.fx.ratio))
+		assert(bar.rank.full == "Tailoring " .. M.rank .. "/" .. M.maxRank, "rank text: " .. tostring(bar.rank.full))
+		local drawing = find(function (f) return rawget(f, "__art") == "carddraw-Tailoring" end)
+		assert(drawing and drawing:IsVisible(), "the card's drawing isn't shown")
+		local header = find(function (f)
+			return f.__kind == "Button" and rawget(f, "headerArt") and f:IsVisible() and f.row and f.row.header
+		end)
+		assert(header and header.headerArt[1].__shown and header.toggle.__shown, "no category bar in DragonUI's art")
+		local recipe = find(function (f)
+			return f.__kind == "Button" and rawget(f, "headerArt") and f:IsVisible() and f.row and f.row.recipe
+		end)
+		assert(recipe and not recipe.headerArt[1].__shown, "a recipe row shows the category bar")
+		assert(find(function (f) return rawget(f, "__forever") end), "the search box isn't DragonUI's")
+	end)
+end
 
 step("the list is cached for the next visit", function ()
 	local key
@@ -1485,9 +1556,11 @@ step("tabs: a full column stays inside the window", function ()
 		end
 		return out
 	end
+	-- DragonUI's professions tabs are bigger.
+	local full = DRAGON == "2" and 50 or 32
 	local few = column()
 	assert(#few == 5, "tabs before: " .. #few)
-	assert(few[1]:GetHeight() == 32, "a short column's tabs aren't full size: " .. few[1]:GetHeight())
+	assert(few[1]:GetHeight() == full, "a short column's tabs aren't full size: " .. few[1]:GetHeight())
 
 	local extra = { "Alchemy", "Blacksmithing", "Enchanting", "Engineering", "Jewelcrafting", "Leatherworking",
 		"Cooking", "First Aid", "Runeforging" }
@@ -1502,7 +1575,7 @@ step("tabs: a full column stays inside the window", function ()
 	local all = column()
 	assert(#all == 15, "tabs with every profession: " .. #all)
 	local size = all[1]:GetHeight()
-	assert(size < 32 and size >= 14, "a full column's tabs didn't shrink: " .. size)
+	assert(size < full and size >= 14, "a full column's tabs didn't shrink: " .. size)
 	local last
 	for i, tab in ipairs(all) do
 		local top = -tab.__point[5]
@@ -1519,7 +1592,7 @@ step("tabs: a full column stays inside the window", function ()
 	knownSpells.Prospecting = nil
 	fire("SKILL_LINES_CHANGED")
 	tick(0.5)
-	assert(#column() == 5 and column()[1]:GetHeight() == 32, "the tabs didn't grow back")
+	assert(#column() == 5 and column()[1]:GetHeight() == full, "the tabs didn't grow back")
 end)
 
 step("closing the window closes the trade skill", function ()
