@@ -331,9 +331,23 @@ function RPF.DressCard(pane)
 	icon:SetVertexColor(0.85, 0.7, 0.5)
 	icon:SetAlpha(0.35)
 	icon:Hide()
-	Art.PlaceNineSlice(Art.NineSlice(pane, "ARTWORK", "insideframe", 53), pane, 53)
+	local frame = Art.NineSlice(pane, "ARTWORK", "insideframe", 53)
+	Art.PlaceNineSlice(frame, pane, 53)
+	local hidden = false
+
+	-- DragonUI's own window draws the card when the pane goes into it (Host.lua).
+	function pane:SetCardArtShown(on)
+		hidden = not on
+		for _, t in pairs(frame) do if on then t:Show() else t:Hide() end end
+		if on then base:Show() else base:Hide() end
+		if not on then
+			drawing:Hide()
+			icon:Hide()
+		end
+	end
 
 	function pane:SetCardArt(key, iconPath)
+		if hidden then return end
 		local name = Art.CardDrawing(key)
 		if name then
 			-- Cut where the parchment ends, as DragonUI does.

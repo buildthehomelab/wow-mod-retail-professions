@@ -190,6 +190,21 @@ for _, code in ipairs({ "M", "P" }) do
 end
 
 local function refresh()
+	-- In DragonUI's window its side tabs carry ours (Host.lua).
+	if RPF.hosting then
+		homeTab:Hide()
+		RPF.BindSpellButton(homeTab.button, nil, nil, nil, true)
+		for _, tab in ipairs(tabs) do
+			tab:Hide()
+			RPF.BindSpellButton(tab.button, nil, nil, nil, true)
+		end
+		for _, tab in ipairs(refineTabs) do
+			tab:Hide()
+			RPF.BindSpellButton(tab.button, nil, nil, nil, true)
+		end
+		RPF.SyncSpellButtons()
+		return
+	end
 	local home = RPF.Home.Active()
 	local viewing = not home and RPF.Refine.Active()
 	local open, shown = {}, {}

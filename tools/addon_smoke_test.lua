@@ -80,6 +80,7 @@ function methods:Enable() self.__enabled = true end
 function methods:Disable() self.__enabled = false end
 function methods:IsEnabled() return self.__enabled and 1 or nil end
 function methods:GetParent() return rawget(self, "__parent") end
+function methods:SetParent(p) self.__parent = p end
 function methods:GetEffectiveScale() return 1 end
 function methods:GetLeft() return 100 end
 function methods:GetTop() return 500 end
@@ -270,8 +271,9 @@ function GetTradeSkillListLink() return "|Htrade:3908:120:150|h[Tailoring]|h" en
 
 -- With DRAGON=1, a DragonUI stand-in, so the skinned branches run too. DRAGON=2 adds its
 -- professions window's art (DragonUI.Professions), which the profession window then wears.
+-- DRAGON=3 adds its professions window's host (DragonUI.Professions.Host): we live in its window.
 local DRAGON = os.getenv("DRAGON")
-if DRAGON == "1" or DRAGON == "2" then
+if DRAGON == "1" or DRAGON == "2" or DRAGON == "3" then
 	DragonUI_NineSlice = { GetLayout = function () return {} end, ApplyLayout = function () end }
 	DragonUI = {
 		_dir = "Interface\\AddOns\\DragonUI\\Textures\\", atlasinfo = {},
@@ -280,7 +282,7 @@ if DRAGON == "1" or DRAGON == "2" then
 			SkinCheckbox = function () end, ReskinScrollBar = function () end },
 	}
 end
-if DRAGON == "2" then
+if DRAGON == "2" or DRAGON == "3" then
 	local function piece(w, h) return { "Interface\\AddOns\\DragonUI\\Textures\\Professions\\Sheet", w, h, 0, 1, 0, 1 } end
 	local atlas = setmetatable({ ["bg-crafting"] = piece(665, 570), ["card-base"] = piece(360, 484),
 		["carddraw-Tailoring"] = piece(280, 255), ["carddraw-Mining"] = piece(280, 255) },
@@ -329,6 +331,61 @@ if DRAGON == "2" then
 	}
 end
 function SetPortraitToTexture(tex, path) tex.__portrait = path end
+
+-- DragonUI's professions host, as far as we use it: the window (TradeSkillFrame) is opened and
+-- closed by the steps, as UIParent and DragonUI would.
+local Host
+if DRAGON == "3" then
+	Host = { VERSION = 1, pages = {}, tabs = {}, page = "crafting", overviewToggles = 0, collectors = {} }
+	DragonUI.Professions.Host = Host
+	TradeSkillFrame = CreateFrame("Frame", "TradeSkillFrame", UIParent)
+	TradeSkillFrame:Hide()
+	Host.craft = CreateFrame("Frame", nil, TradeSkillFrame)
+	function Host.Enabled() return true end
+	function Host.Register(p)
+		Host.provider = p
+		Host.regions = { list = p.list(Host.craft), card = p.card(Host.craft), controls = p.controls(Host.craft),
+			header = p.header(Host.craft) }
+		for _, page in pairs(Host.pages) do page.frame = page.spec.build(TradeSkillFrame) end
+		return true
+	end
+	function Host.Unregister(p) if Host.provider == p then Host.provider = nil; Host.pages = {}; Host.tabs = {} end end
+	function Host.AddPage(key, spec) Host.pages[key] = { spec = spec } end
+	function Host.AddTab(spec)
+		for i, tab in ipairs(Host.tabs) do if tab.key == spec.key then Host.tabs[i] = spec return end end
+		table.insert(Host.tabs, spec)
+	end
+	function Host.Page() return Host.page end
+	function Host.SetPage(key)
+		Host.page = key
+		for k, page in pairs(Host.pages) do if page.frame then if k == key then page.frame:Show() else page.frame:Hide() end end end
+		if Host.provider then Host.provider.onPage(key) end
+	end
+	function Host.RefreshTabs() Host.tabRefreshes = (Host.tabRefreshes or 0) + 1 end
+	function Host.TrackerEnabled() return true end
+	function Host.AddTrackerCollector(fn) table.insert(Host.collectors, fn) return true end
+	function Host.RefreshTracker() end
+	function Host.HighlightBlock() end
+	function Host.ClickBlock() end
+	function Host.NewCatcherId() return 500 end
+	Host.Catchers = { Bind = function () return true end, ArmFor = function () end }
+	function Host.ToggleOverview() Host.overviewToggles = Host.overviewToggles + 1 end
+	function Host.Blocks()
+		local blocks = {}
+		for _, fn in ipairs(Host.collectors) do fn(blocks) end
+		return blocks
+	end
+	-- What a profession opening and the window closing do.
+	function Host.Open()
+		TradeSkillFrame:Show()
+		Host.SetPage("crafting")
+		Host.provider.onShow()
+	end
+	function Host.Close()
+		TradeSkillFrame:Hide()
+		Host.provider.onHide()
+	end
+end
 
 -- ReagentBankUI, as far as we use it.
 local provider, withdrawn
@@ -520,8 +577,94 @@ step("login, hello", function ()
 	assert(RPF.serverReady, "no HELLO answer")
 	assert(RPF.skillCap == 300 and RPF.skillGain == 3, "HELLO fields not read")
 	assert(bindings.K == "RETAILPROFESSIONS_BOOK", "K was not bound to the book")
-	assert(provider and provider.frame == RetailProfessionsFrame, "not registered with ReagentBankUI")
+	if DRAGON == "3" then
+		assert(RPF.hosting and Host.provider, "DragonUI's window didn't take us in")
+		assert(provider and provider.frame == TradeSkillFrame, "ReagentBankUI doesn't follow DragonUI's window")
+	else
+		assert(provider and provider.frame == RetailProfessionsFrame, "not registered with ReagentBankUI")
+	end
 end)
+
+-- In DragonUI's window: its own steps, then done.
+if DRAGON == "3" then
+	step("hosted: our pieces are in DragonUI's window", function ()
+		local pieces = RPF.HostPieces()
+		assert(Host.regions.list == pieces.list and Host.regions.card == pieces.card
+			and Host.regions.controls == pieces.controls, "the list, card and controls aren't DragonUI's to place")
+		assert(pieces.list:GetParent() == Host.craft and pieces.card:GetParent() == Host.craft, "not moved into its window")
+		assert(Host.pages["retailprofessions-home"], "no Home page")
+		local keys = {}
+		for _, tab in ipairs(Host.tabs) do keys[tab.key] = tab end
+		assert(keys["retailprofessions-home"] and keys["retailprofessions-refine-M"] and keys["retailprofessions-refine-P"],
+			"Home, Milling and Prospecting tabs missing")
+	end)
+
+	step("hosted: a profession opens in DragonUI's window, unlearned recipes and all", function ()
+		Host.Open()
+		fire("TRADE_SKILL_SHOW")
+		tick(0.5)
+		assert(not RetailProfessionsFrame:IsShown(), "our own window opened too")
+		assert(RPF.IsOpen() and RPF.active, "not open")
+		assert(#M.recipes == 2 and #M.unlearned == 1, "recipes: " .. #M.recipes .. ", unlearned " .. #M.unlearned)
+		assert(textShown("Unlearned: Journeyman"), "unlearned group header not shown in DragonUI's window")
+		assert(Host.provider.title() == "Tailoring", "title: " .. tostring(Host.provider.title()))
+	end)
+
+	step("hosted: create and create all", function ()
+		RetailProfessionsDB.autoWithdraw = false
+		RPF.Select(M.bySpell[2963])
+		buttonWithText("Create").__scripts.OnClick()
+		assert(crafted[#crafted][1] == 2 and crafted[#crafted][2] == 1, "Create did the wrong thing")
+		local name = provider.GetRecipe()
+		assert(name == "Bolt of Linen Cloth", "ReagentBankUI reads the wrong recipe")
+	end)
+
+	step("hosted: Home is a page of DragonUI's window", function ()
+		Host.SetPage("retailprofessions-home")
+		assert(RPF.Home.Active() and RPF.Home.panel:IsVisible(), "Home not shown")
+		RPF.Home.SetActive(false)
+		assert(Host.page == "crafting", "leaving Home didn't go back to the recipes: " .. Host.page)
+	end)
+
+	step("hosted: K opens DragonUI's Overview", function ()
+		RPF.ToggleBook()
+		assert(Host.overviewToggles == 1, "the Overview didn't open")
+		assert(not RetailProfessionsBook:IsShown(), "our book opened")
+	end)
+
+	step("hosted: tracked recipes go in DragonUI's objective tracker", function ()
+		RPF.ToggleTracked(M.bySpell[2385])
+		tick(0.5)
+		local blocks = Host.Blocks()
+		assert(#blocks == 1 and blocks[1].title:find(M.bySpell[2385].name, 1, true) and #blocks[1].lines >= 1,
+			"tracker block: " .. #blocks)
+		assert(not RetailProfessionsTracker:IsShown(), "our tracker shows as well")
+		RPF.ToggleTracked(M.bySpell[2385])
+		assert(#Host.Blocks() == 0, "untracking didn't remove it")
+	end)
+
+	step("hosted: closing DragonUI's window ends the visit", function ()
+		Host.Close()
+		fire("TRADE_SKILL_CLOSE")
+		tick(0.5)
+		assert(not RPF.IsOpen() and not RPF.active, "still open")
+	end)
+
+	step("hosted: /prof classic gives DragonUI's own page, /prof retail takes it back", function ()
+		SlashCmdList.RETAILPROFESSIONS("classic")
+		assert(not RPF.hosting and RPF.hostClassic and not Host.provider, "classic didn't hand the window back")
+		TradeSkillFrame:Show()
+		fire("TRADE_SKILL_SHOW")
+		tick(0.5)
+		assert(not RetailProfessionsFrame:IsShown(), "our window opened on classic")
+		TradeSkillFrame:Hide()
+		SlashCmdList.RETAILPROFESSIONS("retail")
+		assert(RPF.hosting and Host.provider, "retail didn't take the window again")
+	end)
+
+	print(errors == 0 and "smoke test passed" or (errors .. " error(s)"))
+	os.exit(errors == 0 and 0 or 1)
+end
 
 step("skill-up chance follows the core's straight line", function ()
 	assert(RPF.SkillUpChance(40, 45, 70) == 100, "orange")

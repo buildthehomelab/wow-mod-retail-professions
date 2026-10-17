@@ -49,7 +49,7 @@ end
 
 -- True while the profession a kind belongs to is the one in the window.
 function R.IsOpen(kind)
-	return RPF.frame:IsShown() and M.skill == kind.skill and not M.linked
+	return RPF.IsOpen() and M.skill == kind.skill and not M.linked
 end
 
 function R.SetView(code)

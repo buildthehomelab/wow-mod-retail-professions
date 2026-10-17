@@ -21,6 +21,8 @@ frame:SetClampedToScreen(true)
 frame:Hide()
 table.insert(UISpecialFrames, "RetailProfessionsFrame")
 RPF.frame = frame
+-- DragonUI's professions window, while we live in it (Host.lua), is up.
+local hostOpen = false
 
 local function placeFrame()
 	frame:ClearAllPoints()
@@ -438,6 +440,11 @@ local controls = CreateFrame("Frame", nil, content)
 controls:SetPoint("TOPLEFT", right, "BOTTOMLEFT", 0, art and -6 or -4)
 controls:SetPoint("BOTTOMRIGHT", content, "BOTTOMRIGHT", 0, 0)
 
+-- The pieces DragonUI's professions window takes in when we live in it (Host.lua).
+function RPF.HostPieces()
+	return { list = left, card = right, controls = controls, log = logButton }
+end
+
 -- The Home view (Home.lua) lays itself over these under the skill bar.
 RPF.content, RPF.header, RPF.panes = content, header, { left, right, controls }
 
@@ -552,6 +559,22 @@ function RPF.Status(text, isError)
 	status:SetText(text or "")
 	if isError then status:SetTextColor(1, 0.25, 0.25) else status:SetTextColor(1, 0.82, 0) end
 	RPF.After(8, function () if mine == statusToken then status:SetText("") end end)
+end
+
+-- In DragonUI's window (Host.lua) the card is its own, narrower one: no card art of ours, and the
+-- reagent bank options go on a row above Track Recipe, the feedback line over them.
+function RPF.HostLayout(on)
+	if right.SetCardArtShown then right:SetCardArtShown(not on) end
+	bankCheck:ClearAllPoints()
+	status:ClearAllPoints()
+	if on then
+		bankCheck:SetPoint("BOTTOMLEFT", right, "BOTTOMLEFT", 8, 28)
+		status:SetPoint("BOTTOMLEFT", right, "BOTTOMLEFT", 12, 54)
+	else
+		bankCheck:SetPoint("LEFT", trackCheck.label, "RIGHT", 14, 0)
+		status:SetPoint("BOTTOMLEFT", right, "BOTTOMLEFT", 12, 32)
+	end
+	status:SetPoint("RIGHT", right, "RIGHT", -110, 0)
 end
 
 local function getQuantity()
@@ -935,14 +958,20 @@ function RPF.Select(r, reveal)
 	if reveal then list:Reveal(r) else list:Refresh() end
 end
 
+-- The window's title: Home, Milling or Prospecting, someone's linked profession, or the profession.
+function RPF.TitleText()
+	local refine = RPF.Refine.Active()
+	return RPF.Home.Active() and "Home" or refine and refine.name
+		or M.linked and ((M.linkedName or "") .. " - " .. (M.skillName or "")) or (M.skillName or "Professions")
+end
+
 local function updateHeader()
 	local p = M.profession
 	local texture = p and p.texture or (GetTradeSkillTexture and GetTradeSkillTexture()) or "Interface\\Icons\\INV_Misc_QuestionMark"
 	if frame.portrait then RPF.SetPortrait(frame.portrait, texture) else profIcon:SetTexture(texture) end
 	-- Someone else's linked profession: their name in the title.
 	local refine = RPF.Refine.Active()
-	title:SetText(RPF.Home.Active() and "Home" or refine and refine.name or M.linked and ((M.linkedName or "") .. " - " .. (M.skillName or ""))
-		or (M.skillName or "Professions"))
+	title:SetText(RPF.TitleText())
 	if art then
 		local key = RPF.ProfArtKey(M.skillName)
 		-- Runeforging has no rank to show, as in DragonUI.
@@ -969,7 +998,7 @@ end
 
 -- Reads the client again (unless only the view changed) and redraws.
 Rebuild = function (viewOnly)
-	if not frame:IsShown() then return end
+	if not RPF.IsOpen() then return end
 	if not viewOnly and not M.Scan() then return end
 	local f = RPF.filter
 	local state = { text = f.text, haveMats = f.haveMats, skillUp = f.skillUp, slot = f.slot,
@@ -1038,7 +1067,10 @@ end
 -- events
 
 RPF.On("SHOW", function ()
-	if not frame:IsShown() then
+	if RPF.hosting then
+		-- DragonUI's window is already up (Host.lua calls RPF.HostOpened from its OnShow).
+		if not hostOpen then RPF.HostOpened() end
+	elseif not frame:IsShown() then
 		RPF.selected = nil
 		frame:Show()
 	end
@@ -1048,14 +1080,14 @@ RPF.On("SHOW", function ()
 end)
 
 RPF.On("CLOSE", function ()
-	if frame:IsShown() then frame:Hide() end
+	if not RPF.hosting and frame:IsShown() then frame:Hide() end
 end)
 
 RPF.On("TRADE_SKILL_UPDATE", function () Rebuild() end)
 RPF.On("RECIPES", function (skill) if skill == M.skill then Rebuild() end end)
-RPF.On("READY", function () if frame:IsShown() then Rebuild() end end)
+RPF.On("READY", function () if RPF.IsOpen() then Rebuild() end end)
 RPF.On("BAGS", function ()
-	if not frame:IsShown() then return end
+	if not RPF.IsOpen() then return end
 	-- The bank's reagents arrived: craft. If the game wants a click for that, say so.
 	local p = pendingCraft
 	if p and RPF.selected and keyOf(RPF.selected) == p.key and bagsCover(RPF.selected, p.count) then
@@ -1079,14 +1111,14 @@ RPF.On("BAGS", function ()
 	updateControls()
 end)
 RPF.On("COOLDOWN", function ()
-	if frame:IsShown() and RPF.selected then
+	if RPF.IsOpen() and RPF.selected then
 		M.Details(RPF.selected)
 		RPF.Fire("SELECTED", RPF.selected)
 		updateControls()
 	end
 end)
 RPF.On("ITEM_INFO", function ()
-	if frame:IsShown() then
+	if RPF.IsOpen() then
 		list:Refresh()
 		if RPF.selected then RPF.Fire("SELECTED", RPF.selected) end
 	end
@@ -1095,9 +1127,9 @@ RPF.On("FAVORITES", function () Rebuild(true) end)
 -- Recipes or herbs and ore: the view changed, or what herbs and ore give arrived.
 RPF.On("VIEW", function () Rebuild(true) end)
 RPF.On("YIELDS", function () if RPF.Refine.Active() then Rebuild(true) end end)
-RPF.On("REFINE", function () if frame:IsShown() then updateControls() end end)
+RPF.On("REFINE", function () if RPF.IsOpen() then updateControls() end end)
 RPF.On("PRICES", function ()
-	if not frame:IsShown() then return end
+	if not RPF.IsOpen() then return end
 	-- A rebuild redraws the selected recipe too.
 	if profitView() then
 		Rebuild(true)
@@ -1106,28 +1138,59 @@ RPF.On("PRICES", function ()
 	end
 end)
 RPF.On("TRACKED", function ()
-	if frame:IsShown() then
+	if RPF.IsOpen() then
 		list:Refresh()
 		updateControls()
 	end
 end)
 
-frame:SetScript("OnShow", function ()
-	PlaySound("igCharacterInfoOpen")
-	releaseKeyboard()
-	placeFrame()
-	status:SetText("")
-	RPF.Fire("MOVED")
-end)
+-- Whether the window is up: ours, or DragonUI's with us in it (Host.lua).
+function RPF.IsOpen()
+	if RPF.hosting then return hostOpen end
+	return frame:IsShown() and true or false
+end
 
-frame:SetScript("OnHide", function ()
-	PlaySound("igCharacterInfoClose")
+-- What a visit starts and ends with, in either window.
+local function opened()
+	releaseKeyboard()
+	status:SetText("")
+end
+
+local function closed()
 	-- The item picked to enchant and the search are for this visit only.
 	RPF.enchantTarget = nil
 	RPF.filter.text = ""
 	search:SetText("")
 	search:ClearFocus()
 	RPF.Fire("HIDDEN")
+end
+
+-- DragonUI's window showing and hiding (Host.lua); it closes the trade skill itself.
+function RPF.HostOpened()
+	if hostOpen then return end
+	hostOpen = true
+	RPF.selected = nil
+	opened()
+	RPF.Fire("MOVED")
+end
+
+function RPF.HostClosed()
+	if not hostOpen then return end
+	hostOpen = false
+	RPF.active = false
+	closed()
+end
+
+frame:SetScript("OnShow", function ()
+	PlaySound("igCharacterInfoOpen")
+	opened()
+	placeFrame()
+	RPF.Fire("MOVED")
+end)
+
+frame:SetScript("OnHide", function ()
+	PlaySound("igCharacterInfoClose")
+	closed()
 	-- Closing the window ends the trade skill session, unless we're handing over to the classic window.
 	if RPF.active and not RPF.IsSwitchingToClassic() then
 		RPF.active = false
@@ -1138,12 +1201,14 @@ end)
 -----------------------------------------
 -- ReagentBankUI: it reads the selected recipe and the amount from this window
 
-RPF.On("LOGIN", function ()
+-- `window`: the frame whose showing tells ReagentBankUI we're the one in use; ours, or
+-- DragonUI's TradeSkillFrame when we live in it (Host.lua calls this once it's built).
+function RPF.RegisterBankProvider(window)
 	local RB = _G.ReagentBankUI
 	if not (RB and RB.RegisterRecipeProvider) then return end
 	RB:RegisterRecipeProvider({
 		name = "RetailProfessions",
-		frame = frame,
+		frame = window,
 		GetRecipe = function ()
 			local r = RPF.selected
 			if not r then return nil, "Select a recipe first." end
@@ -1158,6 +1223,10 @@ RPF.On("LOGIN", function ()
 		GetRepeatCount = getQuantity,
 		SetRepeatCount = setQuantityFromBank,
 	})
+end
+
+RPF.On("LOGIN", function ()
+	if not RPF.hosting then RPF.RegisterBankProvider(frame) end
 end)
 
 -- What the bank holds arrives a moment after the window opens, and nothing else says so: the
@@ -1166,12 +1235,12 @@ RPF.On("LOGIN", function ()
 	local RB = _G.ReagentBankUI
 	if not (RB and RB.HandleBankSnapshotResponse and hooksecurefunc) then return end
 	hooksecurefunc(RB, "HandleBankSnapshotResponse", function ()
-		if frame:IsShown() then RPF.Debounce("bank-snapshot", 0.05, function () RPF.Fire("BAGS") end) end
+		if RPF.IsOpen() then RPF.Debounce("bank-snapshot", 0.05, function () RPF.Fire("BAGS") end) end
 	end)
 end)
 
 -- Tell ReagentBankUI the selection changed.
 RPF.On("SELECTED", function ()
 	local RB = _G.ReagentBankUI
-	if RB and RB.NotifyRecipeProviderChanged and frame:IsShown() then pcall(RB.NotifyRecipeProviderChanged, RB) end
+	if RB and RB.NotifyRecipeProviderChanged and RPF.IsOpen() then pcall(RB.NotifyRecipeProviderChanged, RB) end
 end)

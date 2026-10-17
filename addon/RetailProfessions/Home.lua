@@ -26,7 +26,6 @@ local R = RPF.Refine
 local H = {}
 RPF.Home = H
 
-local frame = RPF.frame
 local floor = math.floor
 
 local TODO_WIDTH = 300
@@ -50,7 +49,7 @@ H.active = false
 
 -- Whether the window shows Home: your own professions only, not someone's linked one.
 function H.Active()
-	return H.active and frame:IsShown() and not M.linked
+	return H.active and RPF.IsOpen() and not M.linked
 end
 
 function H.SetActive(on)
@@ -61,7 +60,7 @@ function H.SetActive(on)
 end
 
 local function isOpen(skill)
-	return frame:IsShown() and M.skill == skill and not M.linked
+	return RPF.IsOpen() and M.skill == skill and not M.linked
 end
 
 local function charDB()
@@ -77,7 +76,7 @@ end
 -- After every read of the open profession: its learned recipes, and when the ones on cooldown
 -- come off it. A cooldown that's over stays as "ready" until the next craft sets it again.
 local function snapshot()
-	if M.linked or not M.skill or not frame:IsShown() then return end
+	if M.linked or not M.skill or not RPF.IsOpen() then return end
 	local db = charDB()
 	local set = {}
 	for _, r in ipairs(M.recipes) do
@@ -676,6 +675,12 @@ panel:Hide()
 H.panel = panel
 
 local function showPanel(on)
+	-- In DragonUI's window Home is one of its pages (Host.lua).
+	if RPF.hosting then
+		RPF.ShowHostPage(on)
+		if on then panel:Show() end
+		return
+	end
 	for _, pane in ipairs(RPF.panes) do
 		if on then pane:Hide() else pane:Show() end
 	end
@@ -692,7 +697,7 @@ local function bindAction(region, action)
 			if IsShiftKeyDown() and region.item and region.item.guide then H.Shop(region.item.guide) end
 			H.Pend(action)
 		end
-		RPF.BindSpellButton(region.button, region, p.openName, frame, true)
+		RPF.BindSpellButton(region.button, region, p.openName, RPF.Window(), true)
 	else
 		region.button.preClick = nil
 		RPF.BindSpellButton(region.button, nil, nil, nil, true)

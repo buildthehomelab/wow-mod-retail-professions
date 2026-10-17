@@ -871,7 +871,7 @@ RPF.On("SELECTED", draw)
 -- The shopping line follows the amount.
 RPF.On("QUANTITY", function ()
 	local r = RPF.selected
-	if r and RPF.frame:IsShown() then draw(r) end
+	if r and RPF.IsOpen() then draw(r) end
 end)
 RPF.On("HIDDEN", function () whereToken = whereToken + 1 end)
 
@@ -887,7 +887,7 @@ RPF.On("PERK", function (spell, kind, list)
 	if #names == 0 then return end
 	local text = kind == "M" and ("Multicraft! " .. table.concat(names, ", ") .. " more.")
 		or ("Resourcefulness! You got back " .. table.concat(names, ", ") .. ".")
-	if not RPF.frame:IsShown() then
+	if not RPF.IsOpen() then
 		RPF.Print(text)
 		return
 	end

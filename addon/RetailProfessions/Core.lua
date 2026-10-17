@@ -746,6 +746,14 @@ function RPF.IsSwitchingToClassic()
 end
 
 local function onTradeSkillShow()
+	-- In DragonUI's professions window (Host.lua): it opens as usual and we fill it. With /prof
+	-- classic there, DragonUI's own crafting page is all there is.
+	if RPF.hosting then
+		RPF.active = true
+		RPF.Fire("SHOW")
+		return
+	end
+	if RPF.hostClassic then return end
 	if RetailProfessionsDB.classic then
 		showClassic()
 		return
@@ -800,8 +808,9 @@ events:SetScript("OnEvent", function (self, event, ...)
 		end
 	elseif event == "PLAYER_LOGIN" then
 		indexProfessions()
-		-- The stock window only opens when we hand over to it.
-		UIParent:UnregisterEvent("TRADE_SKILL_SHOW")
+		-- With DragonUI's professions window we live in it (Host.lua); otherwise the stock window
+		-- only opens when we hand over to it.
+		if not RPF.StartHosting() then UIParent:UnregisterEvent("TRADE_SKILL_SHOW") end
 		RPF.Fire("LOGIN")
 		RPF.After(3, RPF.SayHello)
 	elseif event == "TRADE_SKILL_SHOW" then
@@ -839,10 +848,15 @@ SlashCmdList.RETAILPROFESSIONS = function (msg)
 	if msg == "classic" then
 		RetailProfessionsDB.classic = true
 		RPF.Print("the classic profession window opens from now on. |cffffd200/prof retail|r switches back.")
-		if RPF.active then showClassic() end
+		if RPF.hosting then
+			RPF.StopHosting()
+		elseif RPF.active then
+			showClassic()
+		end
 	elseif msg == "retail" then
 		RetailProfessionsDB.classic = nil
 		RPF.Print("the new profession window opens from now on.")
+		if RPF.hostClassic then RPF.StartHosting() end
 	elseif msg == "reset" then
 		RPF.Fire("RESET_POSITION")
 		RPF.Print("window positions reset.")

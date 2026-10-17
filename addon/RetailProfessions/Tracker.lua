@@ -91,7 +91,7 @@ local function onLineClick(self, button)
 			EasyMenu(trackedMenu(self.spell), menu, "cursor", 0, 0, "MENU")
 		elseif IsModifiedClick("CHATLINK") and GetSpellLink then
 			ChatEdit_InsertLink(GetSpellLink(self.spell))
-		elseif not (RPF.frame:IsShown() and RPF.SelectSpell(self.spell)) then
+		elseif not (RPF.IsOpen() and RPF.SelectSpell(self.spell)) then
 			local entry = RetailProfessionsCharDB.tracked[self.spell]
 			local p = entry and RPF.Profession(entry.skill)
 			RPF.Print("open " .. (p and p.localName or "the profession") .. " to make " .. (entry and entry.name or "it") .. ".")
@@ -157,9 +157,16 @@ local function haveText(have, bags, bank, need)
 	if bank > 0 and bags < need and RetailProfessionsDB.countBank then text = text .. " |cff4fc3f7bank|r" end
 	return text
 end
+RPF.TrackedList, RPF.TrackedHaveText = trackedList, haveText
 
 local function refresh()
 	if not RetailProfessionsCharDB then return end
+	-- In DragonUI they go in its objective tracker (Host.lua).
+	if RPF.HostTracksRecipes() then
+		tracker:Hide()
+		RPF.RefreshHostTracker()
+		return
+	end
 	local list = trackedList()
 	if #list == 0 then
 		tracker:Hide()
