@@ -628,6 +628,7 @@ if DRAGON == "3" then
 		assert(keys["retailprofessions-training"] and keys["retailprofessions-profit"]
 			and keys["retailprofessions-refine-M"] and keys["retailprofessions-refine-P"],
 			"Training, Profit, Milling and Prospecting tabs missing")
+		assert(Host.provider.overview() == "retailprofessions-training", "Training doesn't stand in for the Overview")
 	end)
 
 	step("hosted: a profession opens in DragonUI's window, unlearned recipes and all", function ()

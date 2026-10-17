@@ -2,9 +2,10 @@
 -- keeps the window (its art, rank bar, profession tabs and Overview), and our recipe list, the
 -- recipe card, the craft controls and the proc log button go where its own would be. Training
 -- and Profit are pages of it, Milling and Prospecting are side tabs, tracked recipes go in its objective
--- tracker and the professions book (K) is its Overview. Without DragonUI (or with one that
--- can't host) the window of our own is used as before. /prof classic shows DragonUI's own
--- crafting page instead.
+-- tracker. Training stands in for its Overview: that tab goes, and the window opens on Training
+-- where it would open on the Overview (micro button, the professions book on K). Without DragonUI
+-- (or with one that can't host) the window of our own is used as before. /prof classic shows
+-- DragonUI's own crafting page instead.
 
 local RPF = RetailProfessions
 local M = RPF.Model
@@ -141,6 +142,14 @@ local function countKnown()
 	return changed
 end
 
+-- Training and Profit have tabs: you know a profession and aren't looking at someone's link.
+local function viewsShown() return not M.linked and knownCount > 0 end
+
+-- Training stands in for DragonUI's Overview while its tab shows (DragonUI 2.8+ asks).
+function provider.overview()
+	return viewsShown() and pageOf("training") or nil
+end
+
 local holders = {}
 local function addViews(H)
 	for _, key in ipairs(RPF.Home.ORDER) do
@@ -175,7 +184,7 @@ local function addViews(H)
 		})
 		H.AddTab({
 			key = page, label = view.title, icon = view.icon, after = "overview", page = page,
-			shown = function () return not M.linked and knownCount > 0 end,
+			shown = viewsShown,
 		})
 	end
 end
