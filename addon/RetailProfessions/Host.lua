@@ -112,6 +112,8 @@ provider.onScale = followWindow
 function provider.onPage(page)
 	local view = viewOf(page)
 	if RPF.Home.view ~= view then RPF.Home.SetActive(view or false) end
+	-- Training's lines carry secure buttons: off another addon's page (Archaeology's), they go.
+	followWindow()
 end
 
 -- The open profession's own tab: back to its recipes.

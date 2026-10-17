@@ -1037,7 +1037,7 @@ end)
 step("archaeology: ArchaeologyUI's skill is a book row and a Training row that open its window", function ()
 	local toggled, surveyed = 0, 0
 	ArchaeologyUI = { skill = 60, maxSkill = 75,
-		ToggleWindow = function () toggled = toggled + 1 end,
+		OpenWindow = function () toggled = toggled + 1 end, ToggleWindow = function () error("toggled the research window") end,
 		SurveyButtonClick = function () surveyed = surveyed + 1 end }
 	RPF.Fire("SKILLS")
 	tick(0.5)

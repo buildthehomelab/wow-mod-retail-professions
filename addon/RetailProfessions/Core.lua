@@ -207,7 +207,9 @@ end
 -- Archaeology's window (ArchaeologyUI's research window, or its page in DragonUI's window).
 function RPF.OpenArchaeology()
 	local A = RPF.ArchaeologyUI()
-	if A then A.ToggleWindow() end
+	if not A then return end
+	-- Open stays open; an older ArchaeologyUI only toggles.
+	if A.OpenWindow then A.OpenWindow() else A.ToggleWindow() end
 end
 
 -- Apprentice ... Grand Master, from the skill cap the player's rank gives.
