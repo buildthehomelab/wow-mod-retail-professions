@@ -1034,6 +1034,58 @@ step("combat hides the secure buttons first, then they come back", function ()
 	assert(RetailProfessionsTab1.__shown, "tab button not back after combat")
 end)
 
+step("archaeology: ArchaeologyUI's skill is a book row and a Training row that open its window", function ()
+	local toggled, surveyed = 0, 0
+	ArchaeologyUI = { skill = 60, maxSkill = 75,
+		ToggleWindow = function () toggled = toggled + 1 end,
+		SurveyButtonClick = function () surveyed = surveyed + 1 end }
+	RPF.Fire("SKILLS")
+	tick(0.5)
+	if not RetailProfessionsBook:IsShown() then RPF.ToggleBook() end
+	assert(textShown("^Archaeology$") and textShown("60 / 75"), "no Archaeology row in the book")
+	local surveyButton = buttonWithText("Survey")
+	assert(surveyButton and surveyButton:IsVisible(), "no Survey button")
+	surveyButton.__scripts.OnClick(surveyButton)
+	assert(surveyed == 1, "Survey didn't survey")
+	local open = surveyButton:GetParent().open
+	assert(open:IsVisible() and open.__scripts.OnClick, "Archaeology's Open doesn't take the click")
+	open.__scripts.OnClick(open)
+	assert(toggled == 1 and not RetailProfessionsBook:IsShown(), "Open didn't open the research window")
+	assert(not surveyButton:GetParent().unlearn:IsShown(), "Archaeology can be unlearned from the book")
+
+	RPF.Home.SetActive(true)
+	tick(0.3)
+	local row
+	for _, r in ipairs(RPF.Home.rows.profs) do
+		if r.known and r.known.profession.id == 794 then row = r end
+	end
+	assert(row and row:IsShown() and row.rank.__text == "60/75", "no Archaeology row on Training")
+	assert(not row.button.__shown, "the Archaeology row casts something")
+	row.__scripts.OnClick(row)
+	assert(toggled == 2, "the Training row didn't open the research window")
+	RPF.Home.SetActive(false)
+
+	-- With the client patch it is a skill line too: one row, still not unlearnable.
+	table.insert(skillLines, { "Archaeology", false, 60, 75 })
+	RPF.Fire("SKILLS")
+	local rows = 0
+	for _, k in ipairs(RPF.KnownProfessions()) do
+		if k.profession.id == 794 then
+			rows = rows + 1
+			assert(not k.abandonable, "the Archaeology skill line can be unlearned")
+		end
+	end
+	assert(rows == 1, "Archaeology listed " .. rows .. " times")
+	table.remove(skillLines)
+
+	ArchaeologyUI = nil
+	RPF.Fire("SKILLS")
+	tick(0.5)
+	RPF.ToggleBook()
+	assert(not textShown("^Archaeology$"), "Archaeology stays without ArchaeologyUI")
+	RPF.ToggleBook()
+end)
+
 step("an older ReagentBankUI's sidebar stays away: the window has its controls", function ()
 	ReagentBankUI:DockTradeSkillPanel()
 	assert(not bankPanel:IsShown(), "an older ReagentBankUI's sidebar wasn't hidden")

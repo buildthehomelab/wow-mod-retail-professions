@@ -168,6 +168,25 @@ local function bind(button, spell)
 	end
 end
 
+-- Archaeology's buttons run ArchaeologyUI instead of casting: they take the click themselves.
+local function bindClick(button, fn)
+	button.secure.preClick = nil
+	RPF.BindSpellButton(button.secure, nil, nil)
+	button:Show()
+	button:EnableMouse(true)
+	button:SetScript("OnClick", fn)
+end
+
+local function openArchaeology()
+	book:Hide()
+	RPF.OpenArchaeology()
+end
+
+local function survey()
+	local A = RPF.ArchaeologyUI()
+	if A then A.SurveyButtonClick() end
+end
+
 -- The Milling or Prospecting button: opens the profession on its herbs or ore. With the
 -- profession already open nothing has to be cast, so the button takes the click itself.
 local function bindRefine(button, kind, openName)
@@ -228,7 +247,13 @@ local function refresh()
 		bind(row.open, openName)
 		local extraName = p.extraName and GetSpellInfo(p.extraName) and p.extraName or nil
 		local refine = openName and p.refine and RPF.Refine.Known(p.refine) or nil
-		if refine then
+		if p.archaeology then
+			-- Its research window and Survey (ArchaeologyUI), laid out as a profession's.
+			openName, extraName = true, "Survey"
+			bindClick(row.open, openArchaeology)
+			row.extra:SetText(extraName)
+			bindClick(row.extra, survey)
+		elseif refine then
 			extraName = refine.name
 			row.extra:SetText(extraName)
 			bindRefine(row.extra, refine, openName)
