@@ -770,6 +770,17 @@ local function clickHint(action)
 	end
 end
 
+-- How many rows a list shows: as many as its scroll frame has room for (DragonUI's window is
+-- taller than ours, and the list runs to its bottom), never fewer than `minimum`. Rows are made
+-- as the pane grows, but not in combat: their secure buttons can't be shown then.
+local function fitRows(scroll, rows, minimum, height, make)
+	local fit = math.max(minimum, math.floor((scroll:GetHeight() or 0) / height))
+	if not RPF.InCombat() then
+		for i = #rows + 1, fit do rows[i] = make(i) end
+	end
+	return math.min(fit, #rows)
+end
+
 local function paneTitle(pane, text)
 	local t = pane:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 	t:SetPoint("TOPLEFT", pane, "TOPLEFT", 10, -9)
@@ -866,6 +877,15 @@ local todoScrollName = RPF.UniqueName("HomeTodoScroll")
 local todoScroll = CreateFrame("ScrollFrame", todoScrollName, todoPane, "FauxScrollFrameTemplate")
 todoScroll:SetPoint("TOPLEFT", todoPane, "TOPLEFT", 4, -28)
 todoScroll:SetPoint("BOTTOMRIGHT", todoPane, "BOTTOMRIGHT", -26, 6)
+local drawTodo
+-- Before the bar is skinned: DragonUI hooks this script to move its thumb, and a SetScript
+-- after that threw the hook away (the list scrolled, the thumb stayed at the top).
+todoScroll:SetScript("OnVerticalScroll", function (self, offset)
+	FauxScrollFrame_OnVerticalScroll(self, offset, TODO_HEIGHT, function ()
+		drawTodo()
+		RPF.SyncSpellButtons()
+	end)
+end)
 RPF.SkinScrollBar(todoScroll, todoScrollName)
 
 local todoEmpty = todoPane:CreateFontString(nil, "OVERLAY", "GameFontDisable")
@@ -884,7 +904,7 @@ local function todoEnter(row, owner)
 end
 
 local todoRows = {}
-for i = 1, TODO_ROWS do
+local function todoRow(i)
 	local row = CreateFrame("Button", nil, todoPane)
 	row:SetHeight(TODO_HEIGHT)
 	row:SetPoint("TOPLEFT", todoPane, "TOPLEFT", 6, -28 - (i - 1) * TODO_HEIGHT)
@@ -905,14 +925,16 @@ for i = 1, TODO_ROWS do
 	row.sub:SetWordWrap(false)
 	rowHighlight(row)
 	withSecure(row, "RetailProfessionsHomeTodo" .. i, todoEnter)
-	todoRows[i] = row
+	return row
 end
+for i = 1, TODO_ROWS do todoRows[i] = todoRow(i) end
 
-local function drawTodo()
-	FauxScrollFrame_Update(todoScroll, #todoItems, TODO_ROWS, TODO_HEIGHT)
+function drawTodo()
+	local shown = fitRows(todoScroll, todoRows, TODO_ROWS, TODO_HEIGHT, todoRow)
+	FauxScrollFrame_Update(todoScroll, #todoItems, shown, TODO_HEIGHT)
 	local offset = FauxScrollFrame_GetOffset(todoScroll)
 	for i, row in ipairs(todoRows) do
-		local item = todoItems[offset + i]
+		local item = i <= shown and todoItems[offset + i] or nil
 		row.item = item
 		if item then
 			row.icon:SetTexture(item.icon or HOME_ICON)
@@ -932,11 +954,11 @@ local function drawTodo()
 	end
 end
 
-todoScroll:SetScript("OnVerticalScroll", function (self, offset)
-	FauxScrollFrame_OnVerticalScroll(self, offset, TODO_HEIGHT, function ()
+todoScroll:HookScript("OnSizeChanged", function ()
+	if trainingPanel:IsVisible() then
 		drawTodo()
 		RPF.SyncSpellButtons()
-	end)
+	end
 end)
 
 -----------------------------------------
@@ -994,6 +1016,14 @@ local craftScrollName = RPF.UniqueName("HomeCraftScroll")
 local craftScroll = CreateFrame("ScrollFrame", craftScrollName, craftPane, "FauxScrollFrameTemplate")
 craftScroll:SetPoint("TOPLEFT", craftPane, "TOPLEFT", 4, -50)
 craftScroll:SetPoint("BOTTOMRIGHT", craftPane, "BOTTOMRIGHT", -26, 28)
+local drawCrafts
+-- Before the bar is skinned, as the Training list's.
+craftScroll:SetScript("OnVerticalScroll", function (self, offset)
+	FauxScrollFrame_OnVerticalScroll(self, offset, CRAFT_HEIGHT, function ()
+		drawCrafts()
+		RPF.SyncSpellButtons()
+	end)
+end)
 RPF.SkinScrollBar(craftScroll, craftScrollName)
 
 local columnBar = CreateFrame("Frame", nil, craftPane)
@@ -1054,7 +1084,7 @@ local function craftEnter(row, owner)
 end
 
 local craftButtons = {}
-for i = 1, CRAFT_ROWS do
+local function craftRow(i)
 	local row = CreateFrame("Button", nil, craftPane)
 	row:SetHeight(CRAFT_HEIGHT)
 	row:SetPoint("TOPLEFT", craftPane, "TOPLEFT", 6, -50 - (i - 1) * CRAFT_HEIGHT)
@@ -1082,14 +1112,16 @@ for i = 1, CRAFT_ROWS do
 	end
 	rowHighlight(row)
 	withSecure(row, "RetailProfessionsHomeCraft" .. i, craftEnter)
-	craftButtons[i] = row
+	return row
 end
+for i = 1, CRAFT_ROWS do craftButtons[i] = craftRow(i) end
 
-local function drawCrafts()
-	FauxScrollFrame_Update(craftScroll, #craftRows, CRAFT_ROWS, CRAFT_HEIGHT)
+function drawCrafts()
+	local shown = fitRows(craftScroll, craftButtons, CRAFT_ROWS, CRAFT_HEIGHT, craftRow)
+	FauxScrollFrame_Update(craftScroll, #craftRows, shown, CRAFT_HEIGHT)
 	local offset = FauxScrollFrame_GetOffset(craftScroll)
 	for i, row in ipairs(craftButtons) do
-		local e = craftRows[offset + i]
+		local e = i <= shown and craftRows[offset + i] or nil
 		row.entry = e
 		if e then
 			local r = e.recipe
@@ -1122,11 +1154,11 @@ local function drawCrafts()
 	end
 end
 
-craftScroll:SetScript("OnVerticalScroll", function (self, offset)
-	FauxScrollFrame_OnVerticalScroll(self, offset, CRAFT_HEIGHT, function ()
+craftScroll:HookScript("OnSizeChanged", function ()
+	if profitPanel:IsVisible() then
 		drawCrafts()
 		RPF.SyncSpellButtons()
-	end)
+	end
 end)
 
 -----------------------------------------
@@ -1198,6 +1230,7 @@ end
 H.Refresh = refresh
 -- For the smoke test.
 H.rows = { todo = todoRows, crafts = craftButtons, profs = profRows }
+H.scrolls = { todo = todoScroll, crafts = craftScroll }
 
 refreshSoon = function ()
 	if H.Active() then RPF.Debounce("home", 0.1, refresh) end
