@@ -216,6 +216,12 @@ crafting speed**, earned by skill.
   so it looks like DragonUI's professions overview (the profession's coloured skill bar, the
   list's category bars and skill-up arrows, the recipe on a parchment card with the profession's
   drawing, quality-ringed icons and slots, and its side tabs).
+- With a DragonUI that hosts other professions addons (its `Professions.Host`, DragonUI 2.7.0+),
+  there is only one window: DragonUI's. The recipe list, the recipe card, the craft controls and
+  the proc log button go into it; Home is one of its pages; Milling and Prospecting are side tabs;
+  tracked recipes go into its objective tracker; and K (or `/prof`) opens its Overview. There,
+  `/prof classic` shows DragonUI's own crafting page and `/prof retail` brings this one back.
+  Without DragonUI, everything above uses this addon's own window.
 - With [mod-reagent-bank-account](https://github.com/buildthehomelab/mod-reagent-bank-account)'s
   ReagentBankUI, everything its old profession sidebar did is in this window: the amount,
   crafting from the bank, Deposit leftovers and Add to Shopping List.

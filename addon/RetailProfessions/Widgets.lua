@@ -331,9 +331,23 @@ function RPF.DressCard(pane)
 	icon:SetVertexColor(0.85, 0.7, 0.5)
 	icon:SetAlpha(0.35)
 	icon:Hide()
-	Art.PlaceNineSlice(Art.NineSlice(pane, "ARTWORK", "insideframe", 53), pane, 53)
+	local frame = Art.NineSlice(pane, "ARTWORK", "insideframe", 53)
+	Art.PlaceNineSlice(frame, pane, 53)
+	local hidden = false
+
+	-- DragonUI's own window draws the card when the pane goes into it (Host.lua).
+	function pane:SetCardArtShown(on)
+		hidden = not on
+		for _, t in pairs(frame) do if on then t:Show() else t:Hide() end end
+		if on then base:Show() else base:Hide() end
+		if not on then
+			drawing:Hide()
+			icon:Hide()
+		end
+	end
 
 	function pane:SetCardArt(key, iconPath)
+		if hidden then return end
 		local name = Art.CardDrawing(key)
 		if name then
 			-- Cut where the parchment ends, as DragonUI does.
@@ -430,7 +444,15 @@ function RPF.CreateSquareButton(parent, size)
 		tex:ClearAllPoints()
 		tex:SetAllPoints(btn)
 	end
-	btn.icon = btn:CreateTexture(nil, "ARTWORK")
+	-- The highlight layer draws over everything, the icon too: added on top, it only lights the
+	-- square instead of hiding the icon.
+	local lit = btn:GetHighlightTexture()
+	if lit then
+		lit:SetBlendMode("ADD")
+		lit:SetAlpha(0.4)
+	end
+	-- The button draws its state textures on ARTWORK; the icon goes over them.
+	btn.icon = btn:CreateTexture(nil, "OVERLAY")
 	btn.icon:SetPoint("CENTER", btn, "CENTER", 0, 0)
 	return btn
 end

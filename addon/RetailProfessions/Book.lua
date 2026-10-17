@@ -267,6 +267,11 @@ local function refresh()
 end
 
 function RPF.ToggleBook()
+	-- In DragonUI's professions window (Host.lua) its Overview is the book.
+	if RPF.HostAPI() then
+		RPF.HostAPI().ToggleOverview()
+		return
+	end
 	if book:IsShown() then book:Hide() else book:Show() end
 end
 

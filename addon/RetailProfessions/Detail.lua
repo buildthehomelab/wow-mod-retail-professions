@@ -172,7 +172,10 @@ noReagents:SetText("No reagents.")
 
 local function drawReagents(r)
 	local shown = 0
+	-- The pane is narrower in DragonUI's window (Host.lua); the names stay inside it.
+	local nameWidth = math.min(REAGENT_TEXT_WIDTH, math.max(120, (pane:GetWidth() or 0) - 2 * PAD - 38))
 	for i, slot in ipairs(reagentSlots) do
+		slot.name:SetWidth(nameWidth)
 		local rg = r.reagents[i]
 		if rg then
 			shown = i
@@ -871,7 +874,7 @@ RPF.On("SELECTED", draw)
 -- The shopping line follows the amount.
 RPF.On("QUANTITY", function ()
 	local r = RPF.selected
-	if r and RPF.frame:IsShown() then draw(r) end
+	if r and RPF.IsOpen() then draw(r) end
 end)
 RPF.On("HIDDEN", function () whereToken = whereToken + 1 end)
 
@@ -887,7 +890,7 @@ RPF.On("PERK", function (spell, kind, list)
 	if #names == 0 then return end
 	local text = kind == "M" and ("Multicraft! " .. table.concat(names, ", ") .. " more.")
 		or ("Resourcefulness! You got back " .. table.concat(names, ", ") .. ".")
-	if not RPF.frame:IsShown() then
+	if not RPF.IsOpen() then
 		RPF.Print(text)
 		return
 	end
