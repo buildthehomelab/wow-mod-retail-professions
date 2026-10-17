@@ -279,7 +279,11 @@ if DRAGON == "1" or DRAGON == "2" or DRAGON == "3" then
 		_dir = "Interface\\AddOns\\DragonUI\\Textures\\", atlasinfo = {},
 		SafeSetAtlas = function () return true end, SkinRedButton = function () end,
 		CharacterPanel = { ReskinTab = function () end, ModernizeCloseButton = function () end,
-			SkinCheckbox = function () end, ReskinScrollBar = function () end },
+			SkinCheckbox = function () end,
+			-- As DragonUI's: it hooks the scroll frame to move its thumb.
+			ReskinScrollBar = function (scroll)
+				scroll:HookScript("OnVerticalScroll", function (self) self.__thumbMoved = true end)
+			end },
 	}
 end
 if DRAGON == "2" or DRAGON == "3" then
@@ -1340,6 +1344,17 @@ step("home: the Training and Profit tabs, the professions and the most profitabl
 	assert(RPF.Home.rows.crafts[1].entry.have >= RPF.Home.rows.crafts[2].entry.have, "not sorted by Have")
 	RetailProfessionsDB.homeSort = nil
 	assert(have1 ~= nil)
+
+	-- A taller pane (DragonUI's window) gets rows to its bottom; those past the list stay empty.
+	local scroll, rows = RPF.Home.scrolls.crafts, RPF.Home.rows.crafts
+	scroll:SetHeight(26 * 18)
+	scroll.__scripts.OnSizeChanged(scroll)
+	assert(#rows == 26, "the rows don't fill a taller pane: " .. #rows)
+	assert(rows[1].entry and not rows[26]:IsShown(), "the taller list isn't drawn")
+	-- Scrolling still reaches DragonUI's hook: the thumb moves with the list.
+	scroll.__scripts.OnVerticalScroll(scroll, 0)
+	assert(not DragonUI or rawget(scroll, "__thumbMoved"), "DragonUI's thumb doesn't follow the list")
+	assert(rows[1].entry, "the list emptied on a scroll")
 	tab.__scripts.OnClick(tab)
 	tick(0.3)
 end)
