@@ -173,19 +173,25 @@ local function unlearnedOf(skill)
 	return out
 end
 
--- The professions with a window, as the tabs show them. Kept until skills change or a
+-- The professions with a window, as the tabs show them, and (second) the professions column's:
+-- those and Archaeology, whose window is ArchaeologyUI's. Kept until skills change or a
 -- profession opens: reading them opens and folds the Skills headers.
-local professionCache
+local professionCache, columnCache
 local function professions()
-	if professionCache then return professionCache end
-	local out = {}
-	if not RetailProfessionsDB then return out end
+	if professionCache then return professionCache, columnCache end
+	local out, column = {}, {}
+	if not RetailProfessionsDB then return out, column end
 	for _, known in ipairs(RPF.KnownProfessions()) do
 		local p = known.profession
-		if p.openName and GetSpellInfo(p.openName) then table.insert(out, known) end
+		if p.openName and GetSpellInfo(p.openName) then
+			table.insert(out, known)
+			table.insert(column, known)
+		elseif p.archaeology then
+			table.insert(column, known)
+		end
 	end
-	professionCache = out
-	return out
+	professionCache, columnCache = out, column
+	return out, column
 end
 RPF.On("SKILLS", function () professionCache = nil end)
 RPF.On("SHOW", function () professionCache = nil end)
@@ -718,6 +724,11 @@ end
 
 function H.Run(action)
 	if not action then return end
+	local p = RPF.Profession(action.skill)
+	if p and p.archaeology then
+		RPF.OpenArchaeology()
+		return
+	end
 	if not isOpen(action.skill) then
 		if RPF.InCombat() then
 			UIErrorsFrame:AddMessage("Professions can't be opened in combat.", 1, 0.1, 0.1)
@@ -1214,13 +1225,13 @@ end
 local function refresh()
 	local view = H.Active()
 	if not view then return end
-	local profs = professions()
+	local profs, column = professions()
 	-- Training prices its skill-ups' materials too, so both views ask for prices.
 	local rows, entries = crafts(profs)
 	lastEntries = entries
 	if view == "training" then
 		todoItems = todo(profs)
-		drawProfs(profs)
+		drawProfs(column)
 		drawTodo()
 	else
 		refreshProfit(rows, entries)

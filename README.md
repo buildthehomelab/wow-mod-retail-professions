@@ -201,6 +201,10 @@ crafting speed**, earned by skill.
   **Unlearn**. For Inscription and Jewelcrafting, a **Milling** / **Prospecting** button that
   opens the window on your herbs or ore. The addon binds **K** the first time, if K is free; otherwise set it under
   Key Bindings > Retail Professions. `/prof` also opens it.
+- **Archaeology** (from [mod-archaeology](https://github.com/buildthehomelab/wow-mod-archaeology)),
+  with its ArchaeologyUI addon loaded: a row under Secondary Skills whose **Open** shows its
+  research window and **Survey** surveys, and a row in Training's professions column. It shows
+  whether or not the client patch makes Archaeology a skill line; it can't be unlearned here.
 
 **Other**
 - `/prof classic` switches back to the old Blizzard window, `/prof retail` returns.

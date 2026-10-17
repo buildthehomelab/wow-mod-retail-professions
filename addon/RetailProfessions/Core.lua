@@ -135,7 +135,12 @@ end
 -- id = skill line; nameSpell = a spell with the profession's (localized) name, used to match
 -- the names the client hands out; open = the spell that opens its window; extra = a second
 -- action for the book (gathering tracking, fishing); refine = the Milling or Prospecting that
--- goes with it (Refine.lua).
+-- goes with it (Refine.lua); iconSpell = a spell whose icon, when the client has it, is used
+-- instead of icon.
+--
+-- Archaeology (the mod-archaeology module) has no trade skill window: its window is the
+-- ArchaeologyUI addon's research window (a page of DragonUI's professions window with DragonUI),
+-- and its action is that addon's Survey. It only shows with ArchaeologyUI loaded.
 RPF.PROFESSIONS = {
 	{ id = 171, nameSpell = 2259, open = 2259, icon = "Trade_Alchemy" },
 	{ id = 164, nameSpell = 2018, open = 2018, icon = "Trade_BlackSmithing" },
@@ -152,6 +157,9 @@ RPF.PROFESSIONS = {
 	{ id = 185, nameSpell = 2550, open = 2550, icon = "INV_Misc_Food_15", secondary = true },
 	{ id = 129, nameSpell = 3273, open = 3273, icon = "Spell_Holy_SealOfSacrifice", secondary = true },
 	{ id = 356, nameSpell = 7620, extra = 7620, icon = "Trade_Fishing", secondary = true },
+	-- 90500 is Apprentice Archaeology in the realm's client patch; without it the name stands.
+	{ id = 794, nameSpell = 90500, name = "Archaeology", iconSpell = 90500, icon = "INV_Misc_Shovel_01",
+		secondary = true, archaeology = true },
 	{ id = 776, nameSpell = 53428, open = 53428, icon = "Spell_DeathKnight_FrozenRuneWeapon", class = true },
 }
 
@@ -171,7 +179,8 @@ local function indexProfessions()
 		p.localName = professionName(p) or p.name or tostring(p.id)
 		p.openName = p.open and GetSpellInfo(p.open) or nil
 		p.extraName = p.extra and GetSpellInfo(p.extra) or nil
-		p.texture = "Interface\\Icons\\" .. p.icon
+		local spellIcon = p.iconSpell and select(3, GetSpellInfo(p.iconSpell))
+		p.texture = spellIcon or ("Interface\\Icons\\" .. p.icon)
 		byId[p.id] = p
 		byName[p.localName:lower()] = p
 	end
@@ -186,6 +195,21 @@ end
 function RPF.ProfessionByName(name)
 	if not name then return nil end
 	return byName[name:lower()]
+end
+
+-- The ArchaeologyUI addon, when it's loaded and new enough to open its window and survey.
+function RPF.ArchaeologyUI()
+	local A = _G.ArchaeologyUI
+	if type(A) == "table" and A.ToggleWindow and A.SurveyButtonClick then return A end
+	return nil
+end
+
+-- Archaeology's window (ArchaeologyUI's research window, or its page in DragonUI's window).
+function RPF.OpenArchaeology()
+	local A = RPF.ArchaeologyUI()
+	if not A then return end
+	-- Open stays open; an older ArchaeologyUI only toggles.
+	if A.OpenWindow then A.OpenWindow() else A.ToggleWindow() end
 end
 
 -- Apprentice ... Grand Master, from the skill cap the player's rank gives.
@@ -230,10 +254,26 @@ function RPF.KnownProfessions()
 		local name, isHeader, _, rank, _, modifier, maxRank, abandonable = GetSkillLineInfo(i)
 		if not isHeader then
 			local p = RPF.ProfessionByName(name)
-			if p then
+			if p and not (p.archaeology and not RPF.ArchaeologyUI()) then
+				-- Archaeology's progress lives in the module's own tables: unlearning the skill
+				-- line alone would leave them behind.
 				table.insert(known, { profession = p, rank = (rank or 0) + (modifier or 0), baseRank = rank or 0,
-					maxRank = maxRank or 0, skillIndex = i, abandonable = abandonable })
+					maxRank = maxRank or 0, skillIndex = i, abandonable = abandonable and not p.archaeology })
 			end
+		end
+	end
+	-- Without the client patch (or with Archaeology.Skill.SkillLine off) Archaeology isn't a
+	-- skill line: ArchaeologyUI has the skill from the server.
+	local A = RPF.ArchaeologyUI()
+	local arch = RPF.Profession(794)
+	if A and arch and (A.skill or 0) > 0 then
+		local listed = false
+		for _, e in ipairs(known) do
+			if e.profession == arch then listed = true end
+		end
+		if not listed then
+			table.insert(known, { profession = arch, rank = A.skill, baseRank = A.skill, maxRank = A.maxSkill or 0,
+				skillIndex = GetNumSkillLines() + 1, abandonable = false })
 		end
 	end
 	local function order(e)
@@ -811,6 +851,9 @@ events:SetScript("OnEvent", function (self, event, ...)
 		-- With DragonUI's professions window we live in it (Host.lua); otherwise the stock window
 		-- only opens when we hand over to it.
 		if not RPF.StartHosting() then UIParent:UnregisterEvent("TRADE_SKILL_SHOW") end
+		-- Archaeology's skill comes from ArchaeologyUI when it isn't a skill line.
+		local A = RPF.ArchaeologyUI()
+		if A and A.On then A.On("STATE", function () RPF.Fire("SKILLS") end) end
 		RPF.Fire("LOGIN")
 		RPF.After(3, RPF.SayHello)
 	elseif event == "TRADE_SKILL_SHOW" then
