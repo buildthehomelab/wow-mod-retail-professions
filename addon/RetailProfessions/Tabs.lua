@@ -1,6 +1,7 @@
--- Profession tabs down the right edge of the window, like the spellbook's: Home (Home.lua) at
--- the top, one per profession you know that has a window, so you can switch without the
--- spellbook, and under them one for Milling and one for Prospecting when you know them.
+-- Profession tabs down the right edge of the window, like the spellbook's: Training and Profit
+-- (Home.lua) at the top, one per profession you know that has a window, so you can switch
+-- without the spellbook, and under them one for Milling and one for Prospecting when you know
+-- them.
 
 local RPF = RetailProfessions
 local M = RPF.Model
@@ -164,14 +165,21 @@ for i = 1, MAX_TABS do
 	end)
 end
 
--- Home: what to do next and what earns most, across every profession. Nothing to cast: the
--- window is already open.
-local homeTab = createTab("RetailProfessionsHomeTab", function ()
-	GameTooltip:SetText("Home")
-	GameTooltip:AddLine("What to do next and your most profitable crafts, across every profession.", 1, 1, 1, true)
-	return true
-end)
-homeTab.onClick = function () RPF.Home.SetActive(true) end
+-- Training (what to do next) and Profit (what earns most), across every profession. Nothing to
+-- cast: the window is already open.
+local viewTabs = {}
+for _, key in ipairs(RPF.Home.ORDER) do
+	local view = RPF.Home.VIEWS[key]
+	local name = "RetailProfessions" .. view.title .. "Tab"
+	local tab = createTab(name, function ()
+		GameTooltip:SetText(view.title)
+		GameTooltip:AddLine(view.tip, 1, 1, 1, true)
+		return true
+	end)
+	tab.view = key
+	tab.onClick = function () RPF.Home.SetActive(key) end
+	table.insert(viewTabs, tab)
+end
 
 -- Milling and Prospecting (Refine.lua) get a tab each under the professions: the herbs or ore
 -- you have, what they give, and Mill All.
@@ -192,8 +200,10 @@ end
 local function refresh()
 	-- In DragonUI's window its side tabs carry ours (Host.lua).
 	if RPF.hosting then
-		homeTab:Hide()
-		RPF.BindSpellButton(homeTab.button, nil, nil, nil, true)
+		for _, tab in ipairs(viewTabs) do
+			tab:Hide()
+			RPF.BindSpellButton(tab.button, nil, nil, nil, true)
+		end
 		for _, tab in ipairs(tabs) do
 			tab:Hide()
 			RPF.BindSpellButton(tab.button, nil, nil, nil, true)
@@ -224,18 +234,20 @@ local function refresh()
 		tab.kind = kind and shown[kind.skill] and kind or nil
 		if tab.kind then refining = refining + 1 end
 	end
-	-- Home sits over the professions, for your own only.
+	-- Training and Profit sit over the professions, for your own only.
 	local hasHome = #open > 0 and not M.linked
-	local top = hasHome and 1 or 0
+	local top = hasHome and #viewTabs or 0
 	local drop = hasHome and HOME_GAP or 0
 	local pitch = pitchFor(top + #open + refining, drop + (refining > 0 and REFINE_GAP or 0))
-	if hasHome then
-		place(homeTab, 0, pitch, 0)
-		homeTab.icon:SetTexture(RPF.Home.ICON)
-		setChecked(homeTab, home)
-		homeTab:Show()
-	else
-		homeTab:Hide()
+	for i, tab in ipairs(viewTabs) do
+		if hasHome then
+			place(tab, i - 1, pitch, 0)
+			tab.icon:SetTexture(RPF.Home.VIEWS[tab.view].icon)
+			setChecked(tab, home == tab.view)
+			tab:Show()
+		else
+			tab:Hide()
+		end
 	end
 
 	for i, tab in ipairs(tabs) do
@@ -250,7 +262,8 @@ local function refresh()
 			tab.icon:SetDesaturated(RPF.InCombat())
 			tab:Show()
 			if current and (viewing or home) then
-				-- Already open, showing Home or its herbs or ore: the tab goes back to the recipes.
+				-- Already open, showing Training, Profit or its herbs or ore: the tab goes back to the
+				-- recipes.
 				tab.onClick = function ()
 					RPF.Home.SetActive(false)
 					RPF.Refine.SetView(nil)
@@ -307,7 +320,7 @@ RPF.On("MOVED", refresh)
 RPF.On("HIDDEN", RPF.SyncSpellButtons)
 RPF.On("SECURE_STATE", function (on)
 	for _, tab in ipairs(tabs) do tab.icon:SetDesaturated(not on) end
-	homeTab.icon:SetDesaturated(false)
+	for _, tab in ipairs(viewTabs) do tab.icon:SetDesaturated(false) end
 	-- A tab that only changes the view works in combat too.
 	for _, tab in ipairs(refineTabs) do tab.icon:SetDesaturated(not on and tab.onClick == nil) end
 end)

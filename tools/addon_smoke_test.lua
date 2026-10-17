@@ -608,8 +608,8 @@ if DRAGON == "3" then
 		assert(RPF.WindowOpen() and not RPF.IsOpen() and not RPF.active, "a profession counts as open")
 		assert(provider and provider.frame:GetParent() == TradeSkillFrame and not provider.frame:IsShown(),
 			"ReagentBankUI would take us for the open window")
-		Host.SetPage("retailprofessions-home")
-		assert(RPF.Home.Active(), "Home doesn't open from the Overview")
+		Host.SetPage("retailprofessions-training")
+		assert(RPF.Home.Active() == "training", "Training doesn't open from the Overview")
 		assert(not RPF.Refine.IsOpen(RPF.Refine.Kind("M")), "Inscription counts as open")
 		Host.SetPage("crafting")
 		TradeSkillFrame:Hide()
@@ -621,11 +621,13 @@ if DRAGON == "3" then
 		assert(Host.regions.list == pieces.list and Host.regions.card == pieces.card
 			and Host.regions.controls == pieces.controls, "the list, card and controls aren't DragonUI's to place")
 		assert(pieces.list:GetParent() == Host.craft and pieces.card:GetParent() == Host.craft, "not moved into its window")
-		assert(Host.pages["retailprofessions-home"], "no Home page")
+		assert(Host.pages["retailprofessions-training"] and Host.pages["retailprofessions-profit"],
+			"no Training or Profit page")
 		local keys = {}
 		for _, tab in ipairs(Host.tabs) do keys[tab.key] = tab end
-		assert(keys["retailprofessions-home"] and keys["retailprofessions-refine-M"] and keys["retailprofessions-refine-P"],
-			"Home, Milling and Prospecting tabs missing")
+		assert(keys["retailprofessions-training"] and keys["retailprofessions-profit"]
+			and keys["retailprofessions-refine-M"] and keys["retailprofessions-refine-P"],
+			"Training, Profit, Milling and Prospecting tabs missing")
 	end)
 
 	step("hosted: a profession opens in DragonUI's window, unlearned recipes and all", function ()
@@ -651,11 +653,19 @@ if DRAGON == "3" then
 		assert(name == "Bolt of Linen Cloth", "ReagentBankUI reads the wrong recipe")
 	end)
 
-	step("hosted: Home is a page of DragonUI's window", function ()
-		Host.SetPage("retailprofessions-home")
-		assert(RPF.Home.Active() and RPF.Home.panel:IsVisible(), "Home not shown")
+	step("hosted: Training and Profit are pages of DragonUI's window", function ()
+		local panels = RPF.Home.panels
+		Host.SetPage("retailprofessions-training")
+		assert(RPF.Home.Active() == "training" and panels.training:IsVisible(), "Training not shown")
+		assert(not panels.profit:IsVisible(), "Profit shows under Training")
+		Host.SetPage("retailprofessions-profit")
+		assert(RPF.Home.Active() == "profit" and panels.profit:IsVisible(), "Profit not shown")
+		assert(not panels.training:IsVisible(), "Training shows under Profit")
+		assert(Host.provider.title() == "Profit", "title: " .. tostring(Host.provider.title()))
+		RPF.Home.SetActive("training")
+		assert(Host.page == "retailprofessions-training", "Training didn't switch the page: " .. Host.page)
 		RPF.Home.SetActive(false)
-		assert(Host.page == "crafting", "leaving Home didn't go back to the recipes: " .. Host.page)
+		assert(Host.page == "crafting", "leaving Training didn't go back to the recipes: " .. Host.page)
 	end)
 
 	step("hosted: K opens DragonUI's Overview", function ()
@@ -1253,7 +1263,7 @@ step("enchants filter by the slot they go on", function ()
 end)
 
 -----------------------------------------
--- Home: what to do next and the most profitable crafts, across every profession
+-- Training and Profit: what to do next and the most profitable crafts, across every profession
 
 local function homeTexts()
 	local out = {}
@@ -1267,9 +1277,14 @@ local function homeHas(pattern)
 	return nil
 end
 
-step("home: its tab, the cards and the most profitable crafts", function ()
-	local tab = find(function (f) return f.__kind == "Button" and rawget(f, "button") == RetailProfessionsHomeTab end)
-	assert(tab and tab:IsShown(), "no Home tab")
+local function viewTab(name)
+	return find(function (f) return f.__kind == "Button" and rawget(f, "button") == _G["RetailProfessions" .. name .. "Tab"] end)
+end
+
+step("home: the Training and Profit tabs, the professions and the most profitable crafts", function ()
+	local tab, profitTab = viewTab("Training"), viewTab("Profit")
+	assert(tab and tab:IsShown(), "no Training tab")
+	assert(profitTab and profitTab:IsShown(), "no Profit tab")
 	-- A cooldown seen on this visit is remembered; the scan before the tab is clicked takes it.
 	local oldCooldown = GetTradeSkillCooldown
 	GetTradeSkillCooldown = function (i) if i == 2 then return 3600 end return nil end
@@ -1282,11 +1297,27 @@ step("home: its tab, the cards and the most profitable crafts", function ()
 
 	tab.__scripts.OnClick(tab)
 	tick(0.3)
-	assert(RPF.Home.Active() and RPF.Home.panel:IsShown(), "Home isn't showing")
-	assert(not RPF.list:IsVisible(), "the recipe list still shows under Home")
-	assert(RetailProfessionsFrame.title.__text == "Home", "title: " .. RetailProfessionsFrame.title.__text)
-	assert(tab.checked:IsShown(), "the Home tab isn't lit")
+	local panels = RPF.Home.panels
+	assert(RPF.Home.Active() == "training" and panels.training:IsShown(), "Training isn't showing")
+	assert(not panels.profit:IsShown(), "Profit shows under Training")
+	assert(not RPF.list:IsVisible(), "the recipe list still shows under Training")
+	assert(RetailProfessionsFrame.title.__text == "Training", "title: " .. RetailProfessionsFrame.title.__text)
+	assert(tab.checked:IsShown() and not profitTab.checked:IsShown(), "the Training tab isn't the lit one")
 	assert(not RetailProfessionsTab1.__shown, "the open profession's tab still casts")
+
+	-- Professions: Tailoring (open, lit) and Mining.
+	local prof1 = RPF.Home.rows.profs[1]
+	assert(prof1.known.profession.id == 197 and prof1.rank.__text == "120/150", "first profession: " .. tostring(prof1.rank.__text))
+	assert(prof1.lit:IsShown(), "the open profession isn't lit")
+	assert(RPF.Home.rows.profs[2].known.profession.id == 186, "no Mining row")
+	assert(RetailProfessionsHomeProf2:GetAttribute("spell") == "Smelting", "the Mining row doesn't open Smelting")
+
+	profitTab.__scripts.OnClick(profitTab)
+	tick(0.3)
+	assert(RPF.Home.Active() == "profit" and panels.profit:IsShown() and not panels.training:IsShown(), "Profit isn't showing")
+	assert(RetailProfessionsFrame.title.__text == "Profit", "title: " .. RetailProfessionsFrame.title.__text)
+	assert(profitTab.checked:IsShown() and not tab.checked:IsShown(), "the Profit tab isn't the lit one")
+	assert(not RetailProfessionsHomeProf2.__shown, "a Training line casts under Profit")
 
 	-- The last test left the realm without prices: Refresh asks again.
 	buttonWithText("Refresh").__scripts.OnClick()
@@ -1300,12 +1331,6 @@ step("home: its tab, the cards and the most profitable crafts", function ()
 	assert(row2.entry and row2.entry.recipe.spell == 2963, "second craft")
 	assert(textShown("What you have makes"), "no summary of what the bags make")
 
-	-- Cards: Tailoring (open, gold edge) and Mining.
-	local card1 = RPF.Home.rows.cards[1]
-	assert(card1.known.profession.id == 197 and card1.rank.__text == "120/150", "first card: " .. tostring(card1.rank.__text))
-	assert(RPF.Home.rows.cards[2].known.profession.id == 186, "no Mining card")
-	assert(RetailProfessionsHomeCard2:GetAttribute("spell") == "Smelting", "the Mining card doesn't open Smelting")
-
 	-- Sorted by what can be made: the bolt (bags make 2) comes first unless the vest's thread is there.
 	local have1 = row1.entry.have
 	find(function (f) return f.__kind == "Button" and rawget(f, "col") and f.col.key == "have" end).__scripts.OnClick()
@@ -1314,6 +1339,8 @@ step("home: its tab, the cards and the most profitable crafts", function ()
 	assert(RPF.Home.rows.crafts[1].entry.have >= RPF.Home.rows.crafts[2].entry.have, "not sorted by Have")
 	RetailProfessionsDB.homeSort = nil
 	assert(have1 ~= nil)
+	tab.__scripts.OnClick(tab)
+	tick(0.3)
 end)
 
 step("home: to do", function ()
@@ -1328,7 +1355,8 @@ step("home: to do", function ()
 	assert(homeHas("^Open Mining once$"), "no open-once line")
 	-- Tailoring 120: both recipes are grey and the bracers come from a pattern, not the trainer.
 	assert(homeHas("^No Tailoring skill%-ups left$"), "no skill-up line")
-	assert(homeHas("^Craft "), "no craft-for-gold line")
+	-- What earns most is on the Profit tab now.
+	assert(not homeHas("^Craft "), "a craft-for-gold line on Training")
 	local row = RPF.Home.rows.todo[1]
 	assert(not row.button.__shown, "a Tailoring line casts while Tailoring is open")
 	-- Mining's lines cast Smelting; the cast's click leaves the recipe to pick.
@@ -1722,8 +1750,10 @@ end)
 step("tabs: a full column stays inside the window", function ()
 	local function column()
 		local out = {}
-		local home = find(function (f) return f.__kind == "Button" and rawget(f, "button") == RetailProfessionsHomeTab end)
-		if home.__shown then table.insert(out, home) end
+		for _, name in ipairs({ "Training", "Profit" }) do
+			local view = viewTab(name)
+			if view.__shown then table.insert(out, view) end
+		end
 		for i = 1, 12 do
 			local b = _G["RetailProfessionsTab" .. i]
 			if b and b.__shown then table.insert(out, b.region) end
@@ -1736,7 +1766,7 @@ step("tabs: a full column stays inside the window", function ()
 	-- DragonUI's professions tabs are bigger.
 	local full = DRAGON == "2" and 50 or 32
 	local few = column()
-	assert(#few == 5, "tabs before: " .. #few)
+	assert(#few == 6, "tabs before: " .. #few)
 	assert(few[1]:GetHeight() == full, "a short column's tabs aren't full size: " .. few[1]:GetHeight())
 
 	local extra = { "Alchemy", "Blacksmithing", "Enchanting", "Engineering", "Jewelcrafting", "Leatherworking",
@@ -1750,7 +1780,7 @@ step("tabs: a full column stays inside the window", function ()
 	tick(0.5)
 
 	local all = column()
-	assert(#all == 15, "tabs with every profession: " .. #all)
+	assert(#all == 16, "tabs with every profession: " .. #all)
 	local size = all[1]:GetHeight()
 	assert(size < full and size >= 14, "a full column's tabs didn't shrink: " .. size)
 	local last
@@ -1769,7 +1799,7 @@ step("tabs: a full column stays inside the window", function ()
 	knownSpells.Prospecting = nil
 	fire("SKILL_LINES_CHANGED")
 	tick(0.5)
-	assert(#column() == 5 and column()[1]:GetHeight() == full, "the tabs didn't grow back")
+	assert(#column() == 6 and column()[1]:GetHeight() == full, "the tabs didn't grow back")
 end)
 
 step("closing the window closes the trade skill", function ()

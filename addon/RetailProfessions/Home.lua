@@ -1,14 +1,14 @@
--- Home: the tab at the top of the column on the right, in the spirit of TradeSkillMaster's
--- crafting overview. It looks across every profession the character has, not just the open one:
+-- Training and Profit: the two tabs at the top of the column on the right, in the spirit of
+-- TradeSkillMaster's crafting overview. They look across every profession the character has,
+-- not just the open one:
 --
---   * a card per profession with its skill bar,
---   * To do: cooldowns that are ready, tracked recipes you now have the materials for, the most
---     gold your bags can turn into, what to make next for skill (the leveling guide's recipe,
---     Guides.lua, else the best skill-up you know), recipes waiting at the trainer, the next
---     rank to train, and herbs or ore to mill or prospect,
---   * Most profitable crafts: every recipe you know that makes money at today's auction prices
---     (Profit.lua), sortable by profit, by what your materials make in all, by how many you can
---     make and by how well it sells.
+--   * Training: your professions with their skill bars, and next to them what to do: what to
+--     make next for skill (the leveling guide's recipe, Guides.lua, else the best skill-up you
+--     know), recipes waiting at the trainer, the next rank to train, cooldowns that are ready,
+--     tracked recipes you now have the materials for, and herbs or ore to mill or prospect,
+--   * Profit: every recipe you know that makes money at today's auction prices (Profit.lua),
+--     sortable by profit, by what your materials make in all, by how many you can make and by
+--     how well it sells.
 --
 -- The client only lists the recipes of the profession that's open, so each visit to a profession
 -- leaves a note of the recipes you know (and their cooldowns) per character; the server's recipe
@@ -28,35 +28,45 @@ RPF.Home = H
 
 local floor = math.floor
 
-local TODO_WIDTH = 300
-local TODO_ROWS, TODO_HEIGHT = 10, 36
-local CRAFT_ROWS, CRAFT_HEIGHT = 18, 18
-local CARD_HEIGHT, CARD_GAP, MAX_CARDS = 40, 6, 12
-local HOME_ICON = "Interface\\Icons\\INV_Misc_Rune_01"
-H.ICON = HOME_ICON
+local PROF_WIDTH = 220
+local PROF_ROWS, PROF_HEIGHT = 12, 32
+local TODO_ROWS, TODO_HEIGHT = 11, 36
+local CRAFT_ROWS, CRAFT_HEIGHT = 20, 18
+
+-- The two views, as their tabs, pages and titles show them.
+H.VIEWS = {
+	training = { title = "Training", icon = "Interface\\Icons\\INV_Misc_Book_09",
+		tip = "What to do next: skill-ups, the leveling guide, the trainer and cooldowns, across every profession." },
+	profit = { title = "Profit", icon = "Interface\\Icons\\INV_Misc_Coin_02",
+		tip = "Your most profitable crafts at today's auction prices, across every profession." },
+}
+H.ORDER = { "training", "profit" }
+local HOME_ICON = H.VIEWS.training.icon
 
 -- The level each rank's trainer asks for (Journeyman ... Grand Master).
 local TRAIN_LEVEL = { [150] = 10, [225] = 20, [300] = 35, [375] = 50, [450] = 65 }
 
-local PLATE = {
-	bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
-	edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-	tile = true, tileSize = 16, edgeSize = 12,
-	insets = { left = 3, right = 3, top = 3, bottom = 3 },
-}
+-- "training", "profit" or nil (the recipes).
+H.view = nil
 
-H.active = false
-
--- Whether the window shows Home: your own professions only, not someone's linked one.
+-- The view the window shows ("training" or "profit"), or nil: your own professions only, not
+-- someone's linked one.
 function H.Active()
-	return H.active and RPF.WindowOpen() and not M.linked
+	return H.view and RPF.WindowOpen() and not M.linked and H.view or nil
 end
 
-function H.SetActive(on)
-	on = on and true or false
-	if H.active == on then return end
-	H.active = on
+-- "training" or "profit" (true: Training), or false for the recipes.
+function H.SetActive(view)
+	if view == true then view = "training" end
+	view = H.VIEWS[view or ""] and view or nil
+	if H.view == view then return end
+	H.view = view
 	RPF.Fire("VIEW")
+end
+
+function H.Title()
+	local view = H.Active()
+	return view and H.VIEWS[view].title or nil
 end
 
 local function isOpen(skill)
@@ -565,7 +575,7 @@ local function todoFor(add, known)
 	if not recipes then
 		if not charDB().homeLearned[skill] then
 			add({ icon = p.texture, text = "Open " .. p.localName .. " once",
-				sub = "So Home knows its recipes and what they earn.", action = { skill = skill } })
+				sub = "So Training and Profit know its recipes.", action = { skill = skill } })
 		end
 		return
 	end
@@ -641,7 +651,7 @@ local function todoFor(add, known)
 	end
 end
 
-local function todo(profs, craftRows)
+local function todo(profs)
 	local items = {}
 	local function add(item) table.insert(items, item) end
 	local byId = {}
@@ -649,42 +659,36 @@ local function todo(profs, craftRows)
 
 	readyCooldowns(add, byId)
 	trackedReady(add, byId)
-
-	-- The most your materials can earn, in one recipe.
-	local best
-	for _, row in ipairs(craftRows) do
-		if row.have > 0 and (not best or row.total > best.total) then best = row end
-	end
-	if best then
-		add({ icon = best.recipe.icon or best.profession.texture, text = "Craft " .. best.recipe.name,
-			sub = string.format("You can make %d for %s in all.", best.have, P.Signed(best.total)),
-			action = { skill = best.skill, spell = best.recipe.spell } })
-	end
-
 	for _, known in ipairs(profs) do todoFor(add, known) end
 	return items
 end
 
 -----------------------------------------
--- the panel: under the skill bar, in place of the list and the recipe
+-- the panels: under the skill bar, in place of the list and the recipe, one per view
 
-local panel = CreateFrame("Frame", nil, RPF.content)
-panel:SetPoint("TOPLEFT", RPF.header, "BOTTOMLEFT", 0, -6)
-panel:SetPoint("BOTTOMRIGHT", RPF.content, "BOTTOMRIGHT", 0, 0)
-panel:Hide()
-H.panel = panel
+local function newPanel()
+	local panel = CreateFrame("Frame", nil, RPF.content)
+	panel:SetPoint("TOPLEFT", RPF.header, "BOTTOMLEFT", 0, -6)
+	panel:SetPoint("BOTTOMRIGHT", RPF.content, "BOTTOMRIGHT", 0, 0)
+	panel:Hide()
+	return panel
+end
 
-local function showPanel(on)
-	-- In DragonUI's window Home is one of its pages (Host.lua).
+local trainingPanel, profitPanel = newPanel(), newPanel()
+H.panels = { training = trainingPanel, profit = profitPanel }
+
+local function showPanel(view)
+	-- In DragonUI's window each view is one of its pages (Host.lua).
 	if RPF.hosting then
-		RPF.ShowHostPage(on)
-		if on then panel:Show() end
-		return
+		RPF.ShowHostPage(view)
+	else
+		for _, pane in ipairs(RPF.panes) do
+			if view then pane:Hide() else pane:Show() end
+		end
 	end
-	for _, pane in ipairs(RPF.panes) do
-		if on then pane:Hide() else pane:Show() end
+	for key, panel in pairs(H.panels) do
+		if key == view then panel:Show() else panel:Hide() end
 	end
-	if on then panel:Show() else panel:Hide() end
 end
 
 -- A line that does something: itself when its profession is open, through a secure button
@@ -766,104 +770,96 @@ local function clickHint(action)
 	end
 end
 
--- cards
+local function paneTitle(pane, text)
+	local t = pane:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	t:SetPoint("TOPLEFT", pane, "TOPLEFT", 10, -9)
+	t:SetText(text)
+	return t
+end
 
-local cardRow = CreateFrame("Frame", nil, panel)
-cardRow:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, 0)
-cardRow:SetPoint("TOPRIGHT", panel, "TOPRIGHT", 0, 0)
-cardRow:SetHeight(CARD_HEIGHT)
+-----------------------------------------
+-- Training: your professions on the left, what to do next on the right
 
-local function cardEnter(card, owner)
-	local known = card.known
+local profPane = RPF.CreateInset(trainingPanel)
+profPane:SetPoint("TOPLEFT", trainingPanel, "TOPLEFT", 0, 0)
+profPane:SetPoint("BOTTOMLEFT", trainingPanel, "BOTTOMLEFT", 0, 0)
+profPane:SetWidth(PROF_WIDTH)
+paneTitle(profPane, "Professions")
+
+local function profEnter(row, owner)
+	local known = row.known
 	if not known then return end
-	GameTooltip:SetOwner(owner, "ANCHOR_BOTTOM")
+	GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
 	GameTooltip:SetText(known.profession.localName .. " - " .. RPF.RankTitle(known.maxRank))
 	GameTooltip:AddLine(string.format("Skill %d of %d", known.rank, known.maxRank), 1, 1, 1)
-	clickHint(card.action)
+	clickHint(row.action)
 	GameTooltip:Show()
 end
 
-local cards = {}
-for i = 1, MAX_CARDS do
-	local card = CreateFrame("Button", nil, cardRow)
-	card:SetHeight(CARD_HEIGHT)
-	card:SetBackdrop(PLATE)
-	card:SetBackdropColor(0.03, 0.03, 0.03, 0.8)
-	card.icon = card:CreateTexture(nil, "ARTWORK")
-	card.icon:SetSize(28, 28)
-	card.icon:SetPoint("LEFT", card, "LEFT", 6, 0)
-	card.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-	card.name = card:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-	card.name:SetPoint("TOPLEFT", card.icon, "TOPRIGHT", 6, -1)
-	card.name:SetPoint("RIGHT", card, "RIGHT", -6, 0)
-	card.name:SetJustifyH("LEFT")
-	card.name:SetWordWrap(false)
-	card.bar = CreateFrame("StatusBar", nil, card)
-	card.bar:SetHeight(11)
-	card.bar:SetPoint("BOTTOMLEFT", card.icon, "BOTTOMRIGHT", 6, 1)
-	card.bar:SetPoint("RIGHT", card, "RIGHT", -8, 0)
-	card.bar:SetStatusBarTexture("Interface\\PaperDollInfoFrame\\UI-Character-Skills-Bar")
-	card.bar:SetStatusBarColor(0.95, 0.6, 0.1)
-	local bg = card.bar:CreateTexture(nil, "BACKGROUND")
-	bg:SetAllPoints(card.bar)
+local profRows = {}
+for i = 1, PROF_ROWS do
+	local row = CreateFrame("Button", nil, profPane)
+	row:SetHeight(PROF_HEIGHT)
+	row:SetPoint("TOPLEFT", profPane, "TOPLEFT", 6, -28 - (i - 1) * PROF_HEIGHT)
+	row:SetPoint("RIGHT", profPane, "RIGHT", -6, 0)
+	row.icon = row:CreateTexture(nil, "ARTWORK")
+	row.icon:SetSize(24, 24)
+	row.icon:SetPoint("LEFT", row, "LEFT", 4, 0)
+	row.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+	row.rank = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	row.rank:SetPoint("TOPRIGHT", row, "TOPRIGHT", -4, -3)
+	row.rank:SetJustifyH("RIGHT")
+	row.name = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+	row.name:SetPoint("TOPLEFT", row.icon, "TOPRIGHT", 6, 0)
+	row.name:SetPoint("RIGHT", row.rank, "LEFT", -4, 0)
+	row.name:SetJustifyH("LEFT")
+	row.name:SetWordWrap(false)
+	row.bar = CreateFrame("StatusBar", nil, row)
+	row.bar:SetHeight(7)
+	row.bar:SetPoint("BOTTOMLEFT", row.icon, "BOTTOMRIGHT", 6, 1)
+	row.bar:SetPoint("RIGHT", row, "RIGHT", -4, 0)
+	row.bar:SetStatusBarTexture("Interface\\PaperDollInfoFrame\\UI-Character-Skills-Bar")
+	row.bar:SetStatusBarColor(0.95, 0.6, 0.1)
+	local bg = row.bar:CreateTexture(nil, "BACKGROUND")
+	bg:SetAllPoints(row.bar)
 	bg:SetTexture(0, 0, 0, 0.65)
-	card.rank = card.bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	card.rank:SetPoint("CENTER", card.bar, "CENTER", 0, 1)
-	rowHighlight(card)
-	withSecure(card, "RetailProfessionsHomeCard" .. i, cardEnter)
-	card:Hide()
-	cards[i] = card
+	-- The open profession's row stays lit.
+	row.lit = row:CreateTexture(nil, "BACKGROUND")
+	row.lit:SetTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
+	row.lit:SetBlendMode("ADD")
+	row.lit:SetVertexColor(1, 0.82, 0, 0.3)
+	row.lit:SetAllPoints(row)
+	rowHighlight(row)
+	withSecure(row, "RetailProfessionsHomeProf" .. i, profEnter)
+	row:Hide()
+	profRows[i] = row
 end
 
-local function drawCards(profs)
-	local n = math.min(#profs, MAX_CARDS)
-	local width = cardRow:GetWidth()
-	if not width or width < 200 then width = 700 end
-	local w = math.min(200, floor((width - (n - 1) * CARD_GAP) / math.max(n, 1)))
-	for i, card in ipairs(cards) do
+local function drawProfs(profs)
+	for i, row in ipairs(profRows) do
 		local known = profs[i]
-		if known and i <= n then
+		row.known = known
+		if known then
 			local p = known.profession
-			card.known = known
-			card:SetWidth(w)
-			card:ClearAllPoints()
-			card:SetPoint("TOPLEFT", cardRow, "TOPLEFT", (i - 1) * (w + CARD_GAP), 0)
-			card.icon:SetTexture(p.texture)
-			card.bar:SetMinMaxValues(0, math.max(1, known.maxRank))
-			card.bar:SetValue(known.rank)
-			-- Narrow cards (a character with many professions) put the numbers where the name
-			-- was; the tooltip names it.
-			local numbers = known.rank .. "/" .. known.maxRank
-			if w < 120 then
-				card.name:SetText("|cffffffff" .. numbers .. "|r")
-				card.rank:SetText("")
-			else
-				card.name:SetText(p.localName)
-				card.rank:SetText(numbers)
-			end
-			if isOpen(p.id) then card:SetBackdropBorderColor(1, 0.82, 0, 1) else card:SetBackdropBorderColor(0.45, 0.45, 0.45, 1) end
-			card:Show()
-			bindAction(card, { skill = p.id })
+			row.icon:SetTexture(p.texture)
+			row.name:SetText(p.localName)
+			row.rank:SetText(known.rank .. "/" .. known.maxRank)
+			row.bar:SetMinMaxValues(0, math.max(1, known.maxRank))
+			row.bar:SetValue(known.rank)
+			if isOpen(p.id) then row.lit:Show() else row.lit:Hide() end
+			row:Show()
+			bindAction(row, { skill = p.id })
 		else
-			card.known = nil
-			card:Hide()
-			bindAction(card, nil)
+			row:Hide()
+			bindAction(row, nil)
 		end
 	end
 end
 
--- To do
-
-local todoPane = RPF.CreateInset(panel)
-todoPane:SetPoint("TOPLEFT", cardRow, "BOTTOMLEFT", 0, -6)
-todoPane:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 0, 0)
-todoPane:SetWidth(TODO_WIDTH)
-
-do
-	local t = todoPane:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-	t:SetPoint("TOPLEFT", todoPane, "TOPLEFT", 10, -9)
-	t:SetText("To do")
-end
+local todoPane = RPF.CreateInset(trainingPanel)
+todoPane:SetPoint("TOPLEFT", profPane, "TOPRIGHT", 6, 0)
+todoPane:SetPoint("BOTTOMRIGHT", trainingPanel, "BOTTOMRIGHT", 0, 0)
+paneTitle(todoPane, "Next steps")
 
 local todoItems = {}
 local todoScrollName = RPF.UniqueName("HomeTodoScroll")
@@ -874,7 +870,7 @@ RPF.SkinScrollBar(todoScroll, todoScrollName)
 
 local todoEmpty = todoPane:CreateFontString(nil, "OVERLAY", "GameFontDisable")
 todoEmpty:SetPoint("TOP", todoPane, "TOP", 0, -60)
-todoEmpty:SetWidth(TODO_WIDTH - 40)
+todoEmpty:SetWidth(300)
 
 local function todoEnter(row, owner)
 	local item = row.item
@@ -943,17 +939,13 @@ todoScroll:SetScript("OnVerticalScroll", function (self, offset)
 	end)
 end)
 
--- Most profitable crafts
+-----------------------------------------
+-- Profit: the most profitable crafts, the whole width
 
-local craftPane = RPF.CreateInset(panel)
-craftPane:SetPoint("TOPLEFT", todoPane, "TOPRIGHT", 6, 0)
-craftPane:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", 0, 0)
-
-do
-	local t = craftPane:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-	t:SetPoint("TOPLEFT", craftPane, "TOPLEFT", 10, -9)
-	t:SetText("Most profitable crafts")
-end
+local craftPane = RPF.CreateInset(profitPanel)
+craftPane:SetPoint("TOPLEFT", profitPanel, "TOPLEFT", 0, 0)
+craftPane:SetPoint("BOTTOMRIGHT", profitPanel, "BOTTOMRIGHT", 0, 0)
+paneTitle(craftPane, "Most profitable crafts")
 
 local craftRows = {}
 local lastEntries = {}
@@ -990,13 +982,13 @@ canMakeCheck:SetScript("OnLeave", function () GameTooltip:Hide() end)
 -- Columns, from the right edge of a row: { key, label, right offset, width, tooltip }.
 local COLUMNS = {
 	{ key = "profit", label = "Profit", right = -4, width = 64, tip = "Profit per craft, after the house cut." },
-	{ key = "total", label = "In all", right = -72, width = 64,
+	{ key = "total", label = "In all", right = -80, width = 70,
 		tip = "What crafting everything your materials make would earn." },
-	{ key = "have", label = "Have", right = -140, width = 34, tip = "How many you can make from what you have." },
-	{ key = "sold", label = "Sold", right = -178, width = 36,
+	{ key = "have", label = "Have", right = -162, width = 40, tip = "How many you can make from what you have." },
+	{ key = "sold", label = "Sold", right = -214, width = 40,
 		tip = "How many sold on the auction house lately: a quick seller beats a big number that sits." },
 }
-local NAME_RIGHT = -218
+local NAME_RIGHT = -262
 
 local craftScrollName = RPF.UniqueName("HomeCraftScroll")
 local craftScroll = CreateFrame("ScrollFrame", craftScrollName, craftPane, "FauxScrollFrameTemplate")
@@ -1047,7 +1039,7 @@ summary:SetWordWrap(false)
 
 local craftEmpty = craftPane:CreateFontString(nil, "OVERLAY", "GameFontDisable")
 craftEmpty:SetPoint("TOP", craftPane, "TOP", 0, -80)
-craftEmpty:SetWidth(320)
+craftEmpty:SetWidth(360)
 
 local function craftEnter(row, owner)
 	local e = row.entry
@@ -1153,12 +1145,7 @@ local function priceText(entries, earn, count)
 	return when
 end
 
-local function refresh()
-	if not H.Active() then return end
-	local profs = professions()
-	local rows, entries = crafts(profs)
-	lastEntries = entries
-
+local function refreshProfit(rows, entries)
 	local earn, count = 0, 0
 	for _, row in ipairs(rows) do
 		if row.have > 0 then
@@ -1166,8 +1153,6 @@ local function refresh()
 			count = count + 1
 		end
 	end
-
-	todoItems = todo(profs, rows)
 	local shown = rows
 	if RetailProfessionsDB.homeCanMake then
 		shown = {}
@@ -1175,19 +1160,13 @@ local function refresh()
 	end
 	sortCrafts(shown)
 	craftRows = shown
-
-	drawCards(profs)
-	drawTodo()
 	drawCrafts()
 	canMakeCheck:SetChecked(RetailProfessionsDB.homeCanMake and true or false)
-	summary:SetText(priceText(entries, earn, count))
-	if #entries == 0 then
-		-- Nothing to price: no profession opened yet, or their recipes are on their way.
-		summary:SetText("")
-	end
+	-- Nothing to price: no profession opened yet, or their recipes are on their way.
+	summary:SetText(#entries > 0 and priceText(entries, earn, count) or "")
 	if #craftRows == 0 then
 		if #entries == 0 then
-			craftEmpty:SetText("No recipes that make an item yet. Open each profession once so Home knows its recipes.")
+			craftEmpty:SetText("No recipes that make an item yet. Open each profession once so this tab knows its recipes.")
 		elseif P.state == "ok" and not P.Fetching() then
 			craftEmpty:SetText(RetailProfessionsDB.homeCanMake and "Nothing you can make right now earns money."
 				or "Nothing you know earns money at today's prices.")
@@ -1198,11 +1177,27 @@ local function refresh()
 	else
 		craftEmpty:Hide()
 	end
+end
+
+local function refresh()
+	local view = H.Active()
+	if not view then return end
+	local profs = professions()
+	-- Training prices its skill-ups' materials too, so both views ask for prices.
+	local rows, entries = crafts(profs)
+	lastEntries = entries
+	if view == "training" then
+		todoItems = todo(profs)
+		drawProfs(profs)
+		drawTodo()
+	else
+		refreshProfit(rows, entries)
+	end
 	RPF.SyncSpellButtons()
 end
 H.Refresh = refresh
 -- For the smoke test.
-H.rows = { todo = todoRows, crafts = craftButtons, cards = cards }
+H.rows = { todo = todoRows, crafts = craftButtons, profs = profRows }
 
 refreshSoon = function ()
 	if H.Active() then RPF.Debounce("home", 0.1, refresh) end
@@ -1222,8 +1217,8 @@ end
 RPF.On("SHOW", function ()
 	if pending and GetTime() - pending.at > 2 then pending = nil end
 	-- A profession opens on its recipes.
-	if H.active then
-		H.active = false
+	if H.view then
+		H.view = nil
 		RPF.Fire("VIEW")
 	end
 end)
@@ -1236,9 +1231,9 @@ RPF.On("REBUILT", function ()
 end)
 
 RPF.On("VIEW", function ()
-	local on = H.Active()
-	showPanel(on)
-	if on then refresh() end
+	local view = H.Active()
+	showPanel(view)
+	if view then refresh() end
 end)
 
 for _, event in ipairs({ "PRICES", "BAGS", "RECIPES", "SKILLS", "TRACKED", "YIELDS", "ITEM_INFO", "REBUILT" }) do
@@ -1247,6 +1242,6 @@ end
 
 -- The window opens on recipes next time.
 RPF.On("HIDDEN", function ()
-	H.active = false
-	showPanel(false)
+	H.view = nil
+	showPanel(nil)
 end)

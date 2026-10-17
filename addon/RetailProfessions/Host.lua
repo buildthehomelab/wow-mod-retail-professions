@@ -1,7 +1,7 @@
 -- With DragonUI's professions window, this addon lives in it instead of opening its own: DragonUI
 -- keeps the window (its art, rank bar, profession tabs and Overview), and our recipe list, the
--- recipe card, the craft controls and the proc log button go where its own would be. Home is
--- one of its pages, Milling and Prospecting are side tabs, tracked recipes go in its objective
+-- recipe card, the craft controls and the proc log button go where its own would be. Training
+-- and Profit are pages of it, Milling and Prospecting are side tabs, tracked recipes go in its objective
 -- tracker and the professions book (K) is its Overview. Without DragonUI (or with one that
 -- can't host) the window of our own is used as before. /prof classic shows DragonUI's own
 -- crafting page instead.
@@ -9,7 +9,13 @@
 local RPF = RetailProfessions
 local M = RPF.Model
 
-local HOME_PAGE = "retailprofessions-home"
+-- Training and Profit (Home.lua), a page each.
+local PAGE_PREFIX = "retailprofessions-"
+local function pageOf(view) return view and (PAGE_PREFIX .. view) or nil end
+local function viewOf(page)
+	local view = type(page) == "string" and page:sub(1, #PAGE_PREFIX) == PAGE_PREFIX and page:sub(#PAGE_PREFIX + 1)
+	return view and RPF.Home.VIEWS[view] and view or nil
+end
 
 -- DragonUI's host (DragonUI.Professions.Host), when this DragonUI has one.
 local function api()
@@ -45,7 +51,7 @@ local function syncBank()
 	if RPF.hosting and RPF.IsOpen() then bankFrame:Show() else bankFrame:Hide() end
 end
 
--- Our secure buttons (Home's lines) lie over the window by screen position: they follow it when
+-- Our secure buttons (Training's and Profit's lines) lie over the window by screen position: they follow it when
 -- it moves among the other panels or is scaled.
 local function followWindow()
 	RPF.Debounce("host-secure", 0.05, RPF.SyncSpellButtons)
@@ -103,8 +109,8 @@ end
 provider.onScale = followWindow
 
 function provider.onPage(page)
-	local home = page == HOME_PAGE
-	if RPF.Home.active ~= home then RPF.Home.SetActive(home) end
+	local view = viewOf(page)
+	if RPF.Home.view ~= view then RPF.Home.SetActive(view or false) end
 end
 
 -- The open profession's own tab: back to its recipes.
@@ -113,13 +119,14 @@ function provider.onCraftingTab()
 	RPF.Refine.SetView(nil)
 end
 
--- Home on, or back to the recipes (Home.lua).
-function RPF.ShowHostPage(on)
+-- Training or Profit on, or (nil) back to the recipes (Home.lua).
+function RPF.ShowHostPage(view)
 	local H = api()
 	if not H then return end
-	if on then
-		if H.Page() ~= HOME_PAGE then H.SetPage(HOME_PAGE) end
-	elseif H.Page() == HOME_PAGE then
+	local page = pageOf(view)
+	if page then
+		if H.Page() ~= page then H.SetPage(page) end
+	elseif viewOf(H.Page()) then
 		H.SetPage("crafting")
 	end
 end
@@ -134,38 +141,43 @@ local function countKnown()
 	return changed
 end
 
-local homePage
-local function addHome(H)
-	H.AddPage(HOME_PAGE, {
-		title = "Home",
-		portrait = RPF.Home.ICON,
-		build = function (parent)
-			if not homePage then
-				homePage = CreateFrame("Frame", nil, parent)
-				-- Home's lines carry secure buttons placed by screen position. The window moves
-				-- when another panel opens beside it; while Home shows, they follow.
-				local lastLeft, lastTop
-				homePage:SetScript("OnUpdate", function ()
-					local left, top = TradeSkillFrame:GetLeft(), TradeSkillFrame:GetTop()
-					if left ~= lastLeft or top ~= lastTop then
-						lastLeft, lastTop = left, top
-						followWindow()
-					end
-				end)
-				local panel = RPF.Home.panel
-				panel:SetParent(homePage)
-				panel:ClearAllPoints()
-				panel:SetPoint("TOPLEFT", homePage, "TOPLEFT", 10, -40)
-				panel:SetPoint("BOTTOMRIGHT", homePage, "BOTTOMRIGHT", -10, 10)
-			end
-			homePage:SetParent(parent)
-			return homePage
-		end,
-	})
-	H.AddTab({
-		key = HOME_PAGE, label = "Home", icon = RPF.Home.ICON, after = "overview", page = HOME_PAGE,
-		shown = function () return not M.linked and knownCount > 0 end,
-	})
+local holders = {}
+local function addViews(H)
+	for _, key in ipairs(RPF.Home.ORDER) do
+		local view, page = RPF.Home.VIEWS[key], pageOf(key)
+		H.AddPage(page, {
+			title = view.title,
+			portrait = view.icon,
+			build = function (parent)
+				local holder = holders[key]
+				if not holder then
+					holder = CreateFrame("Frame", nil, parent)
+					holders[key] = holder
+					-- The lines carry secure buttons placed by screen position. The window moves
+					-- when another panel opens beside it; while the page shows, they follow.
+					local lastLeft, lastTop
+					holder:SetScript("OnUpdate", function ()
+						local left, top = TradeSkillFrame:GetLeft(), TradeSkillFrame:GetTop()
+						if left ~= lastLeft or top ~= lastTop then
+							lastLeft, lastTop = left, top
+							followWindow()
+						end
+					end)
+					local panel = RPF.Home.panels[key]
+					panel:SetParent(holder)
+					panel:ClearAllPoints()
+					panel:SetPoint("TOPLEFT", holder, "TOPLEFT", 10, -40)
+					panel:SetPoint("BOTTOMRIGHT", holder, "BOTTOMRIGHT", -10, 10)
+				end
+				holder:SetParent(parent)
+				return holder
+			end,
+		})
+		H.AddTab({
+			key = page, label = view.title, icon = view.icon, after = "overview", page = page,
+			shown = function () return not M.linked and knownCount > 0 end,
+		})
+	end
 end
 
 -- The spell that opens the profession a herb or ore kind belongs to, when you know it.
@@ -324,7 +336,7 @@ function RPF.StartHosting()
 	RPF.hostClassic = nil
 	RPF.hosting = true
 	pieces = pieces or RPF.HostPieces()
-	addHome(H)
+	addViews(H)
 	addRefineTabs(H)
 	if RPF.hostTracker == nil then RPF.hostTracker = H.AddTrackerCollector(collect) and true or false end
 	H.Register(provider)
