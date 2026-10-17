@@ -133,14 +133,13 @@ crafting speed**, earned by skill.
 - Recipes at the very top of an era's skill cap never turn grey, so they get little or nothing.
   `RetailProfessions.Perks.*.Min` gives every recipe a base if you want one.
 
-**Home** (the house tab at the top of the column on the right)
-- One page for every profession you have, in the spirit of TradeSkillMaster's crafting overview,
-  in place of the list and the recipe until you pick a profession tab again.
-- A **card** per profession with its skill bar.
-- **To do**, most urgent first:
+**Training** and **Profit** (the book and coin tabs at the top of the column on the right)
+- Two pages that look across every profession you have, in the spirit of TradeSkillMaster's
+  crafting overview, in place of the list and the recipe until you pick a profession tab again.
+- **Training**: your professions with their skill bars down the left, and **Next steps** beside
+  them, most urgent first:
   - cooldowns that are over (all transmutes on one line, since they share a timer),
   - tracked recipes you now have the materials for,
-  - the recipe your materials earn the most from,
   - per profession: the next rank to train (from 25 points short of the cap, with the level the
     trainer asks for), new recipes waiting at the trainer, what to make next for skill, and herbs
     to mill or ore to prospect.
@@ -154,13 +153,13 @@ crafting speed**, earned by skill.
   shopping list. Where the guide only describes what to make ("any orange Glyph", "uncommon
   Northrend gems") or has nothing for your skill, the best skill-up you know stands in (one you
   can make now first, then the likeliest skill-up, then the cheapest).
-- **Most profitable crafts**: every recipe you know that makes money at today's prices (priced
+- **Profit**: the most profitable crafts, every recipe you know that makes money at today's prices (priced
   as below), with how many you can make, what that earns in all and how many sold lately. Click
   a column to sort by it; **Can make now** hides the rest; **Refresh** asks for prices again. The
   line under it says what everything your materials make would earn.
 - Click a line to go to its recipe. A line in another profession opens that profession first.
   Clicking those doesn't work in combat.
-- The client only lists the open profession's recipes, so Home keeps a note of what each
+- The client only lists the open profession's recipes, so these pages keep a note of what each
   profession knows (and its cooldowns) whenever you open it. A profession you haven't opened yet
   says "Open ... once".
 
@@ -218,9 +217,10 @@ crafting speed**, earned by skill.
   drawing, quality-ringed icons and slots, and its side tabs).
 - With a DragonUI that hosts other professions addons (its `Professions.Host`, DragonUI 2.7.0+),
   there is only one window: DragonUI's. The recipe list, the recipe card, the craft controls and
-  the proc log button go into it; Home is one of its pages; Milling and Prospecting are side tabs;
-  tracked recipes go into its objective tracker; and K (or `/prof`) opens its Overview. There,
-  `/prof classic` shows DragonUI's own crafting page and `/prof retail` brings this one back.
+  the proc log button go into it; Training and Profit are pages of it; Milling and Prospecting
+  are side tabs; tracked recipes go into its objective tracker; and K (or `/prof`) opens its
+  Overview. There, `/prof classic` shows DragonUI's own crafting page and `/prof retail` brings
+  this one back.
   Without DragonUI, everything above uses this addon's own window.
 - With [mod-reagent-bank-account](https://github.com/buildthehomelab/mod-reagent-bank-account)'s
   ReagentBankUI, everything its old profession sidebar did is in this window: the amount,
@@ -315,8 +315,8 @@ and the crafting perks (`RetailProfessions.Perks.Enable` and a `Min` / `Max` per
 `lua tools/addon_smoke_test.lua addon/RetailProfessions` loads the addon against a stubbed
 3.3.5a API and a fake server and walks through opening a profession, filters, crafting, where to
 learn a recipe, tracking, the book, combat, the profit view (with a fake mod-retail-ah price
-server), the Home tab (to do, the leveling guide, the most profitable crafts, a line opening another
-profession), shopping for an unlearned recipe, the
+server), the Training and Profit tabs (next steps, the leveling guide, the most profitable crafts,
+a line opening another profession), shopping for an unlearned recipe, the
 crafting perks, milling (its tab, Mill All, Stop, the reagent bank) and the classic switch.
 
 ## Troubleshooting

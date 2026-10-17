@@ -445,7 +445,7 @@ function RPF.HostPieces()
 	return { list = left, card = right, controls = controls, log = logButton }
 end
 
--- The Home view (Home.lua) lays itself over these under the skill bar.
+-- The Training and Profit views (Home.lua) lay themselves over these under the skill bar.
 RPF.content, RPF.header, RPF.panes = content, header, { left, right, controls }
 
 local createAllButton = RPF.CreateButton(controls, CREATE_ALL or "Create All", 110, 22)
@@ -958,10 +958,11 @@ function RPF.Select(r, reveal)
 	if reveal then list:Reveal(r) else list:Refresh() end
 end
 
--- The window's title: Home, Milling or Prospecting, someone's linked profession, or the profession.
+-- The window's title: Training or Profit, Milling or Prospecting, someone's linked profession,
+-- or the profession.
 function RPF.TitleText()
 	local refine = RPF.Refine.Active()
-	return RPF.Home.Active() and "Home" or refine and refine.name
+	return RPF.Home.Title() or refine and refine.name
 		or M.linked and ((M.linkedName or "") .. " - " .. (M.skillName or "")) or (M.skillName or "Professions")
 end
 
