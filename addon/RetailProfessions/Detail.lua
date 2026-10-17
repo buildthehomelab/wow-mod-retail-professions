@@ -172,7 +172,10 @@ noReagents:SetText("No reagents.")
 
 local function drawReagents(r)
 	local shown = 0
+	-- The pane is narrower in DragonUI's window (Host.lua); the names stay inside it.
+	local nameWidth = math.min(REAGENT_TEXT_WIDTH, math.max(120, (pane:GetWidth() or 0) - 2 * PAD - 38))
 	for i, slot in ipairs(reagentSlots) do
+		slot.name:SetWidth(nameWidth)
 		local rg = r.reagents[i]
 		if rg then
 			shown = i

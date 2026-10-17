@@ -342,14 +342,26 @@ if DRAGON == "3" then
 	TradeSkillFrame:Hide()
 	Host.craft = CreateFrame("Frame", nil, TradeSkillFrame)
 	function Host.Enabled() return true end
-	function Host.Register(p)
-		Host.provider = p
+	-- Like DragonUI, the pieces go in once its window is built (Blizzard's trade skill UI loads
+	-- on demand), which can be long after Register.
+	function Host.Build()
+		Host.built = true
+		local p = Host.provider
+		if not p or Host.applied then return end
+		Host.applied = true
 		Host.regions = { list = p.list(Host.craft), card = p.card(Host.craft), controls = p.controls(Host.craft),
 			header = p.header(Host.craft) }
 		for _, page in pairs(Host.pages) do page.frame = page.spec.build(TradeSkillFrame) end
+	end
+	function Host.Register(p)
+		Host.provider = p
+		if Host.built then Host.Build() end
 		return true
 	end
-	function Host.Unregister(p) if Host.provider == p then Host.provider = nil; Host.pages = {}; Host.tabs = {} end end
+	function Host.Unregister(p)
+		if Host.provider == p then Host.provider = nil; Host.applied = false; Host.pages = {}; Host.tabs = {} end
+	end
+	function Host.RefreshHeader() Host.headerRefreshes = (Host.headerRefreshes or 0) + 1 end
 	function Host.AddPage(key, spec) Host.pages[key] = { spec = spec } end
 	function Host.AddTab(spec)
 		for i, tab in ipairs(Host.tabs) do if tab.key == spec.key then Host.tabs[i] = spec return end end
@@ -377,6 +389,7 @@ if DRAGON == "3" then
 	end
 	-- What a profession opening and the window closing do.
 	function Host.Open()
+		Host.Build()
 		TradeSkillFrame:Show()
 		Host.SetPage("crafting")
 		Host.provider.onShow()
@@ -579,7 +592,7 @@ step("login, hello", function ()
 	assert(bindings.K == "RETAILPROFESSIONS_BOOK", "K was not bound to the book")
 	if DRAGON == "3" then
 		assert(RPF.hosting and Host.provider, "DragonUI's window didn't take us in")
-		assert(provider and provider.frame == TradeSkillFrame, "ReagentBankUI doesn't follow DragonUI's window")
+		assert(not Host.regions, "pieces placed before DragonUI's window was built")
 	else
 		assert(provider and provider.frame == RetailProfessionsFrame, "not registered with ReagentBankUI")
 	end
@@ -587,6 +600,22 @@ end)
 
 -- In DragonUI's window: its own steps, then done.
 if DRAGON == "3" then
+	step("hosted: the Overview with no profession open", function ()
+		Host.Build()
+		TradeSkillFrame:Show()
+		Host.provider.onShow()
+		tick(0.5)
+		assert(RPF.WindowOpen() and not RPF.IsOpen() and not RPF.active, "a profession counts as open")
+		assert(provider and provider.frame:GetParent() == TradeSkillFrame and not provider.frame:IsShown(),
+			"ReagentBankUI would take us for the open window")
+		Host.SetPage("retailprofessions-home")
+		assert(RPF.Home.Active(), "Home doesn't open from the Overview")
+		assert(not RPF.Refine.IsOpen(RPF.Refine.Kind("M")), "Inscription counts as open")
+		Host.SetPage("crafting")
+		TradeSkillFrame:Hide()
+		Host.provider.onHide()
+	end)
+
 	step("hosted: our pieces are in DragonUI's window", function ()
 		local pieces = RPF.HostPieces()
 		assert(Host.regions.list == pieces.list and Host.regions.card == pieces.card
@@ -608,6 +637,9 @@ if DRAGON == "3" then
 		assert(#M.recipes == 2 and #M.unlearned == 1, "recipes: " .. #M.recipes .. ", unlearned " .. #M.unlearned)
 		assert(textShown("Unlearned: Journeyman"), "unlearned group header not shown in DragonUI's window")
 		assert(Host.provider.title() == "Tailoring", "title: " .. tostring(Host.provider.title()))
+		assert(provider.frame:IsShown(), "ReagentBankUI doesn't see us while a profession is open")
+		assert((Host.tabRefreshes or 0) > 0 and (Host.headerRefreshes or 0) > 0,
+			"tabs and title not read again after the scan")
 	end)
 
 	step("hosted: create and create all", function ()
@@ -648,11 +680,13 @@ if DRAGON == "3" then
 		fire("TRADE_SKILL_CLOSE")
 		tick(0.5)
 		assert(not RPF.IsOpen() and not RPF.active, "still open")
+		assert(not provider.frame:IsShown(), "ReagentBankUI still sees us")
 	end)
 
 	step("hosted: /prof classic gives DragonUI's own page, /prof retail takes it back", function ()
 		SlashCmdList.RETAILPROFESSIONS("classic")
 		assert(not RPF.hosting and RPF.hostClassic and not Host.provider, "classic didn't hand the window back")
+		assert(not provider.frame:IsShown(), "ReagentBankUI would use us on DragonUI's own page")
 		TradeSkillFrame:Show()
 		fire("TRADE_SKILL_SHOW")
 		tick(0.5)

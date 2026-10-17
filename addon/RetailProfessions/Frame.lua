@@ -1144,8 +1144,14 @@ RPF.On("TRACKED", function ()
 	end
 end)
 
--- Whether the window is up: ours, or DragonUI's with us in it (Host.lua).
+-- Whether a profession is open in the window: ours, or DragonUI's with us in it (Host.lua).
 function RPF.IsOpen()
+	if RPF.hosting then return hostOpen and RPF.active and true or false end
+	return frame:IsShown() and true or false
+end
+
+-- Whether the window is up at all: DragonUI's opens on its Overview without a profession.
+function RPF.WindowOpen()
 	if RPF.hosting then return hostOpen end
 	return frame:IsShown() and true or false
 end

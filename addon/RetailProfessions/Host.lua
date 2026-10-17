@@ -34,9 +34,22 @@ end
 -----------------------------------------
 -- what goes into DragonUI's window
 
-local pieces, logHolder
-local bankRegistered = false
+local pieces, logHolder, bankFrame
 local provider = {}
+
+-- ReagentBankUI uses the recipe provider whose frame shows. Ours shows only while a profession
+-- is open in DragonUI's window with us in it, so /prof classic and the Overview leave its own
+-- handling of the stock window alone.
+local function syncBank()
+	if not bankFrame then return end
+	if RPF.hosting and RPF.IsOpen() then bankFrame:Show() else bankFrame:Hide() end
+end
+
+-- Our secure buttons (Home's lines) lie over the window by screen position: they follow it when
+-- it moves among the other panels or is scaled.
+local function followWindow()
+	RPF.Debounce("host-secure", 0.05, RPF.SyncSpellButtons)
+end
 
 function provider.list(parent)
 	pieces.list:SetParent(parent)
@@ -46,11 +59,12 @@ end
 function provider.card(parent)
 	pieces.card:SetParent(parent)
 	RPF.HostLayout(true)
-	-- ReagentBankUI follows DragonUI's window from now on: it is built by now.
-	if not bankRegistered and TradeSkillFrame then
-		bankRegistered = true
-		RPF.RegisterBankProvider(TradeSkillFrame)
-		-- Our secure buttons (Home's lines) rise with the window when it's clicked.
+	-- DragonUI's window is built by now.
+	if not bankFrame and TradeSkillFrame then
+		bankFrame = CreateFrame("Frame", nil, TradeSkillFrame)
+		bankFrame:Hide()
+		RPF.RegisterBankProvider(bankFrame)
+		-- Our secure buttons rise with the window when it's clicked.
 		RPF.FollowRaises(TradeSkillFrame)
 	end
 	return pieces.card
@@ -76,8 +90,17 @@ function provider.title()
 	return M.skillName and RPF.TitleText() or nil
 end
 
-function provider.onShow() RPF.HostOpened() end
-function provider.onHide() RPF.HostClosed() end
+function provider.onShow()
+	RPF.HostOpened()
+	syncBank()
+end
+
+function provider.onHide()
+	RPF.HostClosed()
+	syncBank()
+end
+
+provider.onScale = followWindow
 
 function provider.onPage(page)
 	local home = page == HOME_PAGE
@@ -101,6 +124,16 @@ function RPF.ShowHostPage(on)
 	end
 end
 
+-- How many professions you know, read when they change: the tabs ask while DragonUI rebuilds
+-- them, and reading the skill lines then would set off another rebuild.
+local knownCount = 0
+local function countKnown()
+	local n = #RPF.KnownProfessions()
+	local changed = n ~= knownCount
+	knownCount = n
+	return changed
+end
+
 local homePage
 local function addHome(H)
 	H.AddPage(HOME_PAGE, {
@@ -109,6 +142,16 @@ local function addHome(H)
 		build = function (parent)
 			if not homePage then
 				homePage = CreateFrame("Frame", nil, parent)
+				-- Home's lines carry secure buttons placed by screen position. The window moves
+				-- when another panel opens beside it; while Home shows, they follow.
+				local lastLeft, lastTop
+				homePage:SetScript("OnUpdate", function ()
+					local left, top = TradeSkillFrame:GetLeft(), TradeSkillFrame:GetTop()
+					if left ~= lastLeft or top ~= lastTop then
+						lastLeft, lastTop = left, top
+						followWindow()
+					end
+				end)
 				local panel = RPF.Home.panel
 				panel:SetParent(homePage)
 				panel:ClearAllPoints()
@@ -121,7 +164,7 @@ local function addHome(H)
 	})
 	H.AddTab({
 		key = HOME_PAGE, label = "Home", icon = RPF.Home.ICON, after = "overview", page = HOME_PAGE,
-		shown = function () return not M.linked and #RPF.KnownProfessions() > 0 end,
+		shown = function () return not M.linked and knownCount > 0 end,
 	})
 end
 
@@ -146,11 +189,18 @@ local function addRefineTabs(H)
 			end,
 			onDown = function () RPF.Refine.Pend(code) end,
 			onClick = function ()
+				-- No cast was bound: the profession is open, or combat kept the tab from binding one.
+				local kind = RPF.Refine.Known(code)
+				if not (kind and RPF.Refine.IsOpen(kind)) then
+					if RPF.InCombat() then
+						UIErrorsFrame:AddMessage(ERR_NOT_IN_COMBAT or "You can't do that in combat.", 1, 0.1, 0.1, 1)
+					end
+					return
+				end
 				RPF.Home.SetActive(false)
 				RPF.Refine.SetView(code)
 				-- From the Overview too.
-				local H = api()
-				if H and H.Page() ~= "crafting" then H.SetPage("crafting") end
+				if H.Page() ~= "crafting" then H.SetPage("crafting") end
 			end,
 			selected = function (page)
 				return page == "crafting" and RPF.Refine.Active() ~= nil and RPF.Refine.Active() == RPF.Refine.Kind(code)
@@ -195,6 +245,9 @@ local function onBlockClick(block, button)
 		ChatEdit_InsertLink(GetSpellLink(spell))
 	elseif RPF.IsOpen() and RPF.SelectSpell(spell) then
 		RPF.Home.SetActive(false)
+		-- From the Overview too.
+		local H = api()
+		if H and H.Page() ~= "crafting" then H.SetPage("crafting") end
 	elseif RPF.InCombat() then
 		UIErrorsFrame:AddMessage(ERR_NOT_IN_COMBAT or "You can't do that in combat.", 1, 0.1, 0.1, 1)
 	end
@@ -275,12 +328,18 @@ function RPF.StartHosting()
 	addRefineTabs(H)
 	if RPF.hostTracker == nil then RPF.hostTracker = H.AddTrackerCollector(collect) and true or false end
 	H.Register(provider)
-	-- Switched back while a profession is open: fill the window now.
+	countKnown()
+	-- Switched back while the window is open: fill it now, a profession's recipes if one is open
+	-- (the window may show DragonUI's Overview with none).
 	if TradeSkillFrame and TradeSkillFrame:IsShown() then
 		RPF.HostOpened()
-		RPF.active = true
-		RPF.Fire("SHOW")
+		local line = GetTradeSkillLine()
+		if line and line ~= "UNKNOWN" then
+			RPF.active = true
+			RPF.Fire("SHOW")
+		end
 	end
+	syncBank()
 	RPF.Fire("TRACKED")
 	return true
 end
@@ -292,16 +351,35 @@ function RPF.StopHosting()
 	RPF.HostClosed()
 	RPF.hosting = false
 	RPF.hostClassic = true
+	syncBank()
 	H.Unregister(provider)
 	RPF.HostLayout(false)
 	RPF.Fire("TRACKED")
 	H.RefreshTracker()
 end
 
--- The tabs follow what the window shows and what you know.
-for _, event in ipairs({ "VIEW", "SKILLS", "READY" }) do
-	RPF.On(event, function ()
-		local H = RPF.hosting and api()
-		if H then H.RefreshTabs() end
-	end)
+-- The tabs and the title follow what the window shows and the profession in it, read after our
+-- scan (DragonUI's own refresh comes before it), and the professions you know.
+local function refreshHost()
+	local H = RPF.hosting and api()
+	if not H then return end
+	H.RefreshTabs()
+	if H.RefreshHeader then H.RefreshHeader() end
 end
+
+local shownSkill, shownLinked
+RPF.On("VIEW", refreshHost)
+RPF.On("READY", refreshHost)
+RPF.On("REBUILT", function ()
+	if M.skill == shownSkill and M.linked == shownLinked then return end
+	shownSkill, shownLinked = M.skill, M.linked
+	refreshHost()
+end)
+RPF.On("SHOW", syncBank)
+RPF.On("HIDDEN", function ()
+	shownSkill, shownLinked = nil, nil
+	syncBank()
+end)
+RPF.On("SKILLS", function ()
+	if RPF.hosting and countKnown() then refreshHost() end
+end)

@@ -49,7 +49,7 @@ H.active = false
 
 -- Whether the window shows Home: your own professions only, not someone's linked one.
 function H.Active()
-	return H.active and RPF.IsOpen() and not M.linked
+	return H.active and RPF.WindowOpen() and not M.linked
 end
 
 function H.SetActive(on)
