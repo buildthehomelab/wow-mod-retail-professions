@@ -204,7 +204,7 @@ function RPF.ArchaeologyUI()
 	return nil
 end
 
--- Archaeology's window (ArchaeologyUI's research window, or its page in DragonUI's window).
+-- Archaeology's window: ArchaeologyUI's research window, or its page in DragonUI's window or ours (Pages.lua).
 function RPF.OpenArchaeology()
 	local A = RPF.ArchaeologyUI()
 	if not A then return end

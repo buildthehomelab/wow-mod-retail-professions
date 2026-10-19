@@ -1546,6 +1546,82 @@ end)
 -----------------------------------------
 -- Multicraft, Resourcefulness and crafting speed: skill-based, rolled by the server
 
+step("archaeology: its tab opens ArchaeologyUI's page in this window, the tabs staying", function ()
+	local line = tradeSkillLine
+	if not RetailProfessionsFrame:IsShown() then
+		tradeSkillLine = { "Tailoring", 120, 150 }
+		fire("TRADE_SKILL_SHOW")
+		tick(0.5)
+	end
+	local Pages = RetailProfessions.Pages
+	local built, shown = 0, 0
+	local A = { skill = 60, maxSkill = 75, SurveyButtonClick = function () end,
+		OpenWindow = function () Pages.Open("archaeology") end,
+		ToggleWindow = function () Pages.Toggle("archaeology") end }
+	ArchaeologyUI = A
+	Pages.Add("archaeology", { title = "Archaeology", icon = "Interface\\Icons\\INV_Misc_Shovel_01",
+		skill = function () return "Archaeology", A.skill, A.maxSkill end,
+		build = function (panel)
+			built = built + 1
+			panel.races = panel.Header(panel.list, "Races")
+		end,
+		onShow = function () shown = shown + 1 end })
+	RPF.Fire("SKILLS")
+	tick(0.5)
+	local function tabOf(id)
+		return find(function (f) return f.__kind == "Button" and rawget(f, "profession") and f.profession.id == id end)
+	end
+	local tab, own = tabOf(794), tabOf(M.skill)
+	local title = RetailProfessionsFrame.title
+	local ownTitle = title.__text
+	assert(tab and tab:IsShown() and tab.onClick, "no Archaeology tab")
+	local closed = closedTradeSkill
+	tab.__scripts.OnClick(tab)
+	tick(0.2)
+	assert(RetailProfessionsFrame:IsShown() and closedTradeSkill == closed, "the window went for the research view")
+	assert(Pages.Shown("archaeology") and built == 1 and shown == 1, "no Archaeology page")
+	for _, pane in ipairs(RPF.panes) do assert(not pane:IsShown(), "the recipes show under the page") end
+	assert(title.__text == "Archaeology", "title: " .. title.__text)
+	assert(tab.checked:IsShown() and not own.checked:IsShown(), "Archaeology's tab isn't the lit one")
+	assert(RPF.IsOpen() and viewTab("Training"):IsShown(), "the profession behind the page went")
+
+	-- The open profession's tab goes back to its recipes.
+	assert(own.onClick, "the open profession's tab casts instead of going back")
+	own.__scripts.OnClick(own)
+	tick(0.2)
+	assert(not Pages.Current() and RPF.panes[1]:IsShown(), "not back on the recipes")
+	assert(title.__text == ownTitle and own.checked:IsShown(), "the profession's header didn't come back")
+	-- So do Training and another profession opening.
+	tab.__scripts.OnClick(tab)
+	RPF.Home.SetActive("training")
+	tick(0.2)
+	assert(not Pages.Current() and RPF.Home.Active() == "training" and not RPF.panes[1]:IsShown(), "Training under the page")
+	RPF.Home.SetActive(false)
+	tab.__scripts.OnClick(tab)
+	fire("TRADE_SKILL_SHOW")
+	tick(0.5)
+	assert(not Pages.Current() and RPF.panes[1]:IsShown(), "a profession opened under the page")
+
+	-- /arch with the window closed: it opens on the page with no profession behind it.
+	RetailProfessionsFrame:Hide()
+	fire("TRADE_SKILL_CLOSE")
+	tick(0.2)
+	A.OpenWindow()
+	tick(0.2)
+	assert(RetailProfessionsFrame:IsShown() and Pages.Shown("archaeology") and not RPF.IsOpen(), "/arch didn't open the page")
+	assert(not viewTab("Training"):IsShown(), "Training with no profession open")
+	assert(tab.checked:IsShown() and not own.checked:IsShown() and own.button.__shown, "the profession's tab doesn't cast")
+	A.ToggleWindow()
+	assert(not RetailProfessionsFrame:IsShown() and not Pages.Current(), "toggling didn't close the window")
+	assert(RPF.panes[1]:IsShown(), "the recipes stay hidden for next time")
+
+	ArchaeologyUI = nil
+	RPF.Fire("SKILLS")
+	tradeSkillLine = line
+	fire("TRADE_SKILL_SHOW")
+	tick(0.5)
+end)
+
 step("perks: a grey recipe gets the most, and only what it can", function ()
 	RPF.Select(M.bySpell[2963])
 	-- Tailoring 120, the bolt went grey at 50.
