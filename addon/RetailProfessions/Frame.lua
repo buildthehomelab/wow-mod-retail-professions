@@ -142,21 +142,25 @@ if art then
 	linkButton:SetPoint("LEFT", skillBar, "RIGHT", -2, -4)
 	logButton:SetPoint("LEFT", linkButton, "RIGHT", 3, 0)
 else
-	-- The stock skill bar look (the character window's skill bars).
+	-- The character window's skill bar look.
 	skillBar = CreateFrame("StatusBar", nil, header)
 	skillBar:SetHeight(15)
 	skillBar:SetPoint("LEFT", header, "LEFT", frame.portrait and 54 or 30, 0)
 	skillBar:SetPoint("RIGHT", linkButton, "LEFT", -6, -2)
-	skillBar:SetStatusBarTexture("Interface\\PaperDollInfoFrame\\UI-Character-Skills-Bar")
-	skillBar:SetStatusBarColor(0.95, 0.6, 0.1)
-	local bg = skillBar:CreateTexture(nil, "BACKGROUND")
-	bg:SetAllPoints(skillBar)
-	bg:SetTexture(0, 0, 0, 0.65)
-	local border = CreateFrame("Frame", nil, skillBar)
-	border:SetPoint("TOPLEFT", skillBar, "TOPLEFT", -4, 4)
-	border:SetPoint("BOTTOMRIGHT", skillBar, "BOTTOMRIGHT", 4, -4)
-	border:SetBackdrop({ edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 12 })
-	border:SetBackdropBorderColor(0.7, 0.7, 0.7, 1)
+	if dragon then
+		skillBar:SetStatusBarTexture("Interface\\PaperDollInfoFrame\\UI-Character-Skills-Bar")
+		skillBar:SetStatusBarColor(0.95, 0.6, 0.1)
+		local bg = skillBar:CreateTexture(nil, "BACKGROUND")
+		bg:SetAllPoints(skillBar)
+		bg:SetTexture(0, 0, 0, 0.65)
+		local border = CreateFrame("Frame", nil, skillBar)
+		border:SetPoint("TOPLEFT", skillBar, "TOPLEFT", -4, 4)
+		border:SetPoint("BOTTOMRIGHT", skillBar, "BOTTOMRIGHT", 4, -4)
+		border:SetBackdrop({ edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 12 })
+		border:SetBackdropBorderColor(0.7, 0.7, 0.7, 1)
+	else
+		RPF.StockSkillBar(skillBar, 15)
+	end
 	skillText = skillBar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	skillText:SetPoint("CENTER", skillBar, "CENTER", 0, 1)
 end

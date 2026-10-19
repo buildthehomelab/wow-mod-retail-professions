@@ -96,11 +96,15 @@ for i = 1, MAX_ROWS do
 	row.bar = CreateFrame("StatusBar", nil, row)
 	row.bar:SetSize(180, 12)
 	row.bar:SetPoint("BOTTOMLEFT", row.icon, "BOTTOMRIGHT", 10, 2)
-	row.bar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
-	row.bar:SetStatusBarColor(0.1, 0.55, 0.15)
-	local bg = row.bar:CreateTexture(nil, "BACKGROUND")
-	bg:SetAllPoints(row.bar)
-	bg:SetTexture(0, 0, 0, 0.6)
+	if dragon then
+		row.bar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
+		row.bar:SetStatusBarColor(0.1, 0.55, 0.15)
+		local bg = row.bar:CreateTexture(nil, "BACKGROUND")
+		bg:SetAllPoints(row.bar)
+		bg:SetTexture(0, 0, 0, 0.6)
+	else
+		RPF.StockSkillBar(row.bar, 12)
+	end
 	row.barText = row.bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	row.barText:SetPoint("CENTER", row.bar, "CENTER", 0, 1)
 

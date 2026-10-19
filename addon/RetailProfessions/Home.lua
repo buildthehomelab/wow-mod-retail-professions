@@ -840,11 +840,15 @@ for i = 1, PROF_ROWS do
 	row.bar:SetHeight(7)
 	row.bar:SetPoint("BOTTOMLEFT", row.icon, "BOTTOMRIGHT", 6, 1)
 	row.bar:SetPoint("RIGHT", row, "RIGHT", -4, 0)
-	row.bar:SetStatusBarTexture("Interface\\PaperDollInfoFrame\\UI-Character-Skills-Bar")
-	row.bar:SetStatusBarColor(0.95, 0.6, 0.1)
-	local bg = row.bar:CreateTexture(nil, "BACKGROUND")
-	bg:SetAllPoints(row.bar)
-	bg:SetTexture(0, 0, 0, 0.65)
+	if RPF.Dragon() then
+		row.bar:SetStatusBarTexture("Interface\\PaperDollInfoFrame\\UI-Character-Skills-Bar")
+		row.bar:SetStatusBarColor(0.95, 0.6, 0.1)
+		local bg = row.bar:CreateTexture(nil, "BACKGROUND")
+		bg:SetAllPoints(row.bar)
+		bg:SetTexture(0, 0, 0, 0.65)
+	else
+		RPF.StockSkillBar(row.bar, 7)
+	end
 	-- The open profession's row stays lit.
 	row.lit = row:CreateTexture(nil, "BACKGROUND")
 	row.lit:SetTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")

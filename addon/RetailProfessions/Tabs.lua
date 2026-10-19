@@ -8,6 +8,8 @@ local M = RPF.Model
 
 local frame = RPF.frame
 local dragon = RPF.Dragon() and true or false
+-- Without DragonUI, the spellbook's skill line tabs (SpellBookSkillLineTabTemplate).
+local stock = not dragon
 -- With DragonUI's professions art, its side tabs: the icon in a plate with a bronze edge that
 -- lies over the window's metal, gold edged when it's the open one.
 local art = frame.profArt
@@ -17,19 +19,22 @@ local MAX_TABS = 12
 -- icon on a plate, PITCH apart; with more tabs than fit at that size (a dozen professions and
 -- both refine tabs), they all shrink until the column fits.
 local COLUMN_TOP, COLUMN_BOTTOM = art and 60 or 36, 14
-local PITCH, MIN_PITCH = art and 52 or 42, 24
-local PAD, GAP = art and 0 or 3, art and 2 or 4
+local PITCH, MIN_PITCH = art and 52 or stock and 49 or 42, 24
+local PAD, GAP = (art or stock) and 0 or 3, art and 2 or 4
 local REFINE_GAP = 8
 local HOME_GAP = 8
 -- Under DragonUI the plate's left edge goes beneath the metal frame (whose outer edge lies
 -- about 4 inside the window's own), so the tab grows out of the window. The stock dialog border
--- is drawn by the window itself, under its children, so there the plate stops short of it.
+-- is drawn by the window itself, under its children, so there the tab's art only just meets it.
 local TAB_X = art and 0 or dragon and -1 or 1
 local TUCK = dragon and 3 or 0
 -- DragonUI's tab art is 55 x 60 round a 55 square tab; its icon shows through a 45 x 44 hole.
 local ART_TAB = 55
 local ICON_X, ICON_Y, ICON_W, ICON_H = 2, -5.5, 45, 44
 local ICON_L, ICON_R, ICON_T, ICON_B = 0.096875, 0.940625, 0.0875, 0.9125
+-- The stock tab is a 32 square, 17 apart, its 64 square art 3 left of it and 11 above; all of
+-- it shrinks with the pitch.
+local STOCK_TAB, STOCK_ART, STOCK_ART_X, STOCK_ART_Y = 32, 64, -3, 11
 
 local PLATE = {
 	bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
@@ -71,16 +76,23 @@ local function createTab(buttonName, tip)
 		createArtTab(tab)
 	else
 		tab:SetFrameLevel(frame:GetFrameLevel() + 2)
-		tab.plate = CreateFrame("Frame", nil, tab)
-		tab.plate:SetFrameLevel(frame:GetFrameLevel() + 1)
-		tab.plate:SetPoint("TOPLEFT", tab, "TOPLEFT", -PAD - TUCK, PAD)
-		tab.plate:SetPoint("BOTTOMRIGHT", tab, "BOTTOMRIGHT", PAD, -PAD)
-		tab.plate:SetBackdrop(PLATE)
-		tab.plate:SetBackdropColor(0.03, 0.03, 0.03, 0.92)
+		if stock then
+			tab.art = tab:CreateTexture(nil, "BACKGROUND")
+			tab.art:SetTexture("Interface\\SpellBook\\SpellBook-SkillLineTab")
+		else
+			tab.plate = CreateFrame("Frame", nil, tab)
+			tab.plate:SetFrameLevel(frame:GetFrameLevel() + 1)
+			tab.plate:SetPoint("TOPLEFT", tab, "TOPLEFT", -PAD - TUCK, PAD)
+			tab.plate:SetPoint("BOTTOMRIGHT", tab, "BOTTOMRIGHT", PAD, -PAD)
+			tab.plate:SetBackdrop(PLATE)
+			tab.plate:SetBackdropColor(0.03, 0.03, 0.03, 0.92)
+		end
 		tab.icon = tab:CreateTexture(nil, "ARTWORK")
 		tab.icon:SetAllPoints(tab)
-		-- Without the bevel painted into every icon.
-		tab.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+		if not stock then
+			-- Without the bevel painted into every icon.
+			tab.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+		end
 		tab.checked = tab:CreateTexture(nil, "OVERLAY")
 		tab.checked:SetTexture("Interface\\Buttons\\CheckButtonHilight")
 		tab.checked:SetBlendMode("ADD")
@@ -115,8 +127,9 @@ local function createTab(buttonName, tip)
 end
 
 -- The tab of what the window shows has a gold edge and its icon lit; the others stand back.
+-- The spellbook's tabs only light the open one.
 local function setChecked(tab, on)
-	if art then
+	if art or stock then
 		if on then tab.checked:Show() else tab.checked:Hide() end
 	elseif on then
 		tab.checked:Show()
@@ -138,9 +151,14 @@ end
 
 -- Puts a tab on the column's nth row (from 0), `drop` further down.
 local function place(tab, row, pitch, drop)
-	local size = pitch - GAP - 2 * PAD
+	local size = stock and math.floor(pitch * STOCK_TAB / PITCH) or pitch - GAP - 2 * PAD
 	tab:SetSize(size, size)
-	if art then
+	if stock then
+		local k = size / STOCK_TAB
+		tab.art:SetSize(STOCK_ART * k, STOCK_ART * k)
+		tab.art:ClearAllPoints()
+		tab.art:SetPoint("TOPLEFT", tab, "TOPLEFT", STOCK_ART_X * k, STOCK_ART_Y * k)
+	elseif art then
 		-- DragonUI's art and icon hole, scaled to the tab.
 		local k = size / ART_TAB
 		for _, t in ipairs(tab.pieces) do t:SetSize(ART_TAB * k, 60 * k) end
