@@ -1,7 +1,7 @@
 -- Profession tabs down the right edge of the window, like the spellbook's: Training and Profit
 -- (Home.lua) at the top, one per profession you know that has a window, so you can switch
 -- without the spellbook, and under them one for Milling and one for Prospecting when you know
--- them.
+-- them. Archaeology (ArchaeologyUI's research window) gets one among the professions too.
 
 local RPF = RetailProfessions
 local M = RPF.Model
@@ -13,8 +13,8 @@ local stock = not dragon
 -- With DragonUI's professions art, its side tabs: the icon in a plate with a bronze edge that
 -- lies over the window's metal, gold edged when it's the open one.
 local art = frame.profArt
--- Every profession with a window, should one character know them all.
-local MAX_TABS = 12
+-- Every profession with a window (and Archaeology), should one character know them all.
+local MAX_TABS = 13
 -- The column runs from under the title bar to just above the window's bottom edge. A tab is an
 -- icon on a plate, PITCH apart; with more tabs than fit at that size (a dozen professions and
 -- both refine tabs), they all shrink until the column fits.
@@ -215,6 +215,14 @@ for _, code in ipairs({ "M", "P" }) do
 	table.insert(refineTabs, tab)
 end
 
+-- Archaeology's tab has nothing to cast: it swaps this window for ArchaeologyUI's research
+-- window, as the professions book's Open does. In combat this one stays: its secure buttons
+-- can't be put away until it ends.
+local function openArchaeology()
+	if not RPF.InCombat() then frame:Hide() end
+	RPF.OpenArchaeology()
+end
+
 local function refresh()
 	-- In DragonUI's window its side tabs carry ours (Host.lua).
 	if RPF.hosting then
@@ -235,14 +243,16 @@ local function refresh()
 	end
 	local home = RPF.Home.Active()
 	local viewing = not home and RPF.Refine.Active()
-	local open, shown = {}, {}
+	local open, shown, windows = {}, {}, 0
 	if RetailProfessionsDB then
 		for _, known in ipairs(RPF.KnownProfessions()) do
 			local p = known.profession
-			-- GetSpellInfo by name only answers for spells you know.
-			if p.openName and GetSpellInfo(p.openName) and #open < MAX_TABS then
+			-- GetSpellInfo by name only answers for spells you know. KnownProfessions only lists
+			-- Archaeology with ArchaeologyUI loaded.
+			if #open < MAX_TABS and (p.archaeology or p.openName and GetSpellInfo(p.openName)) then
 				table.insert(open, known)
 				shown[p.id] = p
+				if not p.archaeology then windows = windows + 1 end
 			end
 		end
 	end
@@ -253,7 +263,7 @@ local function refresh()
 		if tab.kind then refining = refining + 1 end
 	end
 	-- Training and Profit sit over the professions, for your own only.
-	local hasHome = #open > 0 and not M.linked
+	local hasHome = windows > 0 and not M.linked
 	local top = hasHome and #viewTabs or 0
 	local drop = hasHome and HOME_GAP or 0
 	local pitch = pitchFor(top + #open + refining, drop + (refining > 0 and REFINE_GAP or 0))
@@ -277,9 +287,12 @@ local function refresh()
 			tab.icon:SetTexture(p.texture)
 			local current = M.profession == p and not M.linked
 			setChecked(tab, current and not viewing and not home)
-			tab.icon:SetDesaturated(RPF.InCombat())
+			tab.icon:SetDesaturated(RPF.InCombat() and not p.archaeology)
 			tab:Show()
-			if current and (viewing or home) then
+			if p.archaeology then
+				tab.onClick = openArchaeology
+				RPF.BindSpellButton(tab.button, nil, nil)
+			elseif current and (viewing or home) then
 				-- Already open, showing Training, Profit or its herbs or ore: the tab goes back to the
 				-- recipes.
 				tab.onClick = function ()
@@ -337,7 +350,10 @@ RPF.On("READY", function () if frame:IsShown() then refresh() end end)
 RPF.On("MOVED", refresh)
 RPF.On("HIDDEN", RPF.SyncSpellButtons)
 RPF.On("SECURE_STATE", function (on)
-	for _, tab in ipairs(tabs) do tab.icon:SetDesaturated(not on) end
+	-- Archaeology's tab opens ArchaeologyUI's window, which works in combat too.
+	for _, tab in ipairs(tabs) do
+		tab.icon:SetDesaturated(not on and not (tab.profession and tab.profession.archaeology))
+	end
 	for _, tab in ipairs(viewTabs) do tab.icon:SetDesaturated(false) end
 	-- A tab that only changes the view works in combat too.
 	for _, tab in ipairs(refineTabs) do tab.icon:SetDesaturated(not on and tab.onClick == nil) end
