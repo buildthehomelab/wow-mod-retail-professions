@@ -1,7 +1,8 @@
 -- Profession tabs down the right edge of the window, like the spellbook's: Training and Profit
 -- (Home.lua) at the top, one per profession you know that has a window, so you can switch
 -- without the spellbook, and under them one for Milling and one for Prospecting when you know
--- them. Archaeology (ArchaeologyUI's research window) gets one among the professions too.
+-- them. Archaeology (ArchaeologyUI's research window) gets one among the professions too: a
+-- page of this window (Pages.lua) when that ArchaeologyUI takes one.
 
 local RPF = RetailProfessions
 local M = RPF.Model
@@ -215,12 +216,20 @@ for _, code in ipairs({ "M", "P" }) do
 	table.insert(refineTabs, tab)
 end
 
--- Archaeology's tab has nothing to cast: it swaps this window for ArchaeologyUI's research
--- window, as the professions book's Open does. In combat this one stays: its secure buttons
--- can't be put away until it ends.
+-- Archaeology's tab has nothing to cast: ArchaeologyUI's research view opens as a page of this
+-- window, the profession staying open behind it. An older ArchaeologyUI has only its own
+-- window, which takes this one's place, as the professions book's Open does; in combat this one
+-- stays then, its secure buttons can't be put away until it ends.
 local function openArchaeology()
-	if not RPF.InCombat() then frame:Hide() end
+	if not RPF.Pages.Has("archaeology") and not RPF.InCombat() then frame:Hide() end
 	RPF.OpenArchaeology()
+end
+
+-- Back to the open profession's recipes, from a page, Training, Profit or its herbs or ore.
+local function backToRecipes()
+	RPF.Pages.Close()
+	RPF.Home.SetActive(false)
+	RPF.Refine.SetView(nil)
 end
 
 local function refresh()
@@ -242,7 +251,8 @@ local function refresh()
 		return
 	end
 	local home = RPF.Home.Active()
-	local viewing = not home and RPF.Refine.Active()
+	local page = RPF.Pages.Current()
+	local viewing = not home and not page and RPF.Refine.Active()
 	local open, shown, windows = {}, {}, 0
 	if RetailProfessionsDB then
 		for _, known in ipairs(RPF.KnownProfessions()) do
@@ -262,8 +272,9 @@ local function refresh()
 		tab.kind = kind and shown[kind.skill] and kind or nil
 		if tab.kind then refining = refining + 1 end
 	end
-	-- Training and Profit sit over the professions, for your own only.
-	local hasHome = windows > 0 and not M.linked
+	-- Training and Profit sit over the professions, for your own only, with one open (not on a
+	-- page with none behind it).
+	local hasHome = windows > 0 and not M.linked and RPF.IsOpen()
 	local top = hasHome and #viewTabs or 0
 	local drop = hasHome and HOME_GAP or 0
 	local pitch = pitchFor(top + #open + refining, drop + (refining > 0 and REFINE_GAP or 0))
@@ -285,20 +296,21 @@ local function refresh()
 			tab.profession, tab.rank, tab.maxRank = p, known.rank, known.maxRank
 			place(tab, top + i - 1, pitch, drop)
 			tab.icon:SetTexture(p.texture)
-			local current = M.profession == p and not M.linked
-			setChecked(tab, current and not viewing and not home)
+			local current = M.profession == p and not M.linked and RPF.IsOpen()
+			if p.archaeology then
+				setChecked(tab, page == "archaeology")
+			else
+				setChecked(tab, current and not viewing and not home and not page)
+			end
 			tab.icon:SetDesaturated(RPF.InCombat() and not p.archaeology)
 			tab:Show()
 			if p.archaeology then
 				tab.onClick = openArchaeology
 				RPF.BindSpellButton(tab.button, nil, nil)
-			elseif current and (viewing or home) then
-				-- Already open, showing Training, Profit or its herbs or ore: the tab goes back to the
-				-- recipes.
-				tab.onClick = function ()
-					RPF.Home.SetActive(false)
-					RPF.Refine.SetView(nil)
-				end
+			elseif current and (viewing or home or page) then
+				-- Already open, behind a page or showing Training, Profit or its herbs or ore: the
+				-- tab goes back to the recipes.
+				tab.onClick = backToRecipes
 				RPF.BindSpellButton(tab.button, nil, nil)
 			else
 				tab.onClick = nil
@@ -324,6 +336,7 @@ local function refresh()
 			if RPF.Refine.IsOpen(kind) then
 				tab.icon:SetDesaturated(false)
 				tab.onClick = function ()
+					RPF.Pages.Close()
 					RPF.Home.SetActive(false)
 					RPF.Refine.SetView(kind.code)
 				end
@@ -346,6 +359,7 @@ end
 RPF.On("TRADE_SKILL_UPDATE", function () if frame:IsShown() then refresh() end end)
 RPF.On("SKILLS", function () if frame:IsShown() then refresh() end end)
 RPF.On("VIEW", function () if frame:IsShown() then refresh() end end)
+RPF.On("PAGE", function () if frame:IsShown() then refresh() end end)
 RPF.On("READY", function () if frame:IsShown() then refresh() end end)
 RPF.On("MOVED", refresh)
 RPF.On("HIDDEN", RPF.SyncSpellButtons)

@@ -317,6 +317,38 @@ function RPF.StockSkillBar(bar, height)
 	return bar
 end
 
+-- A category heading as the recipe list draws one (RecipeList.lua), for other addons' pages
+-- (Pages.lua): DragonUI's header bar with its professions art, retail's gold-edged band with
+-- DragonUI, the plain gold heading otherwise. h.label on the left, h.note on the right.
+function RPF.CreateListHeader(parent, text)
+	local h = CreateFrame("Frame", nil, parent)
+	h:SetHeight(25)
+	local P = RPF.ProfArt()
+	local D = RPF.Dragon()
+	local font = GameFontNormal
+	if P then
+		P.Art.ThreeSlice(h, "BACKGROUND", "header", 8)
+		font = D.ForeverUI.Fonts and D.ForeverUI.Fonts.HighlightMedium or font
+	elseif D then
+		solid(h, "BACKGROUND", 0.2, 0.14, 0.04, 0.9):SetAllPoints(h)
+		for _, edge in ipairs({ "TOP", "BOTTOM" }) do
+			local rule = solid(h, "BORDER", 1, 0.82, 0, 0.55)
+			rule:SetHeight(1)
+			rule:SetPoint(edge .. "LEFT", h, edge .. "LEFT")
+			rule:SetPoint(edge .. "RIGHT", h, edge .. "RIGHT")
+		end
+	end
+	h.label = h:CreateFontString(nil, "ARTWORK")
+	h.label:SetFontObject(font)
+	h.label:SetPoint("LEFT", h, "LEFT", P and 8 or 6, 0)
+	h.label:SetTextColor(1, 0.82, 0)
+	h.label:SetText(text or "")
+	h.note = h:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+	h.note:SetPoint("RIGHT", h, "RIGHT", -8, 0)
+	h.note:SetJustifyH("RIGHT")
+	return h
+end
+
 -- DragonUI's profession skill bar (needs RPF.ProfArt): its frame round the profession's own
 -- fill, which plays when the skill moves. bar:SetRank(name, rank, maxRank, key).
 local RANK_BAR_W, RANK_FILL_W = 453, 441

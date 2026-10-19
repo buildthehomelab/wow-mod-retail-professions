@@ -166,9 +166,13 @@ else
 end
 skillBar:EnableMouse(true)
 skillBar:SetScript("OnEnter", function (self)
+	-- Or another addon's page's skill (Pages.lua).
+	local page = RPF.Pages and RPF.Pages.Header()
+	local name, rank, maxRank = M.skillName, M.rank, M.maxRank
+	if page then name, rank, maxRank = page.skill, page.rank, page.maxRank end
 	GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-	GameTooltip:SetText((M.skillName or "") .. " - " .. RPF.RankTitle(M.maxRank))
-	GameTooltip:AddLine(string.format("Skill %d of %d", M.rank or 0, M.maxRank or 0), 1, 1, 1)
+	GameTooltip:SetText((name or "") .. " - " .. RPF.RankTitle(maxRank))
+	GameTooltip:AddLine(string.format("Skill %d of %d", rank or 0, maxRank or 0), 1, 1, 1)
 	GameTooltip:Show()
 end)
 skillBar:SetScript("OnLeave", function () GameTooltip:Hide() end)
@@ -451,6 +455,34 @@ end
 
 -- The Training and Profit views (Home.lua) lay themselves over these under the skill bar.
 RPF.content, RPF.header, RPF.panes = content, header, { left, right, controls }
+
+-- Another addon's page (Pages.lua) lies over them too: a list column where ours is and a card
+-- where the recipe's is, down to the window's bottom (a page has no craft controls).
+function RPF.NewPagePanel()
+	local panel = CreateFrame("Frame", nil, content)
+	panel:SetAllPoints(content)
+	panel:Hide()
+	local column, card
+	if art then
+		column = CreateFrame("Frame", nil, panel)
+		column:SetPoint("TOPLEFT", frame, "TOPLEFT", ART_LIST_LEFT, ART_TOP)
+		column:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", ART_LIST_LEFT, 8)
+		column:SetWidth(ART_LIST_WIDTH)
+		card = RPF.DressCard(CreateFrame("Frame", nil, panel))
+		card:SetPoint("TOPLEFT", frame, "TOPLEFT", ART_CARD_LEFT, ART_TOP)
+		card:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -8, 8)
+	else
+		column = RPF.CreateInset(panel)
+		column:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -6)
+		column:SetPoint("BOTTOMLEFT", content, "BOTTOMLEFT", 0, 0)
+		column:SetWidth(LIST_WIDTH)
+		card = RPF.CreateInset(panel)
+		card:SetPoint("TOPLEFT", column, "TOPRIGHT", 6, 0)
+		card:SetPoint("BOTTOMRIGHT", content, "BOTTOMRIGHT", 0, 0)
+	end
+	panel.list, panel.card, panel.art = column, card, art and true or false
+	return panel
+end
 
 local createAllButton = RPF.CreateButton(controls, CREATE_ALL or "Create All", 110, 22)
 createAllButton:SetPoint("LEFT", controls, "LEFT", 0, 0)
@@ -970,7 +1002,34 @@ function RPF.TitleText()
 		or M.linked and ((M.linkedName or "") .. " - " .. (M.skillName or "")) or (M.skillName or "Professions")
 end
 
+-- Another addon's page (Pages.lua): its title and icon, its skill on the bar (none, no bar),
+-- and none of the profession's buttons.
+local function pageHeader(page)
+	local icon = page.icon or "Interface\\Icons\\INV_Misc_QuestionMark"
+	if frame.portrait then RPF.SetPortrait(frame.portrait, icon) else profIcon:SetTexture(icon) end
+	title:SetText(page.title or "")
+	linkButton:Hide()
+	logButton:Hide()
+	if not page.rank then
+		skillBar:Hide()
+	elseif art then
+		skillBar:Show()
+		skillBar:SetRank(page.skill, page.rank, page.maxRank, page.art)
+	else
+		skillBar:Show()
+		skillBar:SetPoint("RIGHT", header, "RIGHT", -2, 0)
+		skillBar:SetMinMaxValues(0, math.max(1, page.maxRank or 1))
+		skillBar:SetValue(page.rank)
+		skillText:SetText(string.format("%s %d/%d", page.skill or "", page.rank, page.maxRank or 0))
+	end
+end
+
 local function updateHeader()
+	local page = RPF.Pages and RPF.Pages.Header()
+	if page then
+		pageHeader(page)
+		return
+	end
 	local p = M.profession
 	local texture = p and p.texture or (GetTradeSkillTexture and GetTradeSkillTexture()) or "Interface\\Icons\\INV_Misc_QuestionMark"
 	if frame.portrait then RPF.SetPortrait(frame.portrait, texture) else profIcon:SetTexture(texture) end
@@ -988,6 +1047,7 @@ local function updateHeader()
 		end
 		right:SetCardArt(key, texture)
 	else
+		skillBar:Show()
 		skillBar:SetMinMaxValues(0, math.max(1, M.maxRank or 1))
 		skillBar:SetValue(M.rank or 0)
 		skillText:SetText(string.format("%s %d/%d", M.skillName or "", M.rank or 0, M.maxRank or 0))
@@ -1085,7 +1145,13 @@ RPF.On("SHOW", function ()
 end)
 
 RPF.On("CLOSE", function ()
-	if not RPF.hosting and frame:IsShown() then frame:Hide() end
+	-- Another addon's page (Pages.lua) has no need of the trade skill: it stays.
+	if not RPF.hosting and frame:IsShown() and not RPF.Pages.Current() then frame:Hide() end
+end)
+
+-- On another addon's page its header; back from one, the profession's.
+RPF.On("PAGE", function ()
+	if RPF.Pages.Current() then updateHeader() else Rebuild(true) end
 end)
 
 RPF.On("TRADE_SKILL_UPDATE", function () Rebuild() end)
@@ -1152,10 +1218,11 @@ end)
 -- Whether a profession is open in the window: ours, or DragonUI's with us in it (Host.lua).
 function RPF.IsOpen()
 	if RPF.hosting then return hostOpen and RPF.active and true or false end
-	return frame:IsShown() and true or false
+	return frame:IsShown() and RPF.active and true or false
 end
 
--- Whether the window is up at all: DragonUI's opens on its Overview without a profession.
+-- Whether the window is up at all: DragonUI's opens on its Overview without a profession, ours
+-- on another addon's page (Pages.lua).
 function RPF.WindowOpen()
 	if RPF.hosting then return hostOpen end
 	return frame:IsShown() and true or false
