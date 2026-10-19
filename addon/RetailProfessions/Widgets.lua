@@ -253,7 +253,15 @@ function RPF.SetPortrait(texture, path)
 	end
 end
 
--- A recessed pane (retail's InsetFrameTemplate).
+-- The stock options panels' box (OptionsBoxTemplate), filled so a list reads on the dialog.
+local OPTIONS_BOX = {
+	bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+	edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+	tile = true, tileSize = 16, edgeSize = 16,
+	insets = { left = 5, right = 5, top = 5, bottom = 5 },
+}
+
+-- A recessed pane: retail's InsetFrameTemplate under DragonUI, the options box otherwise.
 function RPF.CreateInset(parent)
 	local pane = CreateFrame("Frame", nil, parent)
 	local D = RPF.Dragon()
@@ -262,16 +270,51 @@ function RPF.CreateInset(parent)
 		bg:SetAllPoints(pane)
 		NineSliceUtils.ApplyLayout(pane, NineSliceUtils.GetLayout("InsetFrameTemplate"))
 	else
-		pane:SetBackdrop({
-			bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
-			edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-			tile = true, tileSize = 16, edgeSize = 12,
-			insets = { left = 3, right = 3, top = 3, bottom = 3 },
-		})
-		pane:SetBackdropColor(0, 0, 0, 0.5)
-		pane:SetBackdropBorderColor(0.6, 0.6, 0.6, 1)
+		pane:SetBackdrop(OPTIONS_BOX)
+		pane:SetBackdropColor(0.1, 0.1, 0.1, 1)
+		pane:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
 	end
 	return pane
+end
+
+-- The character window's skill bar (SkillStatusBarTemplate) on a StatusBar `height` tall: its
+-- fill and faint backing in the trade skill window's rank bar colours, and its border, cut in
+-- three so the ends keep their shape however wide the bar is.
+local SKILL_BORDER = "Interface\\PaperDollInfoFrame\\UI-Character-Skills-BarBorder"
+
+function RPF.StockSkillBar(bar, height)
+	bar:SetStatusBarTexture("Interface\\PaperDollInfoFrame\\UI-Character-Skills-Bar")
+	bar:SetStatusBarColor(0, 0, 1, 0.5)
+	local bg = bar:CreateTexture(nil, "BACKGROUND")
+	bg:SetAllPoints(bar)
+	bg:SetTexture(1, 1, 1, 0.2)
+	bg:SetVertexColor(0, 0, 0.75, 0.5)
+	-- The template's border is 281 x 32 round a 271 x 15 bar, 5 out at each end.
+	local k = height / 15
+	local border = CreateFrame("Frame", nil, bar)
+	border:SetPoint("LEFT", bar, "LEFT", -5 * k, 0)
+	border:SetPoint("RIGHT", bar, "RIGHT", 5 * k, 0)
+	border:SetHeight(32 * k)
+	local capW = 17.5 * k
+	local function piece(l, r)
+		local t = border:CreateTexture(nil, "ARTWORK")
+		t:SetTexture(SKILL_BORDER)
+		t:SetTexCoord(l, r, 0, 1)
+		return t
+	end
+	local left = piece(0, 0.0625)
+	left:SetPoint("TOPLEFT", border, "TOPLEFT")
+	left:SetPoint("BOTTOMLEFT", border, "BOTTOMLEFT")
+	left:SetWidth(capW)
+	local right = piece(0.9375, 1)
+	right:SetPoint("TOPRIGHT", border, "TOPRIGHT")
+	right:SetPoint("BOTTOMRIGHT", border, "BOTTOMRIGHT")
+	right:SetWidth(capW)
+	local middle = piece(0.0625, 0.9375)
+	middle:SetPoint("TOPLEFT", left, "TOPRIGHT")
+	middle:SetPoint("BOTTOMRIGHT", right, "BOTTOMLEFT")
+	bar.border = border
+	return bar
 end
 
 -- DragonUI's profession skill bar (needs RPF.ProfArt): its frame round the profession's own
