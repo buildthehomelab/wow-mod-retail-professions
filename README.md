@@ -343,3 +343,27 @@ Author: [buildthehomelab](https://github.com/buildthehomelab)
 ## License
 
 MIT, see [LICENSE](LICENSE).
+
+## Shared prices and profitable crafts
+
+The profit and training views request RetailAH's additive KC service, backed by the
+AH bot's own stable seller quote cache. This avoids walking current auctions for every
+batch and keeps both faction references aligned with the configured bot pricing model.
+Each request is bounded to the addon-message size limit and only one batch is in flight;
+queued batches start after completion, avoiding the old startup request burst. Prices
+are reused for three minutes across recipe details, Training and Most profitable crafts.
+
+Material cost uses the cheaper vendor or bot reference. Estimated output proceeds deduct
+the effective house cut; vendor sales and the existing modeled buyer offer remain alternatives.
+Labels distinguish bot reference estimates from live lowest-buyout prices. References do
+not establish stock availability or guarantee a player sale; craft options may share the
+same materials. Locked and soulbound items retain their restrictions. An older RetailAH
+or missing/disabled provider falls back to the original K live-market service.
+
+Deploy the matching mod-ah-bot-plus and RetailAH server builds and distribute this addon
+update together. Enable AuctionHouseBot.Seller.StablePrices in the server override. No SQL
+or client DBC/MPQ changes are required. Existing auctions are not repriced by the catalog.
+
+Validation: `tools/profit_catalog_test.lua` runs under Lua 5.1 and checks queued batches,
+size limits, fallback, timeout recovery, gates, vendor costs and multi-output craft estimates.
+The full addon smoke test also exercises an older server's K fallback.

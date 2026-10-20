@@ -484,6 +484,10 @@ local function serveAH(msg)
 	table.insert(rahSent, msg)
 	print("  RAH -> " .. msg)
 	if rahDown then return end
+	if cmd == "KC" then
+		fire("CHAT_MSG_ADDON", "RAH", "ERR:" .. req .. ":unknown", "WHISPER", "Tester")
+		return
+	end
 	assert(cmd == "K", "unexpected RAH request " .. msg)
 	local rows = {}
 	for entry in rest:gmatch("%d+") do
@@ -1386,7 +1390,7 @@ step("home: the Training and Profit tabs, the professions and the most profitabl
 	assert(row1.entry and row1.entry.recipe.spell == 2385, "first craft: " .. tostring(row1.entry and row1.entry.recipe.name))
 	assert(row1.cells.profit.__text:find("+2s 45c", 1, true), "vest profit: " .. row1.cells.profit.__text)
 	assert(row2.entry and row2.entry.recipe.spell == 2963, "second craft")
-	assert(textShown("What you have makes"), "no summary of what the bags make")
+	assert(textShown("Estimated craft options"), "no summary of what the bags make")
 
 	-- Sorted by what can be made: the bolt (bags make 2) comes first unless the vest's thread is there.
 	local have1 = row1.entry.have

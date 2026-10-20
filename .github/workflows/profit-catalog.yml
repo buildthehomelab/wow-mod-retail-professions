@@ -1,0 +1,9 @@
+name: Profit catalog
+on: [push, pull_request, workflow_dispatch]
+jobs:
+  catalog:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y lua5.1
+      - run: lua5.1 tools/profit_catalog_test.lua addon/RetailProfessions

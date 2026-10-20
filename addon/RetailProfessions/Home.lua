@@ -997,7 +997,7 @@ end)
 refreshButton:SetScript("OnEnter", function (self)
 	GameTooltip:SetOwner(self, "ANCHOR_TOP")
 	GameTooltip:SetText("Refresh prices")
-	GameTooltip:AddLine("Asks the auction house again for every item your recipes make and use.", 1, 1, 1, true)
+	GameTooltip:AddLine("Refreshes shared bot reference prices for the items your recipes make and use.", 1, 1, 1, true)
 	GameTooltip:Show()
 end)
 refreshButton:SetScript("OnLeave", function () GameTooltip:Hide() end)
@@ -1187,7 +1187,7 @@ local function priceText(entries, earn, count)
 	local age = P.Age(entries)
 	local when = age and string.format("Prices from %s ago.", RPF.Duration(age)) or ""
 	if count > 0 then
-		return string.format("What you have makes %s in %d recipe%s. %s", P.Signed(earn), count, count == 1 and "" or "s", when)
+		return string.format("Estimated craft options: %s across %d recipe%s; recipes may share materials. %s", P.Signed(earn), count, count == 1 and "" or "s", when)
 	end
 	return when
 end
