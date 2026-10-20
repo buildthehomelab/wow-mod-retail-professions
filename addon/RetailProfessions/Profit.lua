@@ -3,13 +3,14 @@
 -- you can see what's worth crafting to sell, and what you can already make from your bags and
 -- reagent bank.
 --
--- Prices come from mod-retail-ah's server, which answers its K request away from the
+-- Shared bot reference prices (KC) come from mod-retail-ah's server, which answers its K request away from the
 -- auctioneer (src/RetailAHCraftPrices.cpp there). It talks under RetailAH's own prefix; our
 -- request ids start with "p", so RetailAH's addon, which numbers its own, ignores the answers.
 --
---   K:<req>:<entry>,<entry>,...  -> KR:<req>:<house cut %>:<history days>
+--   KC:<req>:<entry>,<entry>,... -> KR:<req>:<effective house cut %>:<history days>
 --                                   KD rows <entry>,<lowest buyout>,<units listed>,<AH bot pays>,
---                                           <vendor price>,<vendor pays>,<units sold>,<copper sold>,<flags>
+--                                           <vendor price>,<vendor pays>,<units sold>,<copper sold>,<flags>,<bot reference>
+-- KC does not scan auctions. An older server falls back to the original K market request.
 --                                   KE:<req>
 
 local RPF = RetailProfessions
@@ -34,9 +35,13 @@ P.days = 14   -- how far back "sold lately" looks
 P.state = "unknown"
 
 local prices = {}  -- entry -> { lowest, units, bot, vendor, sell, soldUnits, soldCopper, locked, soulbound, at }
+local failedUntil = {} -- per-entry retry cooldown after a lost response
 local asked = {}   -- entry -> true while a request for it is out
 local pending = {} -- req -> { entries, rows, tries, msg }
 local nextReq = 0
+local catalog = true -- additive KC command; older servers fall back to K
+local queue, active = {}, nil
+local pump
 
 -----------------------------------------
 -- formatting
@@ -67,7 +72,13 @@ local function giveUp(req)
 	local p = pending[req]
 	if not p then return end
 	pending[req] = nil
-	for _, entry in ipairs(p.entries) do asked[entry] = nil end
+	if active == req then active = nil end
+	for _, entry in ipairs(p.entries) do
+		asked[entry] = nil
+		failedUntil[entry] = GetTime() + FRESH
+	end
+	RPF.Debounce("prices", 0.1, function () RPF.Fire("PRICES") end)
+	RPF.After(0.12, function () pump() end)
 end
 
 local function noServer()
@@ -77,20 +88,34 @@ local function noServer()
 	RPF.Fire("PRICES")
 end
 
-local function request(entries)
-	nextReq = nextReq + 1
-	local req = "p" .. nextReq
-	local msg = "K:" .. req .. ":" .. table.concat(entries, ",")
-	local p = { entries = entries, rows = {}, tries = 0, msg = msg }
-	pending[req] = p
-	for _, entry in ipairs(entries) do asked[entry] = true end
-	send(msg)
+pump = function ()
+	if active then return end
+	local req = table.remove(queue, 1)
+	while req and not pending[req] do req = table.remove(queue, 1) end
+	if not req then return end
+	local p = pending[req]
+	if not catalog and p.catalog then
+		p.catalog = false
+		p.msg = p.msg:gsub("^KC:", "K:")
+	end
+	active = req
+	send(p.msg)
 	RPF.After(TIMEOUT, function ()
 		if pending[req] ~= p then return end
-		-- Nothing came back: no mod-retail-ah on this realm (or the request got lost).
 		giveUp(req)
 		if P.state ~= "ok" then noServer() end
 	end)
+end
+
+local function request(entries)
+	nextReq = nextReq + 1
+	local req = "p" .. nextReq
+	local msg = (catalog and "KC:" or "K:") .. req .. ":" .. table.concat(entries, ",")
+	local p = { entries = entries, rows = {}, tries = 0, msg = msg, catalog = catalog }
+	pending[req] = p
+	for _, entry in ipairs(entries) do asked[entry] = true end
+	table.insert(queue, req)
+	pump()
 end
 
 local function store(p, now)
@@ -104,6 +129,7 @@ local function store(p, now)
 				vendor = tonumber(row[5]) or 0, sell = tonumber(row[6]) or 0,
 				soldUnits = tonumber(row[7]) or 0, soldCopper = tonumber(row[8]) or 0,
 				locked = bit.band(flags, ROW_LOCKED) ~= 0, soulbound = bit.band(flags, ROW_SOULBOUND) ~= 0,
+				quote = tonumber(row[10]) or 0, catalog = p.catalog,
 				at = now,
 			}
 			seen[entry] = true
@@ -112,6 +138,7 @@ local function store(p, now)
 	-- Entries the server skipped (no such item) aren't asked again until they'd be stale.
 	for _, entry in ipairs(p.entries) do
 		asked[entry] = nil
+		failedUntil[entry] = nil
 		if not seen[entry] then prices[entry] = { none = true, at = now } end
 	end
 end
@@ -127,6 +154,14 @@ local function onMessage(message)
 	if not p then return end
 
 	if code == "ERR" then
+		if rest == "unknown" and p.catalog then
+			-- Older server: retain the existing live-auction service without a hard dependency.
+			catalog = false
+			p.catalog = false
+			p.msg = p.msg:gsub("^KC:", "K:")
+			send(p.msg)
+			return
+		end
 		if rest == "busy" and p.tries < 5 then
 			p.tries = p.tries + 1
 			RPF.After(0.25 * p.tries, function () if pending[req] == p then send(p.msg) end end)
@@ -138,7 +173,7 @@ local function onMessage(message)
 		if rest == "far" or rest == "unknown" then noServer() end
 		return
 	elseif code == "KR" then
-		local cut, days = rest:match("^(%d+):?(%d*)")
+		local cut, days = rest:match("^([%d%.]+):?(%d*)")
 		P.cut = tonumber(cut) or P.cut
 		P.days = tonumber(days) or P.days
 	elseif code == "KD" then
@@ -149,6 +184,8 @@ local function onMessage(message)
 		end
 	elseif code == "KE" then
 		pending[req] = nil
+		active = nil
+		RPF.After(0.12, function () pump() end)
 		P.state = "ok"
 		store(p, GetTime())
 		RPF.Debounce("prices", 0.1, function () RPF.Fire("PRICES") end)
@@ -171,9 +208,10 @@ function P.Fetch(entries, force)
 	local now, batch = GetTime(), {}
 	for _, entry in ipairs(entries) do
 		local p = prices[entry]
-		if not asked[entry] and (force or not p or now - p.at > FRESH) then
+		if not asked[entry] and (force or not failedUntil[entry] or now >= failedUntil[entry])
+			and (force or not p or now - p.at > FRESH) then
 			table.insert(batch, entry)
-			if #batch == BATCH then
+			if #batch == BATCH or #table.concat(batch, ",") > 215 then
 				request(batch)
 				batch = {}
 			end
@@ -232,13 +270,16 @@ local function averageSold(p)
 	return p.soldUnits > 0 and floor(p.soldCopper / p.soldUnits) or nil
 end
 
--- The cheapest way to get one: from a vendor or the lowest buyout. Without either, what it sold
+-- The cheapest reference cost: vendor, shared bot quote or live lowest buyout. Without either, what it sold
 -- for lately. nil when nothing says; how = "vendor", "auction" or "sold".
 function P.BuyCost(entry)
 	local p = P.Get(entry)
 	if not p then return nil end
 	local best, how
 	if p.vendor > 0 then best, how = p.vendor, "vendor" end
+	if p.quote > 0 and not p.locked and not p.soulbound and (not best or p.quote < best) then
+		best, how = p.quote, "catalog"
+	end
 	if p.lowest > 0 and (not best or p.lowest < best) then best, how = p.lowest, "auction" end
 	if not best and not p.locked then
 		local avg = averageSold(p)
@@ -247,7 +288,7 @@ function P.BuyCost(entry)
 	return best, how
 end
 
--- What selling one brings, after the house cut: matching the lowest buyout (or, with nothing
+-- Estimated proceeds after the house cut: shared bot reference, or matching the lowest buyout (or, with nothing
 -- listed, what it sold for lately), what the AH bot pays when that's more (it buys every time it
 -- looks), or a vendor's price when that's more still. how = "auction", "sold", "bot" or "vendor".
 function P.SellValue(entry)
@@ -256,7 +297,9 @@ function P.SellValue(entry)
 	local keep = 1 - (P.cut or 5) / 100
 	local best, how
 	if not (p.soulbound or p.locked) then
-		if p.lowest > 0 then
+		if p.quote > 0 then
+			best, how = floor(p.quote * keep), "catalog"
+		elseif p.lowest > 0 then
 			best, how = floor(p.lowest * keep), "auction"
 		elseif averageSold(p) then
 			best, how = floor(averageSold(p) * keep), "sold"
@@ -366,10 +409,10 @@ end
 -- explaining a price
 
 local HOW_SELL = {
-	auction = "lowest buyout", sold = "sold lately", bot = "the AH bot pays", vendor = "vendor price",
+	catalog = "bot reference estimate", auction = "lowest buyout", sold = "sold lately", bot = "the AH bot pays", vendor = "vendor price",
 }
 local HOW_BUY = {
-	vendor = "vendor", auction = "auction", sold = "sold lately", yours = "yours, vendor value",
+	catalog = "bot reference", vendor = "vendor", auction = "auction", sold = "sold lately", yours = "yours, vendor value",
 }
 
 function P.HowSell(how) return HOW_SELL[how] or "" end
@@ -382,6 +425,7 @@ function P.MarketText(entry)
 	local parts = {}
 	if p.units > 0 then table.insert(parts, p.units .. " listed") end
 	if p.soldUnits > 0 then table.insert(parts, string.format("%d sold in %d days", p.soldUnits, P.days)) end
+	if p.catalog then table.insert(parts, "Bot reference prices; availability and sale not guaranteed") end
 	return table.concat(parts, ", ")
 end
 
