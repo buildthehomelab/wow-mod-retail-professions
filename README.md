@@ -380,3 +380,8 @@ An unavailable targeted offer falls back to vendor proceeds, not the higher reta
 Other items retain the existing valuation behavior. Tooltips identify bot-buyer valuation
 and explain that purchase timing follows buyer cycles. Requires the matched bot/RetailAH
 server changes and this updated addon.
+
+Authoritative KC rows also carry the server's exact net buyer proceeds. This preserves
+core fee-rounding order even with custom auction-cut rates; older responses use gross
+minus truncated effective fee as a compatibility fallback. Vendor-fallback tooltip text
+identifies vendor valuation instead of claiming a bot offer was selected.

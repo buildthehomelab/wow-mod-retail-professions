@@ -132,6 +132,7 @@ local function store(p, now)
 				locked = bit.band(flags, ROW_LOCKED) ~= 0, soulbound = bit.band(flags, ROW_SOULBOUND) ~= 0,
 				quote = tonumber(row[10]) or 0, catalog = p.catalog,
 				referenceBuyer = bit.band(flags, ROW_REFERENCE_BUYER) ~= 0,
+				botNet = tonumber(row[11]),
 				at = now,
 			}
 			seen[entry] = true
@@ -300,7 +301,7 @@ function P.SellValue(entry)
 	local best, how
 	if not (p.soulbound or p.locked) then
 		if p.referenceBuyer then
-			if p.bot > 0 then best, how = floor(p.bot * keep), "bot" end
+			if p.bot > 0 then best, how = p.botNet or (p.bot - floor(p.bot * ((P.cut or 5) / 100))), "bot" end
 		elseif p.quote > 0 then
 			best, how = floor(p.quote * keep), "catalog"
 		elseif p.lowest > 0 then
@@ -309,7 +310,7 @@ function P.SellValue(entry)
 			best, how = floor(averageSold(p) * keep), "sold"
 		end
 		local bot = floor(p.bot * keep)
-		if bot > 0 and (not best or bot > best) then best, how = bot, "bot" end
+		if not p.referenceBuyer and bot > 0 and (not best or bot > best) then best, how = bot, "bot" end
 	end
 	local sell = p.sell > 0 and p.sell or select(11, GetItemInfo(entry)) or 0
 	if sell > 0 and (not best or sell > best) then best, how = sell, "vendor" end
@@ -430,7 +431,12 @@ function P.MarketText(entry)
 	if p.units > 0 then table.insert(parts, p.units .. " listed") end
 	if p.soldUnits > 0 then table.insert(parts, string.format("%d sold in %d days", p.soldUnits, P.days)) end
 	if p.referenceBuyer then
-		table.insert(parts, "Profit uses the bot buyer offer after auction fees; purchase timing follows buyer cycles")
+		local _, how = P.SellValue(entry)
+		if how == "bot" then
+			table.insert(parts, "Profit uses the bot buyer offer after auction fees; purchase timing follows buyer cycles")
+		else
+			table.insert(parts, "Profit uses vendor value; the bot offer is unavailable or lower")
+		end
 	elseif p.catalog then
 		table.insert(parts, "Bot reference prices; availability and sale not guaranteed")
 	end
