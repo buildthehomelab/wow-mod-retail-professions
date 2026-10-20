@@ -367,3 +367,16 @@ or client DBC/MPQ changes are required. Existing auctions are not repriced by th
 Validation: `tools/profit_catalog_test.lua` runs under Lua 5.1 and checks queued batches,
 size limits, fallback, timeout recovery, gates, vendor costs and multi-output craft estimates.
 The full addon smoke test also exercises an older server's K fallback.
+
+## BiS crafts priced against the buyer offer
+
+For items marked by RetailAH's authoritative BiS-buyer flag, output value and profit ranking
+use the actual bot buying offer after the effective auction cut. Material costs still use
+full seller references/vendor prices. This avoids advertising a retail seller reference as
+what the bot will pay: a 212g gross reference at 90% yields a 190.8g gross buyer offer, or
+181.26g net at a 5% cut. Those numbers are an example, not a verified live Heartseeker quote.
+An unavailable targeted offer falls back to vendor proceeds, not the higher retail quote.
+
+Other items retain the existing valuation behavior. Tooltips identify bot-buyer valuation
+and explain that purchase timing follows buyer cycles. Requires the matched bot/RetailAH
+server changes and this updated addon.

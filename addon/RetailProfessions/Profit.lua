@@ -25,6 +25,7 @@ local TIMEOUT = 6
 
 local ROW_LOCKED = 1
 local ROW_SOULBOUND = 2
+local ROW_REFERENCE_BUYER = 8
 
 local floor, abs = math.floor, math.abs
 
@@ -130,6 +131,7 @@ local function store(p, now)
 				soldUnits = tonumber(row[7]) or 0, soldCopper = tonumber(row[8]) or 0,
 				locked = bit.band(flags, ROW_LOCKED) ~= 0, soulbound = bit.band(flags, ROW_SOULBOUND) ~= 0,
 				quote = tonumber(row[10]) or 0, catalog = p.catalog,
+				referenceBuyer = bit.band(flags, ROW_REFERENCE_BUYER) ~= 0,
 				at = now,
 			}
 			seen[entry] = true
@@ -288,7 +290,7 @@ function P.BuyCost(entry)
 	return best, how
 end
 
--- Estimated proceeds after the house cut: shared bot reference, or matching the lowest buyout (or, with nothing
+-- Authoritative BiS buyer items use the actual offer; others use estimated proceeds after the house cut: shared bot reference, or matching the lowest buyout (or, with nothing
 -- listed, what it sold for lately), what the AH bot pays when that's more (it buys every time it
 -- looks), or a vendor's price when that's more still. how = "auction", "sold", "bot" or "vendor".
 function P.SellValue(entry)
@@ -297,7 +299,9 @@ function P.SellValue(entry)
 	local keep = 1 - (P.cut or 5) / 100
 	local best, how
 	if not (p.soulbound or p.locked) then
-		if p.quote > 0 then
+		if p.referenceBuyer then
+			if p.bot > 0 then best, how = floor(p.bot * keep), "bot" end
+		elseif p.quote > 0 then
 			best, how = floor(p.quote * keep), "catalog"
 		elseif p.lowest > 0 then
 			best, how = floor(p.lowest * keep), "auction"
@@ -425,7 +429,11 @@ function P.MarketText(entry)
 	local parts = {}
 	if p.units > 0 then table.insert(parts, p.units .. " listed") end
 	if p.soldUnits > 0 then table.insert(parts, string.format("%d sold in %d days", p.soldUnits, P.days)) end
-	if p.catalog then table.insert(parts, "Bot reference prices; availability and sale not guaranteed") end
+	if p.referenceBuyer then
+		table.insert(parts, "Profit uses the bot buyer offer after auction fees; purchase timing follows buyer cycles")
+	elseif p.catalog then
+		table.insert(parts, "Bot reference prices; availability and sale not guaranteed")
+	end
 	return table.concat(parts, ", ")
 end
 
