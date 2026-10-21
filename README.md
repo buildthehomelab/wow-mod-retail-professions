@@ -316,6 +316,8 @@ and the crafting perks (`RetailProfessions.Perks.Enable` and a `Min` / `Max` per
 
 ## Development
 
+`lua tools/profit_catalog_test.lua` checks the profit view's batching, fallback and craft estimates.
+
 `lua tools/addon_smoke_test.lua addon/RetailProfessions` loads the addon against a stubbed
 3.3.5a API and a fake server and walks through opening a profession, filters, crafting, where to
 learn a recipe, tracking, the book, combat, the profit view (with a fake mod-retail-ah price
@@ -336,6 +338,26 @@ crafting perks, milling (its tab, Mill All, Stop, the reagent bank) and the clas
 - **You want the old window back**: `/prof classic` switches to it, `/prof retail` returns.
 - **A window ended up off screen**: `/prof reset` puts the windows back.
 
+## Shared prices and profitable crafts
+
+The Profit and Training views ask mod-retail-ah for prices through its KC service, which answers
+from the AH bot's seller quote cache instead of walking the current auctions. Requests are
+batched to the addon-message size limit, one batch at a time, and prices are reused for three
+minutes. A server without the KC service falls back to the live-market `K` request.
+
+Material cost is the cheaper of the vendor and the bot reference. Output proceeds deduct the
+auction house cut; vendor sale and the modelled buyer offer stay as alternatives. Labels tell bot
+reference estimates from live lowest-buyout prices. A reference does not guarantee a sale.
+Needs `AuctionHouseBot.Seller.StablePrices` on the server. No SQL or client patch.
+
+## BiS crafts priced against the buyer offer
+
+For items that RetailAH marks as bought by the AH bot's BiS buyer, the output value and profit
+ranking use the bot's actual buying offer after the auction cut, not the higher retail seller
+reference. Materials are still priced at seller references or vendor prices. The tooltip says
+when a bot-buyer valuation is used, and falls back to vendor proceeds when no offer is
+available. Needs the matching mod-retail-ah and AH bot builds.
+
 ## Credits
 
 Author: [buildthehomelab](https://github.com/buildthehomelab)
@@ -343,45 +365,3 @@ Author: [buildthehomelab](https://github.com/buildthehomelab)
 ## License
 
 MIT, see [LICENSE](LICENSE).
-
-## Shared prices and profitable crafts
-
-The profit and training views request RetailAH's additive KC service, backed by the
-AH bot's own stable seller quote cache. This avoids walking current auctions for every
-batch and keeps both faction references aligned with the configured bot pricing model.
-Each request is bounded to the addon-message size limit and only one batch is in flight;
-queued batches start after completion, avoiding the old startup request burst. Prices
-are reused for three minutes across recipe details, Training and Most profitable crafts.
-
-Material cost uses the cheaper vendor or bot reference. Estimated output proceeds deduct
-the effective house cut; vendor sales and the existing modeled buyer offer remain alternatives.
-Labels distinguish bot reference estimates from live lowest-buyout prices. References do
-not establish stock availability or guarantee a player sale; craft options may share the
-same materials. Locked and soulbound items retain their restrictions. An older RetailAH
-or missing/disabled provider falls back to the original K live-market service.
-
-Deploy the matching mod-ah-bot-plus and RetailAH server builds and distribute this addon
-update together. Enable AuctionHouseBot.Seller.StablePrices in the server override. No SQL
-or client DBC/MPQ changes are required. Existing auctions are not repriced by the catalog.
-
-Validation: `tools/profit_catalog_test.lua` runs under Lua 5.1 and checks queued batches,
-size limits, fallback, timeout recovery, gates, vendor costs and multi-output craft estimates.
-The full addon smoke test also exercises an older server's K fallback.
-
-## BiS crafts priced against the buyer offer
-
-For items marked by RetailAH's authoritative BiS-buyer flag, output value and profit ranking
-use the actual bot buying offer after the effective auction cut. Material costs still use
-full seller references/vendor prices. This avoids advertising a retail seller reference as
-what the bot will pay: a 212g gross reference at 90% yields a 190.8g gross buyer offer, or
-181.26g net at a 5% cut. Those numbers are an example, not a verified live Heartseeker quote.
-An unavailable targeted offer falls back to vendor proceeds, not the higher retail quote.
-
-Other items retain the existing valuation behavior. Tooltips identify bot-buyer valuation
-and explain that purchase timing follows buyer cycles. Requires the matched bot/RetailAH
-server changes and this updated addon.
-
-Authoritative KC rows also carry the server's exact net buyer proceeds. This preserves
-core fee-rounding order even with custom auction-cut rates; older responses use gross
-minus truncated effective fee as a compatibility fallback. Vendor-fallback tooltip text
-identifies vendor valuation instead of claiming a bot offer was selected.
