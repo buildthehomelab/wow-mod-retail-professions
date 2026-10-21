@@ -595,10 +595,28 @@ local function hideCompare()
 	if ShoppingTooltip3 then ShoppingTooltip3:Hide() end
 end
 
+-- The 3.3.5 client crashes (#132 at 0x00620727) when it compares against worn gear whose item
+-- record isn't in its cache yet, which is common right after the cache is wiped. Anything
+-- missing is asked for; ITEM_INFO compares once it has arrived.
+local function compareReady()
+	local _, link = GameTooltip:GetItem()
+	local entry = link and tonumber(link:match("item:(%d+)"))
+	local ready = not entry or RPF.Item(entry) ~= nil
+	for slot = 1, 19 do
+		local worn = GetInventoryItemID("player", slot)
+		if worn and not RPF.Item(worn) then ready = false end
+	end
+	return ready
+end
+
+local function compare()
+	if compareReady() then GameTooltip_ShowCompareItem() end
+end
+
 function RPF.ShowItemTooltip(owner)
 	tipOwner = owner
 	GameTooltip:Show()
-	if IsModifiedClick("COMPAREITEMS") then GameTooltip_ShowCompareItem() end
+	if IsModifiedClick("COMPAREITEMS") then compare() end
 end
 
 function RPF.HideItemTooltip()
@@ -612,7 +630,11 @@ local modifierFrame = CreateFrame("Frame")
 modifierFrame:RegisterEvent("MODIFIER_STATE_CHANGED")
 modifierFrame:SetScript("OnEvent", function ()
 	if not tipOwner or not GameTooltip:IsShown() or not GameTooltip:IsOwned(tipOwner) then return end
-	if IsModifiedClick("COMPAREITEMS") then GameTooltip_ShowCompareItem() else hideCompare() end
+	if IsModifiedClick("COMPAREITEMS") then compare() else hideCompare() end
+end)
+RPF.On("ITEM_INFO", function ()
+	if not tipOwner or not GameTooltip:IsShown() or not GameTooltip:IsOwned(tipOwner) then return end
+	if IsModifiedClick("COMPAREITEMS") and not ShoppingTooltip1:IsShown() then compare() end
 end)
 
 -- DragonUI's professions slot frames, by quality; the bronze one for the rest. Offsets (for a
