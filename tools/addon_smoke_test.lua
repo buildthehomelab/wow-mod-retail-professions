@@ -170,7 +170,11 @@ UIParent = newObject("Frame", "UIParent")
 WorldFrame = newObject("Frame", "WorldFrame")
 GameTooltip = newObject("GameTooltip", "GameTooltip")
 local tipLines = {}
-function GameTooltip:SetOwner() tipLines = {} end
+function GameTooltip:SetOwner() tipLines = {}; self.__link = nil end
+function GameTooltip:SetHyperlink(link) self.__link = link end
+function GameTooltip:GetItem() local l = rawget(self, "__link") if l and l:find("item:") then return "x", l end end
+local worn = {}
+function GetInventoryItemID(_, slot) return worn[slot] end
 function GameTooltip:AddLine(text) table.insert(tipLines, tostring(text)) end
 ShoppingTooltip1 = newObject("GameTooltip", "ShoppingTooltip1")
 ShoppingTooltip2 = newObject("GameTooltip", "ShoppingTooltip2")
@@ -990,6 +994,19 @@ step("hovering a recipe compares with equipped gear only while Shift is held", f
 	fire("MODIFIER_STATE_CHANGED", "LSHIFT", 1)
 	IsModifiedClick = isModified
 	assert(compared == before + 2, "compared with nothing hovered")
+	-- Worn gear the client hasn't cached: no compare (the 3.3.5 client crashes) until it arrives.
+	worn[16] = 99999
+	IsModifiedClick = function () return true end
+	GameTooltip.IsOwned = function (tip, owner) return owner == row end
+	GameTooltip.IsShown = function () return true end
+	row.__scripts.OnEnter(row)
+	assert(compared == before + 2, "compared against worn gear the client hasn't cached")
+	items[99999] = { "Worn Blade", 2, "INVTYPE_WEAPON" }
+	tick(0.5)
+	assert(compared == before + 3, "no compare once the worn gear was cached")
+	IsModifiedClick, GameTooltip.IsOwned, GameTooltip.IsShown = isModified, isOwned, isShown
+	row.__scripts.OnLeave(row)
+	worn[16], items[99999] = nil, nil
 end)
 
 step("use reagent bank: withdraw, then craft when it arrives", function ()
