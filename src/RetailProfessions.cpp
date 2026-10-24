@@ -181,6 +181,9 @@ namespace RetailProfessions
             sConfig.speedMax = percent("RetailProfessions.Perks.Speed.Max", 50, 90);
             sConfig.speedMin = percent("RetailProfessions.Perks.Speed.Min", 0, sConfig.speedMax);
             sConfig.progressionEnabled = sConfigMgr->GetOption<bool>("IndividualProgression.Enable", false, false);
+            sConfig.progressionLimit = sConfigMgr->GetOption<uint8>("IndividualProgression.ProgressionLimit", 0, false);
+            sConfig.zulGurubState = sConfigMgr->GetOption<uint8>("IndividualProgression.RequiredZulGurubProgression", 3, false);
+            sConfig.zulAmanState = sConfigMgr->GetOption<uint8>("IndividualProgression.RequiredZulAmanProgression", 12, false);
         }
 
         bool TakeToken(SessionState& state, float cost)

@@ -75,6 +75,11 @@ namespace RetailProfessions
         bool enabled = true;
         bool skillCapByEra = true;      // hide unlearned recipes past the player's era
         bool progressionEnabled = false; // IndividualProgression.Enable
+        // IndividualProgression.ProgressionLimit, .RequiredZulGurubProgression, .RequiredZulAmanProgression:
+        // when its npc_ipp_* scripts show their creatures.
+        uint8 progressionLimit = 0;
+        uint8 zulGurubState = 3;
+        uint8 zulAmanState = 12;
         bool hideLockedContinents = true;
         uint32 maxSourcesPerKind = 6;
         uint32 worldDropThreshold = 25;  // more droppers than this through a shared loot table = world drop
