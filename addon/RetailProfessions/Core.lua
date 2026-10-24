@@ -757,6 +757,12 @@ function RPF.WhereToLearn(spell, handler)
 	end)
 end
 
+-- Sources change with progression (a raid kill opens vendors and closes others): ask again
+-- after each loading screen, which leaving the raid brings.
+function RPF.ForgetWhere()
+	whereCache, whereFailed = {}, {}
+end
+
 -- Puts a flag on the world map at the nearest spawn of a source: a trainer, vendor or teacher,
 -- and with HELLO_GUIDE also a creature that drops it, an object or a quest's giver.
 function RPF.ShowOnMap(kind, entry, handler)
@@ -820,6 +826,7 @@ end
 local events = CreateFrame("Frame")
 events:RegisterEvent("ADDON_LOADED")
 events:RegisterEvent("PLAYER_LOGIN")
+events:RegisterEvent("PLAYER_ENTERING_WORLD")
 events:RegisterEvent("TRADE_SKILL_SHOW")
 events:RegisterEvent("TRADE_SKILL_CLOSE")
 events:RegisterEvent("TRADE_SKILL_UPDATE")
@@ -856,6 +863,8 @@ events:SetScript("OnEvent", function (self, event, ...)
 		if A and A.On then A.On("STATE", function () RPF.Fire("SKILLS") end) end
 		RPF.Fire("LOGIN")
 		RPF.After(3, RPF.SayHello)
+	elseif event == "PLAYER_ENTERING_WORLD" then
+		RPF.ForgetWhere()
 	elseif event == "TRADE_SKILL_SHOW" then
 		onTradeSkillShow()
 	elseif event == "TRADE_SKILL_CLOSE" then

@@ -14,7 +14,8 @@
  *   - L lists recipes the player's race and class can learn and that something teaches to
  *     their faction; the addon hides those past the skill cap HELLO sends.
  *   - W lists sources the player could use: friendly trainers and vendors, quests for their
- *     race, and nothing on a continent mod-individual-progression hasn't opened for them.
+ *     race, and nothing on a continent mod-individual-progression hasn't opened for them
+ *     or that one of its npc_ipp_* / gobject_ipp_* scripts hides at their progression.
  */
 
 #include "RetailProfessions.h"
@@ -42,6 +43,7 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -91,6 +93,50 @@ namespace RetailProfessions::Index
         constexpr uint8 IP_STATE_TBC = 8;
         constexpr uint8 IP_STATE_QUEL_DANAS = 12;
         constexpr uint8 IP_STATE_WOTLK = 13;
+        constexpr uint8 IP_STATE_NEVER = 255;
+
+        // When mod-individual-progression's visibility scripts (IndividualProgressionAwareness.cpp)
+        // show a creature or object: from progression state `from` and before state `before`
+        // (0 = no bound). `passedBefore`: the bound is a !hasPassedProgression() check, which
+        // IndividualProgression.ProgressionLimit can lift; the pre_* scripts use isBeforeProgression().
+        // npc_ipp_zg and npc_ipp_za take their state from the config. Not modelled: npc_ipp_naxx40
+        // also shows to IP's excluded accounts, npc_ipp_ds2 to all with AllowEarlyDungeonSet2
+        // (neither sells recipes), and IndividualProgressionPvP.cpp's PvP vendors.
+        struct ProgressionGate
+        {
+            std::string_view script;
+            uint8 from;
+            uint8 before;
+            bool passedBefore;
+        };
+        constexpr std::array<ProgressionGate, 26> PROGRESSION_GATES = {{
+            { "gobject_ipp_preaq",    3,  0, false },
+            { "gobject_ipp_aqwar",    4,  5, true },
+            { "gobject_ipp_si",       6,  7, true },
+            { "gobject_ipp_naxx40",   6,  0, false },
+            { "gobject_ipp_pre_tbc",  0,  8, false },
+            { "gobject_ipp_tbc",      8,  0, false },
+            { "gobject_ipp_tbc_t4",   12, 0, false },
+            { "gobject_ipp_wotlk",    13, 0, false },
+            { "npc_ipp_preaq",        3,  0, false },
+            { "npc_ipp_we",           3,  4, true },
+            { "npc_ipp_aq",           5,  0, false },
+            { "npc_ipp_aqwewar",      3,  5, true },
+            { "npc_ipp_aqwar",        4,  5, true },
+            { "npc_ipp_si",           6,  7, true },
+            { "npc_ipp_pre_naxx40",   0,  6, false },
+            { "npc_ipp_naxx40",       6,  0, false },
+            { "npc_ipp_pre_tbc",      0,  8, false },
+            { "npc_ipp_tbc",          8,  0, false },
+            { "npc_ipp_tbc_pre_t3",   0,  10, true },
+            { "npc_ipp_tbc_t3",       10, 0, false },
+            { "npc_ipp_pre_wotlk",    0,  13, false },
+            { "npc_ipp_wotlk",        13, 0, false },
+            { "npc_ipp_wotlk_ulduar", 14, 0, false },
+            { "npc_ipp_wotlk_totc",   15, 0, false },
+            { "npc_ipp_wotlk_icc",    16, 0, false },
+            { "npc_ipp_ds2",          3,  0, false },
+        }};
 
         // What the map marker looks like: the red flag city guards use.
         constexpr uint32 POI_FLAGS = 99;
@@ -208,6 +254,9 @@ namespace RetailProfessions::Index
             float x = 0.0f;
             float y = 0.0f;
             uint32 phaseMask = 1;
+            // Shown only from / before these progression states (PROGRESSION_GATES); 0 = no bound.
+            uint8 ipFrom = 0;
+            uint8 ipBefore = 0;
         };
 
         struct Data
@@ -1064,6 +1113,31 @@ namespace RetailProfessions::Index
         // Spawns of each trainer, vendor (MAX_SPAWNS, to find a near one), dropping creature and
         // object (a few, for the zone), with their zones: saved in the database, or worked out
         // from the map files (and saved for next time). Dungeons are named after their map instead.
+        // The progression window a spawn's mod-individual-progression script shows it in.
+        void SetProgressionGate(Spawn& spawn, uint32 scriptId)
+        {
+            Config const& config = GetConfig();
+            if (!scriptId || !config.progressionEnabled)
+                return;
+
+            std::string const& script = sObjectMgr->GetScriptName(scriptId);
+            if (script == "npc_ipp_zg" || script == "npc_ipp_za")
+            {
+                spawn.ipFrom = script == "npc_ipp_zg" ? config.zulGurubState : config.zulAmanState;
+                return;
+            }
+
+            auto gate = std::find_if(PROGRESSION_GATES.begin(), PROGRESSION_GATES.end(),
+                [&](ProgressionGate const& g) { return g.script == script; });
+            if (gate == PROGRESSION_GATES.end())
+                return;
+
+            // hasPassedProgression() is never true for a state past the limit.
+            uint8 limit = config.progressionLimit;
+            spawn.ipFrom = limit && gate->from > limit ? IP_STATE_NEVER : gate->from;
+            spawn.ipBefore = gate->passedBefore && limit && gate->before > limit ? 0 : gate->before;
+        }
+
         void ReadSpawns(std::unordered_set<uint32> const& service, std::unordered_set<uint32> const& droppers,
             std::unordered_set<uint32> const& objects)
         {
@@ -1110,7 +1184,11 @@ namespace RetailProfessions::Index
                     continue;
                 std::vector<Spawn>& spawns = sData.creatureSpawns[data.id];
                 if (spawns.size() < keep)
+                {
                     spawns.push_back(place(data, savedCreatures, "creature"));
+                    CreatureTemplate const* creature = sObjectMgr->GetCreatureTemplate(data.id);
+                    SetProgressionGate(spawns.back(), data.ScriptId ? data.ScriptId : creature ? creature->ScriptID : 0);
+                }
             }
 
             for (auto const& [spawnId, data] : sObjectMgr->GetAllGOData())
@@ -1119,7 +1197,11 @@ namespace RetailProfessions::Index
                     continue;
                 std::vector<Spawn>& spawns = sData.objectSpawns[data.id];
                 if (spawns.size() < MAX_DROP_SPAWNS)
+                {
                     spawns.push_back(place(data, savedObjects, "gameobject"));
+                    GameObjectTemplate const* object = sObjectMgr->GetGameObjectTemplate(data.id);
+                    SetProgressionGate(spawns.back(), data.ScriptId ? data.ScriptId : object ? object->ScriptId : 0);
+                }
             }
 
             if (trans->GetSize())
@@ -1327,31 +1409,48 @@ namespace RetailProfessions::Index
             return viewer;
         }
 
-        bool IsOpen(Viewer const& viewer, Spawn const& spawn)
+        // The progression state that opens the continent or expansion a spawn is in; 0 = always open.
+        uint8 RegionState(Spawn const& spawn)
         {
-            if (viewer.everything || !GetConfig().hideLockedContinents)
-                return true;
-
-            if (spawn.map == MAP_EBON_HOLD)
-                return viewer.player->getClass() == CLASS_DEATH_KNIGHT;
-
             if (spawn.map == MAP_OUTLAND)
             {
                 if (std::find(ZONES_OPEN_ON_OUTLAND_MAP.begin(), ZONES_OPEN_ON_OUTLAND_MAP.end(), spawn.zone) != ZONES_OPEN_ON_OUTLAND_MAP.end())
-                    return true;
-                if (spawn.zone == ZONE_ISLE_OF_QUEL_DANAS)
-                    return viewer.progression >= IP_STATE_QUEL_DANAS;
-                return viewer.progression >= IP_STATE_TBC;
+                    return 0;
+                return spawn.zone == ZONE_ISLE_OF_QUEL_DANAS ? IP_STATE_QUEL_DANAS : IP_STATE_TBC;
             }
 
             // Dungeons and Northrend by the expansion their map belongs to.
             MapEntry const* map = sMapStore.LookupEntry(spawn.map);
             uint32 expansion = map ? map->Expansion() : 0;
             if (expansion >= 2)
-                return viewer.progression >= IP_STATE_WOTLK;
+                return IP_STATE_WOTLK;
             if (expansion == 1)
-                return viewer.progression >= IP_STATE_TBC;
-            return true;
+                return IP_STATE_TBC;
+            return 0;
+        }
+
+        // Whether the continent or expansion a spawn is in is open to the player.
+        bool RegionOpen(Viewer const& viewer, Spawn const& spawn)
+        {
+            if (viewer.everything || !GetConfig().hideLockedContinents)
+                return true;
+            if (spawn.map == MAP_EBON_HOLD)
+                return viewer.player->getClass() == CLASS_DEATH_KNIGHT;
+            return viewer.progression >= RegionState(spawn);
+        }
+
+        // Whether a mod-individual-progression script lets the player see the spawn.
+        bool ProgressionShows(Viewer const& viewer, Spawn const& spawn)
+        {
+            if (viewer.everything || !GetConfig().progressionEnabled)
+                return true;
+            return viewer.progression >= spawn.ipFrom && (!spawn.ipBefore || viewer.progression < spawn.ipBefore);
+        }
+
+        // A spawn the player can see and get to: its region is open and no progression script hides it.
+        bool IsOpen(Viewer const& viewer, Spawn const& spawn)
+        {
+            return ProgressionShows(viewer, spawn) && RegionOpen(viewer, spawn);
         }
 
         bool IsFriendly(Viewer const& viewer, uint32 factionTemplate)
@@ -1403,17 +1502,15 @@ namespace RetailProfessions::Index
                 if (IsOpen(viewer, spawn))
                     return "";
             Spawn const& spawn = spawns->front();
-            if (spawn.map == MAP_EBON_HOLD)
+            if (spawn.map == MAP_EBON_HOLD || RegionOpen(viewer, spawn))
+                return "";
+            // Not when a progression script still hides it once the region opens.
+            uint8 opens = RegionState(spawn);
+            if (GetConfig().progressionEnabled && (spawn.ipFrom > opens || (spawn.ipBefore && spawn.ipBefore <= opens)))
                 return "";
             if (spawn.map == MAP_OUTLAND)
                 return spawn.zone == ZONE_ISLE_OF_QUEL_DANAS ? AreaName(ZONE_ISLE_OF_QUEL_DANAS) : MapName(MAP_OUTLAND);
-            MapEntry const* map = sMapStore.LookupEntry(spawn.map);
-            uint32 expansion = map ? map->Expansion() : 0;
-            if (expansion == 1)
-                return MapName(MAP_OUTLAND);
-            if (expansion >= 2)
-                return MapName(MAP_NORTHREND);
-            return "";
+            return opens == IP_STATE_TBC ? MapName(MAP_OUTLAND) : MapName(MAP_NORTHREND);
         }
 
         // A friendly creature the player can walk up to: its nearest open spawn. When it's only
@@ -1705,6 +1802,18 @@ namespace RetailProfessions::Index
                 }
         }
 
+        // A quest whose giver a mod-individual-progression script hides from the player at every spawn.
+        bool QuestGiverHidden(Viewer const& viewer, Quest const* quest)
+        {
+            auto giver = sData.questGivers.find(quest->GetQuestId());
+            if (giver == sData.questGivers.end())
+                return false;
+            auto itr = sData.creatureSpawns.find(giver->second);
+            if (itr == sData.creatureSpawns.end() || itr->second.empty())
+                return false;
+            return std::none_of(itr->second.begin(), itr->second.end(), [&](Spawn const& spawn) { return ProgressionShows(viewer, spawn); });
+        }
+
         std::string QuestRepeat(Quest const* quest)
         {
             if (quest->IsDaily())
@@ -1752,7 +1861,7 @@ namespace RetailProfessions::Index
             std::vector<uint32> quests;
             for (uint32 questId : sources.quests)
                 if (Quest const* quest = sObjectMgr->GetQuestTemplate(questId))
-                    if (QuestOpen(viewer.player, quest) || viewer.everything)
+                    if ((QuestOpen(viewer.player, quest) || viewer.everything) && !QuestGiverHidden(viewer, quest))
                         quests.push_back(questId);
             for (std::size_t i = 0; i < quests.size() && i < limit; ++i)
             {
@@ -2102,6 +2211,8 @@ namespace RetailProfessions::Index
 
         auto questRow = [&](char kind, Quest const* quest)
         {
+            if (QuestGiverHidden(viewer, quest))
+                return;
             std::string giver, place;
             QuestGiver(viewer, quest, giver, place);
             row(kind, quest->GetQuestId(), quest->GetTitle(), place,

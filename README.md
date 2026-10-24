@@ -237,6 +237,9 @@ With [mod-individual-progression](https://github.com/ZhengPeiRu21/mod-individual
   **375** before Northrend, by skill tier and never by profession.
 - Trainers, vendors and drops on a continent (or in a dungeon of an expansion) the player hasn't
   reached are left out.
+- So are sources one of its `npc_ipp_*` / `gobject_ipp_*` scripts hides at the player's
+  progression, like the Cenarion Hold vendors before Blackwing Lair or Alurmi before Outland, and
+  quests from a giver it hides. The addon asks again after each loading screen.
 
 ## How it works
 
