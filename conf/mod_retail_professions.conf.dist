@@ -153,3 +153,27 @@ RetailProfessions.Perks.Resourcefulness.Refund = 30
 
 RetailProfessions.Perks.Speed.Min = 0
 RetailProfessions.Perks.Speed.Max = 50
+
+#
+#    RetailProfessions.Gear.Enable
+#        Description: Profession equipment, after retail's. Each profession (not Fishing) has a
+#                     tool slot and two accessory slots (Cooking one), filled from the
+#                     profession window; what goes in leaves the bags. Gear items
+#                     (mod_retail_professions_gear) give skill and percentage points of
+#                     Multicraft, Resourcefulness and crafting speed on top of the perks above
+#                     (which must be on for those three), or of Finesse (an extra herb, ore or
+#                     hide), Perception (better odds on the rare things a node or corpse gives)
+#                     and Deftness (faster gathering). An item needs its RequiredSkillRank
+#                     without bonuses, so individual progression's era skill cap gates it.
+#                     Any recipe tool (Blacksmith Hammer, Arclight Spanner, Jeweler's Kit, a
+#                     runed rod...) counts from its profession's slots too: the module takes
+#                     the tools out of every trade skill spell at startup and checks them itself.
+#                     That needs the client patch that takes them out of Spell.dbc; without it
+#                     the client keeps checking the bags only.
+#                     Turning it off gives every slotted item back at the player's next login
+#                     (by mail when the bags are full). Taking the tools out happens at startup:
+#                     changing this needs a restart.
+#        Default:     1
+#
+
+RetailProfessions.Gear.Enable = 1

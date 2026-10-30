@@ -1,11 +1,14 @@
 -- The professions book (K): every profession and secondary skill you have, with its rank and
 -- skill bar, a button to open it, the gathering or fishing action where there is one (for
--- Inscription and Jewelcrafting, the window's Milling or Prospecting view), and a way to
+-- Inscription and Jewelcrafting, the window's Milling or Prospecting view), its equipment slots
+-- (Gear.lua; gathering professions have no window, so this is where theirs are) and a way to
 -- unlearn it.
 
 local RPF = RetailProfessions
 
 local WIDTH = 420
+-- Wider with profession equipment: its slots go between the skill bar and the buttons.
+local GEAR_WIDTH = 500
 local ROW_HEIGHT = 58
 local MAX_ROWS = 8
 
@@ -107,6 +110,9 @@ for i = 1, MAX_ROWS do
 	end
 	row.barText = row.bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	row.barText:SetPoint("CENTER", row.bar, "CENTER", 0, 1)
+
+	row.gear = RPF.Gear.CreateStrip(row, 24, 3)
+	row.gear:SetPoint("LEFT", row, "LEFT", 262, -2)
 
 	row.open = actionButton(row, "Open", 64)
 	row.open:SetPoint("TOPRIGHT", row, "TOPRIGHT", -8, -6)
@@ -278,6 +284,7 @@ local function refresh()
 			row.unlearn:SetPoint("RIGHT", openName and row.open or row, openName and "LEFT" or "RIGHT", openName and -4 or -8, 0)
 		end
 		if k.abandonable then row.unlearn:Show() else row.unlearn:Hide() end
+		row.gear:SetSkill(p.id)
 		row:Show()
 	end
 	for i = n + 1, MAX_ROWS do
@@ -288,6 +295,7 @@ local function refresh()
 	end
 
 	if n == 0 then empty:Show() else empty:Hide() end
+	book:SetWidth(RPF.Gear.Enabled() and GEAR_WIDTH or WIDTH)
 	book:SetHeight(math.max(140, -y + 8 - contentTop + 30))
 	local key = GetBindingKey and GetBindingKey("RETAILPROFESSIONS_BOOK")
 	hint:SetText(RPF.InCombat() and "|cffff4040Opening professions works again after combat.|r"
@@ -322,6 +330,10 @@ RPF.On("SECURE_STATE", function () if book:IsShown() then refresh() end end)
 -- Whether the Milling and Prospecting buttons have to open the profession first.
 RPF.On("HIDDEN", function () if book:IsShown() then refresh() end end)
 RPF.On("READY", function () if book:IsShown() then refresh() end end)
+-- The realm turned gear off (the slots hide themselves): back to the narrow book.
+RPF.On("GEAR", function ()
+	if book:IsShown() and book:GetWidth() ~= (RPF.Gear.Enabled() and GEAR_WIDTH or WIDTH) then refresh() end
+end)
 
 -- Key binding (Bindings.xml), and K for it the first time, when K is free.
 BINDING_HEADER_RETAILPROFESSIONS = "Retail Professions"

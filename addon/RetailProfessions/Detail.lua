@@ -1,6 +1,7 @@
 -- The selected recipe, laid out like retail's: a round icon with the name, a favorite star and
--- what it requires (tools, a fire, a forge) beside it, how likely it is to raise your skill (a
--- bar showing where it turns yellow, green and grey and where you are), the reagents with what
+-- what it requires (tools, a fire, a forge) beside it, the profession's equipment slots (Gear.lua)
+-- at the top right, how likely it is to raise your skill (a bar showing where it turns yellow,
+-- green and grey and where you are), the reagents with what
 -- you have, what the chosen amount is still short of with a button that puts it on the auction
 -- house shopping list, and for a recipe you haven't learned, where to learn it. A herb to mill
 -- or ore to prospect (Refine.lua) shows what it gives instead. A faint picture of the profession
@@ -97,6 +98,21 @@ star:SetScript("OnEnter", function (self)
 end)
 star:SetScript("OnLeave", function () GameTooltip:Hide() end)
 
+-- The open profession's tool and accessory slots (Gear.lua), level with the name: they're the
+-- profession's, so they stay whatever recipe is picked, or none.
+local gearStrip = RPF.Gear.CreateStrip(pane, 26, 4)
+gearStrip:SetPoint("TOPRIGHT", pane, "TOPRIGHT", -PAD, -10)
+RPF.gearStrip = gearStrip
+
+-- A long name stops short of the slots, the star after it.
+nameText:SetWordWrap(false)
+local function fitName()
+	nameText:SetWidth(0)
+	if not gearStrip:IsShown() then return end
+	local room = (pane:GetWidth() or 0) - PAD - 46 - 12 - 26 - gearStrip:GetWidth() - PAD
+	if room > 80 and (nameText:GetStringWidth() or 0) > room then nameText:SetWidth(room) end
+end
+
 local subText = label(pane, "GameFontHighlightSmall")
 subText:SetPoint("TOPLEFT", nameText, "BOTTOMLEFT", 0, -5)
 subText:SetPoint("RIGHT", pane, "RIGHT", -PAD, 0)
@@ -125,6 +141,16 @@ perkLine:SetScript("OnEnter", function (self)
 	end
 	if perks.speed then
 		GameTooltip:AddLine(string.format("|cffffd200Cast|r  %d%% to %d%% faster.", p.speedMin, p.speedMax), 0.8, 0.8, 0.8, true)
+	end
+	-- What the profession's equipment adds on top (Gear.lua).
+	local gear = perks.gear
+	if gear then
+		local parts = {}
+		if gear.multicraft then table.insert(parts, "Multicraft +" .. gear.multicraft .. "%") end
+		if gear.resourcefulness then table.insert(parts, "Resourcefulness +" .. gear.resourcefulness .. "%") end
+		if gear.speed then table.insert(parts, "Cast " .. gear.speed .. "% faster") end
+		GameTooltip:AddLine("Your " .. (M.skillName or "") .. " equipment: " .. table.concat(parts, ", ") .. ", included above.",
+			0.31, 0.76, 0.97, true)
 	end
 	GameTooltip:Show()
 end)
@@ -757,6 +783,7 @@ local function showParts(on)
 end
 
 local function draw(r)
+	gearStrip:SetSkill(not M.linked and M.skill or nil)
 	if not r then
 		showParts(false)
 		empty:Show()
@@ -789,6 +816,7 @@ local function draw(r)
 	end
 	local _, _, _, hex = RPF.QualityColor(quality)
 	nameText:SetText((r.isEnchant and "|cffffffff" or hex) .. r.name .. "|r")
+	fitName()
 	if art then
 		art.Art.Set(star.texture, RPF.IsFavorite(r.spell) and "favorite" or "favorite-off")
 	else
@@ -807,7 +835,7 @@ local function draw(r)
 			M.skillName or "", r.reqSkill or 0)
 	elseif r.tools and #r.tools > 0 then
 		local names = {}
-		for _, t in ipairs(r.tools) do table.insert(names, (t.has and "|cffffffff" or "|cffff2020") .. t.name .. "|r") end
+		for _, t in ipairs(r.tools) do table.insert(names, (M.ToolHas(t) and "|cffffffff" or "|cffff2020") .. t.name .. "|r") end
 		sub = "|cffffd200Requires:|r " .. table.concat(names, ", ")
 	elseif r.isEnchant then
 		sub = "Enchants an item"

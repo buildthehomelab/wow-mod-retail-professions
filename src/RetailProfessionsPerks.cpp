@@ -369,7 +369,8 @@ namespace RetailProfessions::Perks
         Craft const* craft = Active() ? CraftOf(info->Id) : nullptr;
         if (craft && (craft->flags & PERK_SPEED))
         {
-            float faster = Between(config.speedMin, config.speedMax, Mastery(caster->ToPlayer(), *craft));
+            float faster = std::min(Between(config.speedMin, config.speedMax, Mastery(caster->ToPlayer(), *craft))
+                + Gear::Bonus(caster->ToPlayer(), craft->skill, Gear::STAT_SPEED), float(SPEED_CAP));
             castTime = std::max<int32>(int32(float(castTime) * (100.0f - faster) / 100.0f), MIN_CAST_TIME);
         }
         if (castTime == full)
@@ -418,15 +419,16 @@ namespace RetailProfessions::Perks
         Config const& config = GetConfig();
         float mastery = Mastery(player, *craft);
 
+        // Profession equipment adds its points on top of what mastery gives.
         if ((craft->flags & PERK_MULTICRAFT) && product->GetMaxStackSize() > 1
-            && roll_chance_f(Between(config.multicraftMin, config.multicraftMax, mastery)))
+            && roll_chance_f(Between(config.multicraftMin, config.multicraftMax, mastery) + Gear::Bonus(player, craft->skill, Gear::STAT_MULTICRAFT)))
         {
             Give(player, entry, count, true);
             Send(player, Acore::StringFormat("PK:0:{}:M:{}*{}", info->Id, entry, count));
         }
 
         if ((craft->flags & PERK_RESOURCEFUL) && config.resourcefulRefund
-            && roll_chance_f(Between(config.resourcefulMin, config.resourcefulMax, mastery)))
+            && roll_chance_f(Between(config.resourcefulMin, config.resourcefulMax, mastery) + Gear::Bonus(player, craft->skill, Gear::STAT_RESOURCEFULNESS)))
         {
             // A share of each reagent. The fraction left over is a roll, so on average a proc
             // gives back exactly the share, and a proc on a small recipe can give nothing.

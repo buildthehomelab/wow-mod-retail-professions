@@ -116,6 +116,9 @@ end
 -- rolls; this is the same sum, for showing.
 
 local MIN_CAST = 0.25
+-- The server's caps on mastery and profession equipment together (Gear.lua).
+local PERK_CAP = 100
+local SPEED_CAP = 90
 
 function M.Mastery(r)
 	local rank = M.rank or 0
@@ -126,7 +129,8 @@ function M.Mastery(r)
 end
 
 -- { multicraft = %, resourceful = %, speed = %, castTime = seconds } with only what the recipe
--- can get, or nil when it gets nothing (or isn't yours to craft).
+-- can get, or nil when it gets nothing (or isn't yours to craft). The profession's equipment adds
+-- its points on top (out.gear: what it added); its skill is in M.rank already.
 function M.PerksOf(r)
 	local p = RPF.perks
 	local bits = r.perks or 0
@@ -134,15 +138,25 @@ function M.PerksOf(r)
 	local mastery = M.Mastery(r)
 	local function at(low, high) return low + (high - low) * mastery end
 	local out = { mastery = mastery }
-	if bit.band(bits, RPF.PERK_MULTICRAFT) ~= 0 then out.multicraft = at(p.multicraftMin, p.multicraftMax) end
-	if bit.band(bits, RPF.PERK_RESOURCEFUL) ~= 0 then out.resourceful = at(p.resourcefulMin, p.resourcefulMax) end
+	local gear = RPF.Gear.Totals(M.skill)
+	local added = {}
+	local function plus(key, value, cap)
+		local extra = gear and gear[key] or 0
+		if extra > 0 then added[key] = extra end
+		return math.min(cap, value + extra)
+	end
+	if bit.band(bits, RPF.PERK_MULTICRAFT) ~= 0 then out.multicraft = plus("multicraft", at(p.multicraftMin, p.multicraftMax), PERK_CAP) end
+	if bit.band(bits, RPF.PERK_RESOURCEFUL) ~= 0 then
+		out.resourceful = plus("resourcefulness", at(p.resourcefulMin, p.resourcefulMax), PERK_CAP)
+	end
 	if bit.band(bits, RPF.PERK_SPEED) ~= 0 then
-		out.speed = at(p.speedMin, p.speedMax)
+		out.speed = plus("speed", at(p.speedMin, p.speedMax), SPEED_CAP)
 		local castTime = r.spell and select(7, GetSpellInfo(r.spell))
 		if castTime and castTime > 0 then
 			out.castTime = math.max(MIN_CAST, castTime / 1000 * (100 - out.speed) / 100)
 		end
 	end
+	if next(added) then out.gear = added end
 	return out
 end
 
@@ -478,7 +492,12 @@ function M.Details(recipe)
 	local i = recipe.index
 	recipe.description = GetTradeSkillDescription and GetTradeSkillDescription(i) or nil
 	recipe.tools = {}
-	if GetTradeSkillTools then
+	-- With profession equipment the client's tool fields are emptied (docs/profession-gear.md):
+	-- the server's list says what a recipe needs; the client's until it has come.
+	local fromServer = RPF.Gear.Enabled() and M.skill and RPF.Gear.Tools(M.skill) and RPF.Gear.RecipeTools(M.skill, recipe.spell)
+	if fromServer then
+		recipe.tools = fromServer
+	elseif GetTradeSkillTools then
 		local t = { GetTradeSkillTools(i) }
 		for k = 1, #t, 2 do table.insert(recipe.tools, { name = t[k], has = t[k + 1] and true or false }) end
 	end
@@ -494,6 +513,13 @@ function M.Details(recipe)
 		end
 	end
 	return recipe
+end
+
+-- Whether the player has a tool a recipe needs, as of now: one from the server's list counts
+-- from the bags and the profession's slots, and bags change after the recipe was read.
+function M.ToolHas(t)
+	if t.entries then return RPF.Gear.HasTool(t.entries, t.skill) end
+	return t.has
 end
 
 -- The client index of a learned recipe, checked against its name: another addon may have

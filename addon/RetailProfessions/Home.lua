@@ -2,7 +2,8 @@
 -- TradeSkillMaster's crafting overview. They look across every profession the character has,
 -- not just the open one:
 --
---   * Training: your professions with their skill bars, and next to them what to do: what to
+--   * Training: your professions with their skill bars, their equipment slots (Gear.lua: every
+--     profession that takes gear, gathering ones too), and next to them what to do: what to
 --     make next for skill (the leveling guide's recipe, Guides.lua, else the best skill-up you
 --     know), recipes waiting at the trainer, the next rank to train, cooldowns that are ready,
 --     tracked recipes you now have the materials for, and herbs or ore to mill or prospect,
@@ -32,6 +33,7 @@ local PROF_WIDTH = 220
 local PROF_ROWS, PROF_HEIGHT = 12, 32
 local TODO_ROWS, TODO_HEIGHT = 11, 36
 local CRAFT_ROWS, CRAFT_HEIGHT = 20, 18
+local GEAR_ROWS, GEAR_HEIGHT = 5, 28
 
 -- The two views, as their tabs, pages and titles show them.
 H.VIEWS = {
@@ -882,6 +884,55 @@ local function drawProfs(profs)
 	end
 end
 
+-- Profession equipment (Gear.lua) at the bottom of the column: a row of slots for every
+-- profession you know that takes it. Herbalism and Skinning have no window, so in DragonUI's
+-- (where K opens Training) this is where their gear goes on.
+local gearTitle = profPane:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+gearTitle:SetText("Equipment")
+gearTitle:Hide()
+
+local gearRows = {}
+for i = 1, GEAR_ROWS do
+	local row = CreateFrame("Frame", nil, profPane)
+	row:SetHeight(GEAR_HEIGHT)
+	row.icon = row:CreateTexture(nil, "ARTWORK")
+	row.icon:SetSize(20, 20)
+	row.icon:SetPoint("LEFT", row, "LEFT", 4, 0)
+	row.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+	row.gear = RPF.Gear.CreateStrip(row, 22, 3)
+	row.gear:SetPoint("RIGHT", row, "RIGHT", -4, 0)
+	row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	row.name:SetPoint("LEFT", row.icon, "RIGHT", 6, 0)
+	row.name:SetPoint("RIGHT", row.gear, "LEFT", -4, 0)
+	row.name:SetJustifyH("LEFT")
+	row.name:SetWordWrap(false)
+	row:Hide()
+	gearRows[i] = row
+end
+
+local function drawGear()
+	local list = RPF.Gear.Enabled() and RPF.Gear.Known() or {}
+	local n = math.min(#list, GEAR_ROWS)
+	for i, row in ipairs(gearRows) do
+		local known = i <= n and list[i]
+		if known then
+			row:ClearAllPoints()
+			row:SetPoint("BOTTOMLEFT", profPane, "BOTTOMLEFT", 6, 8 + (n - i) * GEAR_HEIGHT)
+			row:SetPoint("RIGHT", profPane, "RIGHT", -6, 0)
+			row.icon:SetTexture(known.profession.texture)
+			row.name:SetText(known.profession.localName)
+			row.gear:SetSkill(known.profession.id)
+			row:Show()
+		else
+			row.gear:SetSkill(nil)
+			row:Hide()
+		end
+	end
+	gearTitle:ClearAllPoints()
+	gearTitle:SetPoint("BOTTOMLEFT", profPane, "BOTTOMLEFT", 10, 12 + n * GEAR_HEIGHT)
+	if n > 0 then gearTitle:Show() else gearTitle:Hide() end
+end
+
 local todoPane = RPF.CreateInset(trainingPanel)
 todoPane:SetPoint("TOPLEFT", profPane, "TOPRIGHT", 6, 0)
 todoPane:SetPoint("BOTTOMRIGHT", trainingPanel, "BOTTOMRIGHT", 0, 0)
@@ -1236,6 +1287,7 @@ local function refresh()
 	if view == "training" then
 		todoItems = todo(profs)
 		drawProfs(column)
+		drawGear()
 		drawTodo()
 	else
 		refreshProfit(rows, entries)
@@ -1244,7 +1296,7 @@ local function refresh()
 end
 H.Refresh = refresh
 -- For the smoke test.
-H.rows = { todo = todoRows, crafts = craftButtons, profs = profRows }
+H.rows = { todo = todoRows, crafts = craftButtons, profs = profRows, gear = gearRows }
 H.scrolls = { todo = todoScroll, crafts = craftScroll }
 
 refreshSoon = function ()
@@ -1284,7 +1336,7 @@ RPF.On("VIEW", function ()
 	if view then refresh() end
 end)
 
-for _, event in ipairs({ "PRICES", "BAGS", "RECIPES", "SKILLS", "TRACKED", "YIELDS", "ITEM_INFO", "REBUILT" }) do
+for _, event in ipairs({ "PRICES", "BAGS", "RECIPES", "SKILLS", "TRACKED", "YIELDS", "ITEM_INFO", "REBUILT", "GEAR" }) do
 	RPF.On(event, refreshSoon)
 end
 

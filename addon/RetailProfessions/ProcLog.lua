@@ -1,5 +1,5 @@
--- Craft procs: every Multicraft and Resourcefulness the server reports (PK, Core.lua), kept per
--- character with how often they come up, in a small log window (/prof log, or the button beside
+-- Craft procs: every Multicraft and Resourcefulness the server reports (PK, Core.lua), and every
+-- Finesse (an extra gathered item from profession equipment, PG), kept per character with how often they come up, in a small log window (/prof log, or the button beside
 -- the chat link). Each proc also goes to scrolling combat text: MikScrollingBattleText's
 -- Notification area when MSBT is loaded, otherwise Blizzard's floating combat text when it's on.
 
@@ -8,10 +8,10 @@ local M = RPF.Model
 local P = RPF.Profit
 
 local MAX_ENTRIES = 200
-local KINDS = { "M", "R" }
-local LABEL = { M = "Multicraft", R = "Resourcefulness" }
-local COLOR = { M = { 1, 0.82, 0 }, R = { 0.35, 0.9, 0.55 } }
-local HEX = { M = "|cffffd200", R = "|cff59e68c" }
+local KINDS = { "M", "R", "F" }
+local LABEL = { M = "Multicraft", R = "Resourcefulness", F = "Finesse" }
+local COLOR = { M = { 1, 0.82, 0 }, R = { 0.35, 0.9, 0.55 }, F = { 0.31, 0.76, 0.97 } }
+local HEX = { M = "|cffffd200", R = "|cff59e68c", F = "|cff4fc3f7" }
 local BIT = { M = RPF.PERK_MULTICRAFT, R = RPF.PERK_RESOURCEFUL }
 
 local L = {}
@@ -32,6 +32,10 @@ local function saved()
 	local char = RetailProfessionsCharDB
 	if not char then return nil end
 	char.procLog = char.procLog or { entries = {}, total = blank() }
+	-- A log from before Finesse.
+	for _, kind in ipairs(KINDS) do
+		char.procLog.total[kind] = char.procLog.total[kind] or { procs = 0, items = 0, value = 0, crafts = 0, rated = 0 }
+	end
 	return char.procLog
 end
 
@@ -51,23 +55,26 @@ local function itemName(id, link)
 	return link and info.link or info.name
 end
 
--- "Multicraft! +2 Bolt of Linen Cloth" / "Resourcefulness! 2 Linen Cloth, 1 Coarse Thread back".
+-- "Multicraft! +2 Bolt of Linen Cloth" / "Resourcefulness! 2 Linen Cloth, 1 Coarse Thread back" /
+-- "Finesse! +1 Peacebloom".
 function L.Describe(kind, list)
 	local parts = {}
 	eachItem(list, function (id, n)
-		table.insert(parts, (kind == "M" and "+" or "") .. n .. " " .. itemName(id))
+		table.insert(parts, (kind ~= "R" and "+" or "") .. n .. " " .. itemName(id))
 	end)
 	local text = LABEL[kind] .. "! " .. table.concat(parts, ", ")
 	return kind == "R" and (text .. " back") or text
 end
 
--- One line of the log: time, recipe, what came of it, with item links.
+-- One line of the log: time, recipe (for Finesse, the gathering profession), what came of it,
+-- with item links.
 function L.EntryText(e)
-	local recipe = e.spell and GetSpellInfo(e.spell) or "?"
+	local profession = e.skill and RPF.Profession(e.skill)
+	local recipe = e.spell and GetSpellInfo(e.spell) or profession and profession.localName or "?"
 	local parts = {}
 	eachItem(e.items, function (id, n) table.insert(parts, n .. "x " .. itemName(id, true)) end)
 	local text = string.format("|cff888888%s|r %s%s|r %s: %s%s", date("%H:%M", e.t), HEX[e.kind], LABEL[e.kind], recipe,
-		e.kind == "M" and "+" or "", table.concat(parts, ", "))
+		e.kind ~= "R" and "+" or "", table.concat(parts, ", "))
 	if (e.value or 0) > 0 then text = text .. " |cff888888(" .. RPF.Money(e.value) .. ")|r" end
 	return text
 end
@@ -82,7 +89,7 @@ function L.SummaryText(totals, kind)
 		text = text .. string.format(", %d%% of %d crafts", math.floor((t.rated or 0) * 100 / t.crafts + 0.5), t.crafts)
 	end
 	if t.items > 0 then
-		text = text .. (kind == "M" and (", +" .. t.items .. (t.items == 1 and " item" or " items"))
+		text = text .. (kind ~= "R" and (", +" .. t.items .. (t.items == 1 and " item" or " items"))
 			or (", " .. t.items .. (t.items == 1 and " reagent back" or " reagents back")))
 	end
 	if t.value > 0 then text = text .. ", worth " .. RPF.Money(t.value) end
@@ -170,6 +177,30 @@ RPF.On("PERK", function (spell, kind, list)
 	L.Added(entry)
 end)
 
+-- Finesse: an extra copy of a gathered item (PG, Core.lua). No craft behind it, so no rate.
+RPF.On("GATHER_PERK", function (skill, kind, list)
+	if kind ~= "F" then return end
+	local count, value, first = 0, 0, nil
+	eachItem(list, function (id, n)
+		count = count + n
+		first = first or id
+		value = value + (P.SellValue(id) or 0) * n
+	end)
+	if count == 0 then return end
+	local log = saved()
+	for _, t in pairs({ session, log and log.total }) do
+		local k = t[kind]
+		k.procs, k.items, k.value = k.procs + 1, k.items + count, k.value + value
+	end
+	local entry = { t = time(), skill = skill, kind = kind, items = list, value = value }
+	if log then
+		table.insert(log.entries, entry)
+		while #log.entries > MAX_ENTRIES do table.remove(log.entries, 1) end
+	end
+	scrollText(kind, list, RPF.ItemIcon(first))
+	L.Added(entry)
+end)
+
 RPF.On("CAST", function (event, spellName)
 	if not (job and spellName == job.name) then return end
 	if event ~= "UNIT_SPELLCAST_SUCCEEDED" then
@@ -181,7 +212,8 @@ RPF.On("CAST", function (event, spellName)
 	job.left, job.at = job.left - 1, GetTime()
 	local log = saved()
 	for _, kind in ipairs(KINDS) do
-		if bit.band(job.perks, BIT[kind]) ~= 0 then
+		-- Finesse has no bit: crafts don't get it.
+		if BIT[kind] and bit.band(job.perks, BIT[kind]) ~= 0 then
 			session[kind].crafts = session[kind].crafts + 1
 			if log then log.total[kind].crafts = log.total[kind].crafts + 1 end
 		end
@@ -200,7 +232,7 @@ end
 -- the window
 
 local frame = CreateFrame("Frame", "RetailProfessionsProcLog", UIParent)
-frame:SetSize(460, 340)
+frame:SetSize(460, 370)
 frame:EnableMouse(true)
 frame:SetToplevel(true)
 frame:SetMovable(true)
@@ -254,10 +286,11 @@ local function summaryLines(head)
 end
 
 local sessionLines = summaryLines(heading("This session"))
-local totalLines = summaryLines(heading("All time on this character", sessionLines.R))
+local last = KINDS[#KINDS]
+local totalLines = summaryLines(heading("All time on this character", sessionLines[last]))
 
 local inset = RPF.CreateInset(content)
-inset:SetPoint("TOPLEFT", totalLines.R, "BOTTOMLEFT", -8, -8)
+inset:SetPoint("TOPLEFT", totalLines[last], "BOTTOMLEFT", -8, -8)
 inset:SetPoint("BOTTOMRIGHT", content, "BOTTOMRIGHT", 0, 30)
 
 local messages = CreateFrame("ScrollingMessageFrame", nil, inset)
@@ -293,7 +326,7 @@ empty:SetPoint("TOPLEFT", inset, "TOPLEFT", 12, -12)
 empty:SetPoint("RIGHT", inset, "RIGHT", -12, 0)
 empty:SetJustifyH("LEFT")
 empty:SetText("No procs yet. Recipes that can multicraft or give reagents back say so in their tooltip; "
-	.. "the closer a recipe is to grey, the more often it happens.")
+	.. "the closer a recipe is to grey, the more often it happens. Finesse comes from gathering equipment.")
 
 local textCheck = RPF.CreateCheck(content, "Scrolling text")
 textCheck:SetPoint("BOTTOMLEFT", content, "BOTTOMLEFT", -2, 0)

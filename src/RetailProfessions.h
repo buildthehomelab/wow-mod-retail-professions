@@ -11,7 +11,9 @@
  * Milling and Prospecting from the window (RetailProfessionsRefine.cpp): the spells work one
  * stack and one loot window at a time, so the server works through the bags instead. On top of
  * a craft, a recipe the player has outgrown can give a second batch, give reagents back and
- * cast faster (RetailProfessionsPerks.cpp).
+ * cast faster (RetailProfessionsPerks.cpp). Each profession also has equipment slots, filled
+ * from the window, whose items give skill and stats and count as the recipe tools they are
+ * (RetailProfessionsGear.cpp).
  *
  * Released under the MIT License.
  */
@@ -19,16 +21,22 @@
 #ifndef MOD_RETAIL_PROFESSIONS_H
 #define MOD_RETAIL_PROFESSIONS_H
 
+#include "DatabaseEnvFwd.h"
 #include "Define.h"
+#include "ObjectGuid.h"
+#include "SharedDefines.h"
 #include <string>
 #include <string_view>
 #include <vector>
 
 class Item;
+class LootStore;
 class Player;
 class Spell;
 class SpellInfo;
 class Unit;
+struct Loot;
+struct LootStoreItem;
 
 namespace RetailProfessions
 {
@@ -49,6 +57,7 @@ namespace RetailProfessions
         HELLO_REFINE   = 0x4, // Y lists what herbs and ore give, X mills or prospects them
         HELLO_PERKS    = 0x8, // crafts can proc; HELLO carries the odds, L rows say which recipes
         HELLO_GUIDE    = 0x10, // W rows carry a note and details; M pins drops, objects and quest givers
+        HELLO_GEAR     = 0x20, // profession equipment: GC, G, GQ, GU and GT
     };
 
     // What a craft of a recipe can get on top (the perks field of an L row).
@@ -92,7 +101,11 @@ namespace RetailProfessions
         uint32 resourcefulMin = 0, resourcefulMax = 20;
         uint32 resourcefulRefund = 30;  // percent of each reagent given back on a proc
         uint32 speedMin = 0, speedMax = 50;
+        bool gear = true;               // profession equipment slots
     };
+
+    // Crafting speed never goes past this, gear included.
+    constexpr uint32 SPEED_CAP = 90;
 
     Config& GetConfig();
 
@@ -164,6 +177,53 @@ namespace RetailProfessions
 
         void OnPrepare(Spell* spell, Unit* caster, SpellInfo const* info);
         void OnCreateItem(Player* player, Item* item, uint32 count);
+    }
+
+    // ---- RetailProfessionsGear.cpp: profession equipment ---------------------------------------
+
+    namespace Gear
+    {
+        // The stats a gear item can have, in percentage points.
+        enum Stat : uint8
+        {
+            STAT_MULTICRAFT,
+            STAT_RESOURCEFULNESS,
+            STAT_SPEED,
+            STAT_FINESSE,
+            STAT_PERCEPTION,
+            STAT_DEFTNESS,
+            STAT_COUNT
+        };
+
+        // Reads the gear items and takes the tools out of every trade skill spell, which the
+        // module then checks itself. Only from OnStartup.
+        void Build();
+
+        // What the player's slotted gear of a profession adds to a stat; 0 when nothing.
+        float Bonus(Player* player, uint32 skill, Stat stat);
+
+        void HandleCatalog(Player* player, std::string const& req);
+        void HandleState(Player* player, std::string const& req);
+        void HandleEquip(Player* player, std::string const& req, std::vector<std::string_view> const& args);
+        void HandleUnequip(Player* player, std::string const& req, std::vector<std::string_view> const& args);
+        void HandleTools(Player* player, std::string const& req, std::vector<std::string_view> const& args);
+
+        void OnLogin(Player* player);
+        void OnLogout(Player* player);
+        void OnDelete(CharacterDatabaseTransaction trans, uint32 guid);
+        void Update(Player* player, uint32 diff);
+
+        // Teaches recipes learned on reaching a skill value (the gear recipes) the moment the
+        // skill gets there, not only when it crosses a rank.
+        void OnUpdateSkill(Player* player, uint32 skill, uint32 value, uint32 newValue);
+
+        // A recipe's tools: in the bags, worn, or in one of its profession's slots.
+        void OnCheckCast(Spell* spell, SpellCastResult& res);
+
+        // Deftness, Finesse and Perception.
+        void OnPrepare(Spell* spell, Unit* caster, SpellInfo const* info);
+        void OnLootItem(Player* player, Item* item, uint32 count, ObjectGuid source);
+        void OnItemRoll(Player const* player, LootStoreItem const* storeItem, float& chance, Loot& loot, LootStore const& store);
     }
 }
 

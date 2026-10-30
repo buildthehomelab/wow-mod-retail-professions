@@ -126,8 +126,11 @@ function FauxScrollFrame_OnVerticalScroll(self, offset, h, fn) fn() end
 function PlaySound() end
 function IsModifiedClick() return false end
 function IsShiftKeyDown() return false end
-function GetCursorInfo() return nil end
-function ClearCursor() end
+-- The cursor: an item entry while one is picked up (the gear steps drag items).
+local cursor
+function GetCursorInfo() if cursor then return "item", cursor, "item:" .. cursor end return nil end
+function CursorHasItem() return cursor ~= nil end
+function ClearCursor() cursor = nil end
 local inserted
 function ChatEdit_InsertLink(link) inserted = link return true end
 function ChatFrame_OpenChat() end
@@ -143,7 +146,10 @@ function GetLocale() return "enUS" end
 function SpellIsTargeting() return false end
 function GetInventoryItemLink() return nil end
 function GetContainerNumSlots() return 0 end
-function GetContainerItemLink() return nil end
+-- Bag contents by bag and slot: item entries.
+local containers = {}
+local itemLink
+function GetContainerItemLink(bag, slot) local e = containers[bag] and containers[bag][slot] return e and itemLink(e) end
 function GetItemIcon() return "Interface\\Icons\\X" end
 local bindings = {}
 function GetBindingAction(key) return bindings[key] or "" end
@@ -157,6 +163,10 @@ function TradeSkillFrame_LoadUI() loadedClassic = loadedClassic + 1 end
 function HideUIPanel(f) f:Hide() end
 function AbandonSkill() end
 function PickupContainerItem() end
+function UseContainerItem() end
+local errorsShown = {}
+UIErrorsFrame = { AddMessage = function (_, text) table.insert(errorsShown, text) end }
+ITEM_MIN_SKILL = "Requires %s (%d)"
 function PickupInventoryItem() end
 function ExpandSkillHeader() end
 function CollapseSkillHeader() end
@@ -171,11 +181,28 @@ WorldFrame = newObject("Frame", "WorldFrame")
 GameTooltip = newObject("GameTooltip", "GameTooltip")
 local tipLines = {}
 function GameTooltip:SetOwner() tipLines = {}; self.__link = nil end
-function GameTooltip:SetHyperlink(link) self.__link = link end
+-- As the client: setting an item clears the tooltip, then says it holds an item.
+function GameTooltip:SetHyperlink(link)
+	tipLines = {}
+	self.__link = link
+	if self.__scripts.OnTooltipCleared then self.__scripts.OnTooltipCleared(self) end
+	if link:find("item:") and self.__scripts.OnTooltipSetItem then self.__scripts.OnTooltipSetItem(self) end
+end
 function GameTooltip:GetItem() local l = rawget(self, "__link") if l and l:find("item:") then return "x", l end end
 local worn = {}
 function GetInventoryItemID(_, slot) return worn[slot] end
 function GameTooltip:AddLine(text) table.insert(tipLines, tostring(text)) end
+-- The tooltip a chat link opens, with its own lines.
+ItemRefTooltip = newObject("GameTooltip", "ItemRefTooltip")
+local refLines = {}
+function ItemRefTooltip:GetItem() local l = rawget(self, "__link") if l then return "x", l end end
+function ItemRefTooltip:AddLine(text) table.insert(refLines, tostring(text)) end
+function ItemRefTooltip:SetHyperlink(link)
+	refLines = {}
+	self.__link = link
+	if self.__scripts.OnTooltipCleared then self.__scripts.OnTooltipCleared(self) end
+	if self.__scripts.OnTooltipSetItem then self.__scripts.OnTooltipSetItem(self) end
+end
 ShoppingTooltip1 = newObject("GameTooltip", "ShoppingTooltip1")
 ShoppingTooltip2 = newObject("GameTooltip", "ShoppingTooltip2")
 local compared = 0
@@ -194,8 +221,11 @@ local items = {
 	[4355] = { "Pattern: Green Linen Bracers", 2 }, [2321] = { "Fine Thread", 1 },
 	[2447] = { "Peacebloom", 1 }, [785] = { "Mageroyal", 1 }, [39151] = { "Alabaster Pigment", 1 },
 	[39334] = { "Dusky Pigment", 1 }, [43103] = { "Verdant Pigment", 2 },
+	-- Profession equipment: a Tailoring tool and accessory, a Mining accessory, plain tools.
+	[90800] = { "Tailor's Shears", 2 }, [90801] = { "Tailor's Thimble", 3 }, [90802] = { "Prospector's Lamp", 2 },
+	[5956] = { "Blacksmith Hammer", 1 }, [6219] = { "Arclight Spanner", 1 },
 }
-local function itemLink(id) return "|cffffffff|Hitem:" .. id .. ":0:0:0:0:0:0:0:0|h[" .. items[id][1] .. "]|h|r" end
+function itemLink(id) return "|cffffffff|Hitem:" .. id .. ":0:0:0:0:0:0:0:0|h[" .. items[id][1] .. "]|h|r" end
 function GetItemInfo(item)
 	local id = type(item) == "number" and item or tonumber(tostring(item):match("item:(%d+)"))
 	local d = id and items[id]
@@ -502,6 +532,63 @@ local function serveAH(msg)
 	fire("CHAT_MSG_ADDON", "RAH", "KE:" .. req, "WHISPER", "Tester")
 end
 
+-- Profession equipment on the fake server: the HELLO flags (63 adds HELLO_GEAR), the slots as
+-- { skill, slot, entry, guid }, and a refusal for the next equip.
+local helloFlags = 31
+local gearSlots = { { 197, 0, 90800, 5001 } }
+local gearRefuse
+local nextGuid = 6000
+local function gearRows()
+	local rows = {}
+	for _, g in ipairs(gearSlots) do table.insert(rows, table.concat(g, ",")) end
+	return table.concat(rows, ";")
+end
+local function serveGear(cmd, req, msg)
+	if cmd == "GC" then
+		-- entry, skill, kind, skill bonus, multicraft, resourcefulness, speed, finesse, perception,
+		-- deftness, required skill line and rank.
+		reply("GCD:" .. req .. ":90800,197,0,10,5,3,10,0,0,0,197,100;90801,197,1,0,90,0,50,0,0,0,197,100")
+		reply("GCD:" .. req .. ":90802,186,1,5,0,0,0,4,6,10,186,200")
+		reply("GCE:" .. req .. ":3")
+	elseif cmd == "G" then
+		if #gearSlots > 0 then reply("GD:" .. req .. ":" .. gearRows()) end
+		reply("GE:" .. req .. ":" .. #gearSlots)
+	elseif cmd == "GT" then
+		if msg:match("^GT:[^:]*:197$") then
+			reply("GTD:" .. req .. ":T,i5956,Blacksmith Hammer,5956;T,c14,Arclight Spanner,6219/90801")
+			reply("GTD:" .. req .. ":S,2963,i5956;S,2385,c14")
+			reply("GTE:" .. req .. ":4")
+		else
+			reply("GTE:" .. req .. ":0")
+		end
+	elseif cmd == "GQ" then
+		local bag, bagSlot, skill, slot = msg:match("^GQ:[^:]*:(%d+):(%d+):(%d+):(%d+)$")
+		bag, bagSlot, skill, slot = tonumber(bag), tonumber(bagSlot), tonumber(skill), tonumber(slot)
+		local entry = containers[bag] and containers[bag][bagSlot]
+		if gearRefuse or not entry then
+			reply("ERR:" .. req .. ":" .. (gearRefuse or "noitem"))
+			gearRefuse = nil
+			return
+		end
+		if skill == 0 then skill = entry == 90802 and 186 or 197 end
+		if slot == 9 then slot = 1 end
+		containers[bag][bagSlot] = nil
+		nextGuid = nextGuid + 1
+		table.insert(gearSlots, { skill, slot, entry, nextGuid })
+		reply("GQ:" .. req .. ":ok:" .. skill .. ":" .. slot)
+		reply("GD:0:" .. gearRows())
+		reply("GE:0:" .. #gearSlots)
+	elseif cmd == "GU" then
+		local skill, slot = msg:match("^GU:[^:]*:(%d+):(%d+)$")
+		for i, g in ipairs(gearSlots) do
+			if g[1] == tonumber(skill) and g[2] == tonumber(slot) then table.remove(gearSlots, i) break end
+		end
+		reply("GU:" .. req .. ":ok")
+		if #gearSlots > 0 then reply("GD:0:" .. gearRows()) end
+		reply("GE:0:" .. #gearSlots)
+	end
+end
+
 local sent = {}
 local millJob -- the request id of the milling job the fake server is running
 local function serve(msg)
@@ -510,7 +597,8 @@ local function serve(msg)
 	print("  -> " .. msg)
 	-- Flags: recipes, map pins, milling, perks. Perks: multicraft 0-25%, resourcefulness 0-20%
 	-- giving 30% back, casts 0-50% faster.
-	if cmd == "HELLO" then reply("HELLO:" .. req .. ":1:31:777:300:100:0:3:0:25:0:20:30:0:50")
+	if cmd == "HELLO" then reply("HELLO:" .. req .. ":1:" .. helloFlags .. ":777:300:100:0:3:0:25:0:20:30:0:50")
+	elseif cmd == "GC" or cmd == "G" or cmd == "GT" or cmd == "GQ" or cmd == "GU" then serveGear(cmd, req, msg)
 	elseif cmd == "Y" then
 		-- Peacebloom, Mageroyal (a second pigment one time in four) and a herb past the skill.
 		reply("YR:" .. req .. ":M:3")
@@ -655,6 +743,26 @@ if DRAGON == "3" then
 		assert(provider.frame:IsShown(), "ReagentBankUI doesn't see us while a profession is open")
 		assert((Host.tabRefreshes or 0) > 0 and (Host.headerRefreshes or 0) > 0,
 			"tabs and title not read again after the scan")
+	end)
+
+	step("hosted: profession equipment on DragonUI's card and Training page", function ()
+		helloFlags = 63
+		RPF.SayHello()
+		tick(1)
+		RPF.Select(M.bySpell[2963])
+		local strip = RPF.gearStrip
+		assert(strip:GetParent() == RPF.HostPieces().card and strip:IsVisible() and strip.buttons[1].entry == 90800,
+			"no slots on the card in DragonUI's window")
+		Host.SetPage("retailprofessions-training")
+		tick(0.3)
+		local shown = 0
+		for _, row in ipairs(RPF.Home.rows.gear) do if row:IsVisible() then shown = shown + 1 end end
+		assert(shown == 2, "Training's equipment rows in DragonUI's window: " .. shown)
+		Host.SetPage("crafting")
+		helloFlags = 31
+		RPF.SayHello()
+		tick(1)
+		assert(not strip:IsShown(), "slots stayed without HELLO_GEAR")
 	end)
 
 	step("hosted: create and create all", function ()
@@ -1965,6 +2073,220 @@ step("tabs: a full column stays inside the window", function ()
 	fire("SKILL_LINES_CHANGED")
 	tick(0.5)
 	assert(#column() == 6 and column()[1]:GetHeight() == full, "the tabs didn't grow back")
+end)
+
+-----------------------------------------
+-- Profession equipment: slots kept on the server (HELLO_GEAR)
+
+local function countOf(lines, text)
+	local n = 0
+	for _, line in ipairs(lines) do if line == text then n = n + 1 end end
+	return n
+end
+local function bookRow(skill)
+	return find(function (f) return rawget(f, "gear") and rawget(f, "known") and f.known.profession.id == skill and f:IsVisible() end)
+end
+
+step("gear: no strip without HELLO_GEAR", function ()
+	RPF.Select(M.bySpell[2963])
+	assert(not RPF.Gear.Enabled() and not RPF.gearStrip:IsShown(), "gear slots on a realm without them")
+	assert(sentCount("^GC:") == 0 and sentCount("^G:") == 0 and sentCount("^GT:") == 0, "asked for gear without HELLO_GEAR")
+end)
+
+step("gear: HELLO_GEAR loads the catalog and the slots, once", function ()
+	helloFlags = 63
+	RPF.SayHello()
+	tick(1)
+	assert(RPF.HELLO_GEAR == 0x20 and RPF.Gear.Enabled(), "HELLO_GEAR not read")
+	assert(sentCount("^GC:") == 1 and sentCount("^G:") == 1, "catalog and slots asked " .. sentCount("^GC:") .. "/" .. sentCount("^G:"))
+	local c = RPF.gear.catalog
+	assert(c[90800] and c[90800].kind == 0 and c[90800].skillBonus == 10 and c[90800].multicraft == 5 and c[90800].reqRank == 100,
+		"tool row not read")
+	assert(c[90802] and c[90802].skill == 186 and c[90802].finesse == 4 and c[90802].deftness == 10, "mining row not read")
+	assert(RPF.gear.slots[197][0].entry == 90800 and RPF.gear.slots[197][0].guid == 5001, "slot not read")
+	local t = RPF.gear.totals[197]
+	assert(t.skillBonus == 10 and t.multicraft == 5 and t.resourcefulness == 3 and t.speed == 10, "totals not summed")
+	-- The strip on the recipe card: the open profession's three slots, the tool in the first.
+	local strip = RPF.gearStrip
+	assert(strip:IsVisible() and strip.skill == 197, "no strip on the card")
+	assert(strip.buttons[1].entry == 90800 and strip.buttons[1]:IsShown(), "the tool isn't in its slot")
+	assert(not strip.buttons[2].entry and strip.buttons[3]:IsShown(), "accessory slots wrong")
+	-- An empty slot says what goes there.
+	strip.buttons[2].__scripts.OnEnter(strip.buttons[2])
+	assert(GameTooltip.__text == "Accessory slot" and table.concat(tipLines, "\n"):find("Drag a Tailoring accessory here"),
+		"empty slot tooltip: " .. tostring(GameTooltip.__text))
+	strip.buttons[1].__scripts.OnEnter(strip.buttons[1])
+	assert(countOf(tipLines, "Tailoring Tool") == 1 and table.concat(tipLines, "\n"):find("Right%-click to put it back"),
+		"filled slot tooltip: " .. table.concat(tipLines, " | "))
+	RPF.HideItemTooltip()
+	-- Cooking has two.
+	strip:SetSkill(185)
+	assert(strip.buttons[2]:IsShown() and not strip.buttons[3]:IsShown(), "Cooking doesn't have two slots")
+	strip:SetSkill(356)
+	assert(not strip:IsShown(), "Fishing has slots")
+	strip:SetSkill(M.skill)
+end)
+
+step("gear: tooltips name gear items, once", function ()
+	GameTooltip:SetOwner(UIParent)
+	GameTooltip:SetHyperlink("item:90800")
+	local text = table.concat(tipLines, "\n")
+	for _, want in ipairs({ "Tailoring Tool", "+10 Tailoring Skill", "+5% Multicraft", "+3% Resourcefulness", "+10% Crafting Speed" }) do
+		assert(countOf(tipLines, want) == 1, "missing " .. want .. ": " .. text)
+	end
+	assert(not text:find("Requires"), "Tailoring 120 meets 100")
+	assert(not text:find("Finesse"), "a stat at 0 shown")
+	-- The tooltip saying again it holds the item adds nothing.
+	GameTooltip.__scripts.OnTooltipSetItem(GameTooltip)
+	assert(countOf(tipLines, "Tailoring Tool") == 1, "lines added twice")
+	-- Mining 50 is short of the lamp's 200; a chat link's tooltip has them too.
+	ItemRefTooltip:SetHyperlink("item:90802")
+	local ref = table.concat(refLines, "\n")
+	for _, want in ipairs({ "Mining Accessory", "+5 Mining Skill", "+4% Finesse", "+6% Perception", "+10% Deftness", "Requires Mining (200)" }) do
+		assert(countOf(refLines, want) == 1, "missing " .. want .. ": " .. ref)
+	end
+	GameTooltip:SetHyperlink("item:2589")
+	assert(#tipLines == 0, "lines on an item that isn't gear: " .. table.concat(tipLines, " | "))
+end)
+
+step("gear: perk odds add the profession's equipment, capped", function ()
+	RPF.Select(M.bySpell[2963])
+	-- The grey bolt: 25 / 20 / 50 from mastery, the shears add 5 / 3 / 10.
+	local perks = M.PerksOf(M.bySpell[2963])
+	assert(perks.multicraft == 30 and perks.resourceful == 23 and perks.speed == 60 and math.abs(perks.castTime - 1.2) < 1e-9,
+		"with the tool: " .. perks.multicraft .. " / " .. perks.resourceful .. " / " .. perks.speed)
+	assert(perks.gear and perks.gear.multicraft == 5 and perks.gear.speed == 10, "what the gear added isn't kept")
+	assert(textShown("Multicraft|r 30%%.*Resourcefulness|r 23%%.*Cast|r 1%.2 sec"), "the perk line doesn't count the gear")
+	-- An unasked push replaces the slots: the thimble (Multicraft 90, speed 50) goes on.
+	reply("GD:0:197,0,90800,5001;197,1,90801,5002")
+	reply("GE:0:2")
+	tick(0.3)
+	assert(RPF.gear.slots[197][1].entry == 90801 and RPF.gearStrip.buttons[2].entry == 90801, "the push wasn't taken")
+	perks = M.PerksOf(M.bySpell[2963])
+	assert(perks.multicraft == 100 and perks.resourceful == 23, "Multicraft not capped at 100: " .. perks.multicraft)
+	assert(perks.speed == 90 and math.abs(perks.castTime - 0.3) < 1e-9, "speed not capped at 90: " .. perks.speed)
+	assert(textShown("Multicraft|r 100%%"), "the open recipe didn't redraw")
+end)
+
+step("gear: the tools a recipe needs come from the server", function ()
+	RPF.Select(M.bySpell[2963])
+	tick(0.3)
+	RPF.Select(M.bySpell[2963])
+	tick(0.3)
+	assert(sentCount("^GT:[^:]*:197$") == 1, "tools asked " .. sentCount("^GT:") .. " times")
+	local tools = M.bySpell[2963].tools
+	assert(#tools == 1 and tools[1].name == "Blacksmith Hammer" and not tools[1].has, "bolt tools")
+	assert(textShown("Requires:|r |cffff2020Blacksmith Hammer"), "a missing tool isn't red")
+	bags[5956] = 1
+	fire("BAG_UPDATE")
+	tick(0.5)
+	assert(textShown("Requires:|r |cffffffffBlacksmith Hammer"), "the hammer in the bags doesn't count")
+	bags[5956] = nil
+	-- The vest's spanner: the thimble in a slot stands in for it.
+	RPF.Select(M.bySpell[2385])
+	assert(textShown("Requires:|r |cffffffffArclight Spanner"), "a slotted tool doesn't count")
+	reply("GD:0:197,0,90800,5001")
+	reply("GE:0:1")
+	tick(0.3)
+	assert(textShown("Requires:|r |cffff2020Arclight Spanner"), "taking the thimble off didn't redraw the tools")
+end)
+
+step("gear: drag from the bags onto a slot, right-click to take it off", function ()
+	RPF.ToggleBook()
+	assert(RetailProfessionsBook:GetWidth() == 500, "the book didn't make room for the slots")
+	local row = bookRow(186)
+	assert(row and row.gear:IsShown() and row.gear.skill == 186, "no Mining slots in the book")
+	assert(not bookRow(356) or not bookRow(356).gear:IsShown(), "Fishing slots in the book")
+	containers[0] = { [3] = 90802 }
+	cursor = 90802
+	PickupContainerItem(0, 3)
+	local slot = row.gear.buttons[2]
+	slot.__scripts.OnReceiveDrag(slot)
+	tick(0.3)
+	assert(sentCount("^GQ:%d+:0:3:186:1$") == 1, "drop sent: " .. sent[#sent])
+	assert(cursor == nil, "the cursor kept the item")
+	assert(RPF.gear.slots[186][1].entry == 90802 and slot.entry == 90802, "the lamp isn't in the slot")
+	-- Right-click takes it off.
+	slot.__scripts.OnClick(slot, "RightButton")
+	tick(0.3)
+	assert(sentCount("^GU:%d+:186:1$") == 1 and not RPF.gear.slots[186], "right-click didn't take it off")
+	-- Something not from the bags (here: not what was picked up) isn't sent.
+	local before = #sent
+	cursor = 90800
+	slot.__scripts.OnClick(slot, "LeftButton")
+	tick(0.3)
+	assert(#sent == before and errorsShown[#errorsShown] == "Drag profession equipment from your bags.", "a cursor item not from the bags")
+	RPF.ToggleBook()
+end)
+
+step("gear: right-click a gear item in the bags puts it on", function ()
+	containers[0] = { [4] = 90802, [5] = 5956 }
+	-- Not while selling, nor in combat, nor a plain tool (a weapon would be equipped).
+	CreateFrame("Frame", "MerchantFrame")
+	UseContainerItem(0, 4)
+	MerchantFrame:Hide()
+	combat = true
+	UseContainerItem(0, 4)
+	combat = false
+	UseContainerItem(0, 5)
+	tick(0.3)
+	assert(sentCount("^GQ:%d+:0:[45]:") == 0, "right-click sent at the wrong time")
+	UseContainerItem(0, 4)
+	tick(0.3)
+	assert(sentCount("^GQ:%d+:0:4:0:9$") == 1, "right-click didn't ask for the first free slot")
+	assert(RPF.gear.slots[186] and RPF.gear.slots[186][1].entry == 90802, "the lamp didn't go on")
+	MerchantFrame = nil
+end)
+
+step("gear: a refusal says why", function ()
+	containers[0] = { [6] = 90802 }
+	gearRefuse = "rank"
+	UseContainerItem(0, 6)
+	tick(0.3)
+	assert(errorsShown[#errorsShown] == "Your skill in that profession is too low for this item.", "rank: " .. tostring(errorsShown[#errorsShown]))
+	gearRefuse = "weird"
+	UseContainerItem(0, 6)
+	tick(0.3)
+	assert(errorsShown[#errorsShown] == "Couldn't change your profession equipment (weird).", "unknown: " .. tostring(errorsShown[#errorsShown]))
+	for code in ("off loading combat casting trade bot noitem notgear unlearned rank slot dup bags empty busy"):gmatch("%a+") do
+		assert(not RPF.Gear.ErrorText(code):find("Couldn't"), "no text for " .. code)
+	end
+end)
+
+step("gear: Training has a row of slots per profession that takes gear", function ()
+	RPF.Home.SetActive("training")
+	tick(0.3)
+	local rows, skills = RPF.Home.rows.gear, {}
+	for _, row in ipairs(rows) do if row:IsShown() then skills[row.gear.skill] = row end end
+	assert(skills[197] and skills[186] and skills[186].gear.buttons[2].entry == 90802, "Training's equipment rows")
+	assert(not skills[356], "a Fishing row")
+	assert(textShown("^Equipment$"), "no Equipment heading")
+	RPF.Home.SetActive(false)
+	tick(0.3)
+end)
+
+step("gear: Finesse procs go in the proc log", function ()
+	local L = RPF.ProcLog
+	L.Clear()
+	reply("PG:0:182:F:2447*2")
+	local s = L.Session()
+	assert(s.F.procs == 1 and s.F.items == 2 and s.M.procs == 0, "finesse not counted")
+	local e = L.Entries()[#L.Entries()]
+	assert(e and e.kind == "F" and L.EntryText(e):find("Finesse|r Herbalism: %+2x "), e and L.EntryText(e))
+	assert(L.Describe("F", "2447*2") == "Finesse! +2 Peacebloom", L.Describe("F", "2447*2"))
+	SlashCmdList.RETAILPROFESSIONS("log")
+	assert(textShown("Finesse:|r 1 proc, %+2 items"), "no Finesse summary")
+	SlashCmdList.RETAILPROFESSIONS("log")
+	L.Clear()
+end)
+
+step("gear: a realm without it hides the slots again", function ()
+	helloFlags = 31
+	RPF.SayHello()
+	tick(1)
+	assert(not RPF.Gear.Enabled() and not RPF.gearStrip:IsShown() and next(RPF.gear.catalog) == nil, "gear stayed")
+	RPF.Select(M.bySpell[2963])
+	assert(M.PerksOf(M.bySpell[2963]).multicraft == 25, "gear still counted in the perk odds")
 end)
 
 step("closing the window closes the trade skill", function ()
