@@ -15,6 +15,7 @@
  *   X:<req>:<M|P>:<item>:<n> -> X:<req>:ok:<n>:<cast ms>, then XP per cast and XE at the end
  *   XS:<req>                 -> XS:<req>:ok
  *   (unasked)                   PK:0:<spell>:<M|R>:<item*n/...>   a craft proc      (RetailProfessionsPerks.cpp)
+ *   GC, G, GQ, GU, GT           profession equipment                                 (RetailProfessionsGear.cpp)
  *
  * Addon messages arrive as CMSG_MESSAGECHAT on the world thread, so requests are answered
  * straight from the hook.
@@ -180,6 +181,7 @@ namespace RetailProfessions
             sConfig.resourcefulRefund = percent("RetailProfessions.Perks.Resourcefulness.Refund", 30, 100);
             sConfig.speedMax = percent("RetailProfessions.Perks.Speed.Max", 50, 90);
             sConfig.speedMin = percent("RetailProfessions.Perks.Speed.Min", 0, sConfig.speedMax);
+            sConfig.gear = sConfigMgr->GetOption<bool>("RetailProfessions.Gear.Enable", true);
             sConfig.progressionEnabled = sConfigMgr->GetOption<bool>("IndividualProgression.Enable", false, false);
             sConfig.progressionLimit = sConfigMgr->GetOption<uint8>("IndividualProgression.ProgressionLimit", 0, false);
             sConfig.zulGurubState = sConfigMgr->GetOption<uint8>("IndividualProgression.RequiredZulGurubProgression", 3, false);
@@ -204,7 +206,7 @@ namespace RetailProfessions
             uint32 grey = sWorld->getIntConfig(CONFIG_SKILL_CHANCE_GREY);
             uint32 gain = sWorld->getIntConfig(CONFIG_SKILL_GAIN_CRAFTING);
             uint32 flags = HELLO_RECIPES | HELLO_MAP_PINS | HELLO_GUIDE | (sConfig.refine ? HELLO_REFINE : 0)
-                | (sConfig.perks ? HELLO_PERKS : 0);
+                | (sConfig.perks ? HELLO_PERKS : 0) | (sConfig.gear ? HELLO_GEAR : 0);
             Send(player, "HELLO:" + req + ":" + std::to_string(PROTOCOL_VERSION) + ":"
                 + std::to_string(flags) + ":" + std::to_string(Index::Stamp())
                 + ":" + std::to_string(SkillCap(player)) + ":" + std::to_string(orange) + ":" + std::to_string(grey)
@@ -248,7 +250,7 @@ namespace RetailProfessions
 
             // A recipe list is a hundred-odd messages; the addon caches it, so it's rare. What
             // herbs and ore give is a few dozen, asked once per login.
-            if (!TakeToken(sSessions[player->GetGUID().GetCounter()], command == "L" || command == "Y" ? 4.0f : 1.0f))
+            if (!TakeToken(sSessions[player->GetGUID().GetCounter()], command == "L" || command == "Y" || command == "GT" ? 4.0f : 1.0f))
             {
                 SendError(player, req, "busy");
                 return;
@@ -260,6 +262,18 @@ namespace RetailProfessions
                 Index::HandleWhere(player, req, args);
             else if (command == "M")
                 Index::HandleMapPin(player, req, args);
+            else if (!sConfig.gear && (command == "GC" || command == "G" || command == "GQ" || command == "GU" || command == "GT"))
+                SendError(player, req, "off");
+            else if (command == "GC")
+                Gear::HandleCatalog(player, req);
+            else if (command == "G")
+                Gear::HandleState(player, req);
+            else if (command == "GQ")
+                Gear::HandleEquip(player, req, args);
+            else if (command == "GU")
+                Gear::HandleUnequip(player, req, args);
+            else if (command == "GT")
+                Gear::HandleTools(player, req, args);
             else if (!sConfig.refine && (command == "Y" || command == "X" || command == "XS"))
                 SendError(player, req, "off");
             else if (command == "Y")
@@ -282,9 +296,13 @@ public:
     RetailProfessionsPlayerScript() : PlayerScript("RetailProfessionsPlayerScript",
         {
             PLAYERHOOK_CAN_PLAYER_USE_PRIVATE_CHAT,
+            PLAYERHOOK_ON_LOGIN,
             PLAYERHOOK_ON_LOGOUT,
+            PLAYERHOOK_ON_DELETE_FROM_DB,
             PLAYERHOOK_ON_UPDATE,
-            PLAYERHOOK_ON_CREATE_ITEM
+            PLAYERHOOK_ON_CREATE_ITEM,
+            PLAYERHOOK_ON_LOOT_ITEM,
+            PLAYERHOOK_ON_UPDATE_SKILL
         }) { }
 
     // The addon whispers itself; swallow those messages so they never show up as chat.
@@ -307,31 +325,73 @@ public:
         return false;
     }
 
+    void OnPlayerLogin(Player* player) override
+    {
+        Gear::OnLogin(player);
+    }
+
     void OnPlayerLogout(Player* player) override
     {
         sSessions.erase(player->GetGUID().GetCounter());
         Refine::Forget(player);
+        Gear::OnLogout(player);
+    }
+
+    // Only a real delete (CharDeleteMethod 0) gets here; an unlinked character keeps its gear.
+    void OnPlayerDeleteFromDB(CharacterDatabaseTransaction trans, uint32 guid) override
+    {
+        Gear::OnDelete(trans, guid);
     }
 
     void OnPlayerUpdate(Player* player, uint32 diff) override
     {
         Refine::Update(player, diff);
+        Gear::Update(player, diff);
     }
 
     void OnPlayerCreateItem(Player* player, Item* item, uint32 count) override
     {
         Perks::OnCreateItem(player, item, count);
     }
+
+    void OnPlayerLootItem(Player* player, Item* item, uint32 count, ObjectGuid lootguid) override
+    {
+        Gear::OnLootItem(player, item, count, lootguid);
+    }
+
+    void OnPlayerUpdateSkill(Player* player, uint32 skillId, uint32 value, uint32 /*max*/, uint32 /*step*/, uint32 newValue) override
+    {
+        Gear::OnUpdateSkill(player, skillId, value, newValue);
+    }
 };
 
 class RetailProfessionsSpellScript : public AllSpellScript
 {
 public:
-    RetailProfessionsSpellScript() : AllSpellScript("RetailProfessionsSpellScript", { ALLSPELLHOOK_ON_PREPARE }) { }
+    RetailProfessionsSpellScript() : AllSpellScript("RetailProfessionsSpellScript",
+        { ALLSPELLHOOK_ON_PREPARE, ALLSPELLHOOK_ON_SPELL_CHECK_CAST }) { }
 
     void OnSpellPrepare(Spell* spell, Unit* caster, SpellInfo const* spellInfo) override
     {
         Perks::OnPrepare(spell, caster, spellInfo);
+        Gear::OnPrepare(spell, caster, spellInfo);
+    }
+
+    void OnSpellCheckCast(Spell* spell, bool /*strict*/, SpellCastResult& res) override
+    {
+        Gear::OnCheckCast(spell, res);
+    }
+};
+
+class RetailProfessionsGlobalScript : public GlobalScript
+{
+public:
+    RetailProfessionsGlobalScript() : GlobalScript("RetailProfessionsGlobalScript", { GLOBALHOOK_ON_ITEM_ROLL }) { }
+
+    bool OnItemRoll(Player const* player, LootStoreItem const* storeItem, float& chance, Loot& loot, LootStore const& store) override
+    {
+        Gear::OnItemRoll(player, storeItem, chance, loot, store);
+        return true;
     }
 };
 
@@ -355,6 +415,8 @@ public:
             // First: the recipe lists say which recipes get a perk.
             if (GetConfig().perks)
                 Perks::Build();
+            // Before the index: it lists recipes as the client sees them, tools taken out.
+            Gear::Build();
             Index::Build();
             if (GetConfig().refine)
                 Refine::Build();
@@ -366,5 +428,6 @@ void AddRetailProfessionsScripts()
 {
     new RetailProfessionsPlayerScript();
     new RetailProfessionsSpellScript();
+    new RetailProfessionsGlobalScript();
     new RetailProfessionsWorldScript();
 }

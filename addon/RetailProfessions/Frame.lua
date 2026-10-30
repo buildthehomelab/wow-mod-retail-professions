@@ -128,7 +128,7 @@ logButton:SetScript("OnClick", function () RPF.ProcLog.Toggle() end)
 logButton:SetScript("OnEnter", function (self)
 	GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 	GameTooltip:SetText("Craft procs")
-	GameTooltip:AddLine("Every Multicraft and Resourcefulness you've had, and how often they come up. Also /prof log.",
+	GameTooltip:AddLine("Every Multicraft, Resourcefulness and Finesse you've had, and how often they come up. Also /prof log.",
 		1, 1, 1, true)
 	GameTooltip:Show()
 end)
@@ -1186,6 +1186,18 @@ RPF.On("COOLDOWN", function ()
 		M.Details(RPF.selected)
 		RPF.Fire("SELECTED", RPF.selected)
 		updateControls()
+	end
+end)
+-- Profession equipment went on or came off (Gear.lua): the perk odds and the tools the recipe
+-- needs follow.
+RPF.On("GEAR", function ()
+	if RPF.IsOpen() and RPF.selected then RPF.Fire("SELECTED", RPF.selected) end
+end)
+-- The server's word on what the open profession's recipes need (Gear.lua) arrived.
+RPF.On("GEAR_TOOLS", function (skill)
+	if RPF.IsOpen() and RPF.selected and skill == M.skill then
+		M.Details(RPF.selected)
+		RPF.Fire("SELECTED", RPF.selected)
 	end
 end)
 RPF.On("ITEM_INFO", function ()

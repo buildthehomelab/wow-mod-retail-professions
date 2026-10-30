@@ -230,6 +230,28 @@ crafting speed**, earned by skill.
   ReagentBankUI, everything its old profession sidebar did is in this window: the amount,
   crafting from the bank, Deposit leftovers and Add to Shopping List.
 
+**Profession equipment** (after retail's, from Dragonflight on)
+- Every profession has a **tool slot and two accessory slots** (Cooking: one accessory), at the
+  top of its window; gathering professions have theirs in the professions book (K). Drag an item
+  from your bags onto a slot, or right-click a gear item in your bags; right-click a slot to take
+  it off. What's slotted leaves your bags.
+- **Gear items** give skill and retail's stats in percentage points: Multicraft, Resourcefulness
+  and crafting speed on top of the crafting perks, or for Herbalism, Mining and Skinning
+  **Finesse** (a chance of an extra herb, ore or hide), **Perception** (better odds on the rare
+  things a node or corpse gives) and **Deftness** (faster gathering). Their tooltips say what
+  they give, and the recipe odds count them.
+- 70 gear items (a tool and two accessories per profession, green from skill 75 and blue from
+  225) are **crafted by other professions**: Blacksmiths make hammers and picks, Engineers
+  spanners and loupes, Leatherworkers gloves and aprons, Tailors hats and robes. Their recipes
+  come by themselves when the crafter's skill gets there.
+- **Recipe tools count from the slots**: a Blacksmith Hammer, Arclight Spanner, Gyromatic
+  Micro-Adjustor, Jeweler's Kit, Virtuoso Inking Set or runed rod in one of its profession's
+  slots counts as carried, and so do the stat tools that stand in for them. A recipe that needs
+  two tools takes the second from an accessory slot or from the bags. Tools in the bags still
+  count as before.
+- Gear needs the skill it lists (without bonuses), so individual progression's era skill cap
+  gates it like everything else. Unlearn a profession and its gear comes back to your bags.
+
 ## Individual progression
 
 With [mod-individual-progression](https://github.com/ZhengPeiRu21/mod-individual-progression):
@@ -279,6 +301,18 @@ level and a floor, and for a recipe the level is your skill / 5. The client show
 but the core only loads the base, so Ruby Pendant of Fire said 8 seconds at 258 Jewelcrafting
 and took 25. The module casts at the time the client shows; the speed perk comes off that.
 
+Profession equipment lives on the server. A slotted item keeps its `item_instance` row; a
+`mod_retail_professions_gear_slot` row replaces its `character_inventory` row, the way mail holds
+items. Slots are read at login. The skill bonus is a hidden Mod Skill aura per profession
+(spells 90800-90811), and the stats feed the perks above and three gathering hooks: Deftness
+shortens herb, ore and skinning casts after `Spell::prepare`, Finesse adds an item when a
+primary herb, ore or hide is looted (`OnPlayerLootItem`), Perception raises the other items'
+chances while a node's or skinned corpse's loot is rolled (`OnItemRoll`). The client checks a
+recipe's tools itself, so at startup the module takes the tools out of every trade skill spell,
+the client patch does the same in `Spell.dbc` (`tools/build_gear_patch.py`), and the module
+checks them before each cast: bags, worn or slots. A missing tool gets the client's own
+"Requires ..." message.
+
 The profit view asks mod-retail-ah's server for prices under that module's `RAH` prefix (its `K`
 request, which needs no auctioneer). Without it, or with `RetailAH.CraftPrices = 0`, the view
 says there are no auction prices on the realm.
@@ -300,7 +334,16 @@ cd azerothcore-wotlk/modules
 git clone https://github.com/buildthehomelab/wow-mod-retail-professions.git mod-retail-professions
 ```
 Re-run CMake, rebuild, and copy `conf/mod_retail_professions.conf.dist` next to your
-`worldserver.conf`. There's no SQL to import.
+`worldserver.conf`. The SQL under `data/sql` (the profession equipment tables, skill auras, gear
+items and their recipes) is applied by the core's database updater.
+
+Profession equipment needs the client patch: `tools/build_gear_patch.py --from-mpq <your
+spells-and-items patch> --out <new patch>` takes the tools out of every trade skill spell in
+`Spell.dbc` and adds the gear items (`Item.dbc`) and their recipes (`Spell.dbc`,
+`SkillLineAbility.dbc`). Without it everything works except tools counting from the slots, and
+the new items show question-mark icons and their recipes don't show in the window.
+To remove the module, run `data/sql/uninstall/` by hand: the characters script mails slotted
+gear back to its owners first.
 
 Client: copy `addon/RetailProfessions` into `Interface/AddOns`. On realms using Portalkeeper,
 `sql/portalkeeper_addon.sql` (run by hand against `acore_world`) makes it a required addon.
@@ -315,7 +358,8 @@ See `conf/mod_retail_professions.conf.dist`: master switch, the era skill cap, h
 continents, how many sources per kind, the world-drop threshold, saving zones, Milling and
 Prospecting from the window (`RetailProfessions.Refine.Enable`, `RetailProfessions.Refine.CastTime`),
 and the crafting perks (`RetailProfessions.Perks.Enable` and a `Min` / `Max` percent each for
-`Perks.Multicraft`, `Perks.Resourcefulness` (plus `Refund`) and `Perks.Speed`).
+`Perks.Multicraft`, `Perks.Resourcefulness` (plus `Refund`) and `Perks.Speed`), and profession
+equipment (`RetailProfessions.Gear.Enable`).
 
 ## Development
 

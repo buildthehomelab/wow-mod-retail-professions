@@ -13,6 +13,7 @@ RPF.HELLO_MAP_PINS = 2  -- M: a map flag on a trainer or vendor
 RPF.HELLO_REFINE = 4    -- Y and X: what herbs and ore give, and milling or prospecting them
 RPF.HELLO_PERKS = 8     -- crafts can make a second batch, give reagents back and cast faster
 RPF.HELLO_GUIDE = 16    -- W rows carry a note and tooltip details; M pins drops, objects and quest givers
+RPF.HELLO_GEAR = 32     -- profession equipment: GC, G, GQ, GU and GT (Gear.lua)
 
 -- What a craft of a recipe can get on top (the perks field of an L row).
 RPF.PERK_MULTICRAFT = 1
@@ -483,6 +484,9 @@ RPF.flags = 0
 local nextReq = 0
 local pending = {}
 local LISTS = { L = true, W = true, Y = true }
+-- Profession equipment's lists (Gear.lua): the catalog, a profession's tools and the slots.
+local GEAR_LISTS = { GCD = true, GCE = true, GTD = true, GTE = true, GD = true, GE = true }
+local gearPush -- rows of an unasked GD:0 until its GE:0
 
 local function send(msg)
 	SendAddonMessage(RPF.PREFIX, msg, "WHISPER", UnitName("player"))
@@ -603,6 +607,34 @@ local function onAddonMessage(message)
 	if code == "PK" then
 		local spell, kind, list = rest:match("^(%d+):(%a):(.*)$")
 		if spell then RPF.Fire("PERK", tonumber(spell), kind, list) end
+		return
+	end
+
+	-- A gathering perk came up (Finesse, F): "<skill>:F:<item>*<n>".
+	if code == "PG" then
+		local skill, kind, list = rest:match("^(%d+):(%a):(.*)$")
+		if skill then RPF.Fire("GATHER_PERK", tonumber(skill), kind, list) end
+		return
+	end
+
+	-- Profession equipment's lists end with a count instead of a meta line first. The slots also
+	-- come unasked, under request 0, after every change.
+	if GEAR_LISTS[code] then
+		local last = code:sub(-1) == "E"
+		if req == "0" and (code == "GD" or code == "GE") then
+			if last then
+				local rows = gearPush or {}
+				gearPush = nil
+				RPF.Fire("GEAR_PUSH", rows)
+			else
+				gearPush = gearPush or {}
+				parseRows(rest, gearPush)
+			end
+			return
+		end
+		local p = pending[req]
+		if not p then return end
+		if last then finish(req, { rows = p.rows, meta = splitFields(rest) }) else parseRows(rest, p.rows) end
 		return
 	end
 
