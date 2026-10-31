@@ -239,7 +239,7 @@ crafting speed**, earned by skill.
   an item can't go in two slots. The slots are **shared by the whole account**
   (`RetailProfessions.Gear.AccountWide`), except for characters running a challenge that keeps
   gear to the character (Hardcore, Iron Man, Self-Found, Self-Crafted by default). Gear only
-  counts for a character with the skill (and level) it asks for, and soulbound items can't go in. The **Equipment** tab shows every profession's slots
+  counts for a character with the skill (and level) it asks for. Soulbound items go in too, like heirlooms: a character that takes one off gets it bound to them. The **Equipment** tab shows every profession's slots
   as cards, gathering professions and Fishing included, with what each set gives; the
   professions book (K) has them too. Drag an item
   from your bags onto a slot, or right-click a gear item in your bags; right-click a slot to take

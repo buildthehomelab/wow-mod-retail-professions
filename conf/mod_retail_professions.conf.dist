@@ -184,8 +184,9 @@ RetailProfessions.Gear.Enable = 1
 #    RetailProfessions.Gear.AccountWide
 #        Description: The slots belong to the account: every character of it logs in to the same
 #                     slotted items (one set, never two). An item gives only what the character
-#                     using it may use (its skill and level requirements); soulbound items can't
-#                     go in. Off: each character has its own. Turning it on moves a character's
+#                     using it may use (its skill and level requirements). Soulbound items go
+#                     in too, as heirlooms: whoever takes one off gets it bound to them. Off:
+#                     each character has its own. Turning it on moves a character's
 #                     own slotted items to the account's slots at its next login, where those are
 #                     free; the rest go back to its bags (by mail when full). Turning it off gives
 #                     the account's slotted items to the first of its characters to log in.
