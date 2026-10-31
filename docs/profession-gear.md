@@ -36,7 +36,10 @@ What may go in a slot of skill S:
 - a **plain tool** of S: an item that meets one of S's recipe tool requirements (the recipe's
   exact Totem item, or an item whose TotemCategory is compatible with the recipe's category).
   Any slot of S. That is how a recipe needing two tools (Engineering: spanner + hammer or
-  micro-adjustor) gets its second one: from an accessory slot, or from the bags as before.
+  micro-adjustor) gets its second one: from an accessory slot, or from the bags as before. The
+  Engineering stat tools need neither: their TotemCategory is 161 Gnomish Army Knife (mask 63),
+  which covers the spanner, micro-adjustor and hammer (and, like the stock knife, the pick,
+  knife and flint).
   Also plain tools: a **gathering tool** of Mining (TotemCategory compatible with 165 Mining Pick)
   or Skinning (166 Skinning Knife), and for Fishing a **fishing pole** (weapon subclass 20), in
   slot 0 only.
