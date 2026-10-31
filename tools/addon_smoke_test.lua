@@ -2194,7 +2194,10 @@ step("gear: tooltips name gear items, once", function ()
 	GameTooltip:SetOwner(UIParent)
 	GameTooltip:SetHyperlink("item:90800")
 	local text = table.concat(tipLines, "\n")
-	for _, want in ipairs({ "Tailoring Tool", "+10 Tailoring Skill", "+5% Multicraft", "+3% Resourcefulness", "+10% Crafting Speed" }) do
+	for _, want in ipairs({ "Tailoring Tool", "+10 Tailoring Skill",
+		"Equip: Multicraft: 5% more chance that a craft makes a second batch.",
+		"Equip: Resourcefulness: 3% more chance to get some of the reagents back.",
+		"Equip: Crafting Speed: Crafting takes 10% less time." }) do
 		assert(countOf(tipLines, want) == 1, "missing " .. want .. ": " .. text)
 	end
 	assert(not text:find("Requires"), "Tailoring 120 meets 100")
@@ -2205,7 +2208,10 @@ step("gear: tooltips name gear items, once", function ()
 	-- Mining 50 is short of the lamp's 200; a chat link's tooltip has them too.
 	ItemRefTooltip:SetHyperlink("item:90802")
 	local ref = table.concat(refLines, "\n")
-	for _, want in ipairs({ "Mining Accessory", "+5 Mining Skill", "+4% Finesse", "+6% Perception", "+10% Deftness", "Requires Mining (200)" }) do
+	for _, want in ipairs({ "Mining Accessory", "+5 Mining Skill",
+		"Equip: Finesse: 4% chance of one extra ore or stone each time you loot one.",
+		"Equip: Perception: Gems and other rare finds in a vein are 6% more likely to drop.",
+		"Equip: Deftness: Mining takes 10% less time.", "Requires Mining (200)" }) do
 		assert(countOf(refLines, want) == 1, "missing " .. want .. ": " .. ref)
 	end
 	GameTooltip:SetHyperlink("item:2589")
