@@ -133,7 +133,7 @@ crafting speed**, earned by skill.
 - Recipes at the very top of an era's skill cap never turn grey, so they get little or nothing.
   `RetailProfessions.Perks.*.Min` gives every recipe a base if you want one.
 
-**Training**, **Profit** and **Equipment** (the book, coin and pick tabs at the top of the column on the right)
+**Training**, **Profit** and **Equipment** (the book, coin and hammer-and-wrench tabs at the top of the column on the right)
 - Pages that look across every profession you have, in the spirit of TradeSkillMaster's
   crafting overview, in place of the list and the recipe until you pick a profession tab again.
 - **Training**: your professions with their skill bars down the left (scrolling when you know
