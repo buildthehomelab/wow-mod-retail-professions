@@ -55,15 +55,35 @@ end
 G.TOOL = 0
 G.ANY = 9 -- "the first free slot that fits" in an equip request
 
--- What a gear item gives besides skill, in percentage points, in tooltip order.
-G.STATS = {
-	{ key = "multicraft", label = "Multicraft" },
-	{ key = "resourcefulness", label = "Resourcefulness" },
-	{ key = "speed", label = "Crafting Speed" },
-	{ key = "finesse", label = "Finesse" },
-	{ key = "perception", label = "Perception" },
-	{ key = "deftness", label = "Deftness" },
+-- What the gathering stats work on, per profession (G.StatText).
+local GATHERED = {
+	[182] = { item = "herb", rare = "Rare finds in an herb", cast = "Gathering herbs" },
+	[186] = { item = "ore or stone", rare = "Gems and other rare finds in a vein", cast = "Mining" },
+	[393] = { item = "leather or hide", rare = "Scales and other rare finds on a corpse", cast = "Skinning" },
 }
+local GATHERED_ANY = { item = "gathered item", rare = "Rare finds when gathering", cast = "Gathering" }
+
+-- What a gear item gives besides skill, in percentage points, in tooltip order. text says what
+-- it does in plain words: retail's names alone mean nothing on this client.
+G.STATS = {
+	{ key = "multicraft", label = "Multicraft",
+		text = function (n) return string.format("%d%% more chance that a craft makes a second batch.", n) end },
+	{ key = "resourcefulness", label = "Resourcefulness",
+		text = function (n) return string.format("%d%% more chance to get some of the reagents back.", n) end },
+	{ key = "speed", label = "Crafting Speed",
+		text = function (n) return string.format("Crafting takes %d%% less time.", n) end },
+	{ key = "finesse", label = "Finesse",
+		text = function (n, g) return string.format("%d%% chance of one extra %s each time you loot one.", n, g.item) end },
+	{ key = "perception", label = "Perception",
+		text = function (n, g) return string.format("%s are %d%% more likely to drop.", g.rare, n) end },
+	{ key = "deftness", label = "Deftness",
+		text = function (n, g) return string.format("%s takes %d%% less time.", g.cast, n) end },
+}
+
+-- "Finesse: 4% chance of one extra herb each time you loot one."
+function G.StatText(stat, value, skill)
+	return string.format("%s: %s", stat.label, stat.text(value, GATHERED[skill] or GATHERED_ANY))
+end
 
 -- catalog: gear item -> { skill, kind (0 tool, else an accessory: with HELLO_GEAR_TYPED the
 -- slot it goes in), skillBonus, the stats, reqSkill, reqRank }; slots: skill -> slot -> { entry,
@@ -416,7 +436,7 @@ local function addGearLines(tip)
 	tip:AddLine(pname .. (c.kind == 0 and " Tool" or " Accessory") .. (kind and (": " .. kind) or ""), 1, 0.82, 0)
 	if c.skillBonus > 0 then tip:AddLine(string.format("+%d %s Skill", c.skillBonus, pname), 0.1, 1, 0.1) end
 	for _, s in ipairs(G.STATS) do
-		if c[s.key] > 0 then tip:AddLine(string.format("+%d%% %s", c[s.key], s.label), 0.1, 1, 0.1) end
+		if c[s.key] > 0 then tip:AddLine("Equip: " .. G.StatText(s, c[s.key], c.skill), 0.1, 1, 0.1, true) end
 	end
 	if c.reqRank > 0 then
 		local reqSkill = c.reqSkill > 0 and c.reqSkill or c.skill
@@ -567,8 +587,14 @@ local function slotEnter(self)
 				0.7, 0.7, 0.7, true)
 		end
 	end
-	local total = G.TotalsText(self.skill)
-	if total then GameTooltip:AddLine("Your " .. pname .. " equipment: " .. total, 0.31, 0.76, 0.97, true) end
+	local t = G.TotalsText(self.skill) and G.Totals(self.skill)
+	if t then
+		GameTooltip:AddLine("Your " .. pname .. " equipment:", 0.31, 0.76, 0.97)
+		if t.skillBonus > 0 then GameTooltip:AddLine(string.format("+%d %s Skill", t.skillBonus, pname), 0.31, 0.76, 0.97) end
+		for _, s in ipairs(G.STATS) do
+			if t[s.key] > 0 then GameTooltip:AddLine(G.StatText(s, t[s.key], self.skill), 0.31, 0.76, 0.97, true) end
+		end
+	end
 	if G.AccountWide() then GameTooltip:AddLine("Shared by every character on your account.", 0.5, 0.5, 0.5, true) end
 	RPF.ShowItemTooltip(self)
 end
