@@ -63,6 +63,8 @@ function methods:IsVisible()
 end
 function methods:SetText(t) self.__text = t == nil and "" or tostring(t) end
 function methods:GetText() return self.__text end
+function methods:SetTexture(t) self.__texture = t end
+function methods:GetTexture() return rawget(self, "__texture") end
 function methods:SetChecked(c) self.__checked = c and 1 or nil end
 function methods:GetChecked() return rawget(self, "__checked") end
 function methods:GetWidth() return self.__width end
@@ -245,9 +247,10 @@ local spells = {
 local knownSpells = { Tailoring = true, Smelting = true, Mining = true, ["Find Minerals"] = true, Fishing = true }
 -- Crafts take three seconds here.
 local castTimes = { [2963] = 3000, [2385] = 3000, [3914] = 3000 }
+local spellIcons = { [2575] = "Interface\\Icons\\Trade_Mining", [2656] = "Interface\\Icons\\Spell_Fire_FlameBlades" }
 function GetSpellInfo(spell)
 	if type(spell) == "number" then
-		return spells[spell], nil, "Interface\\Icons\\S", 0, false, 0, castTimes[spell] or 0
+		return spells[spell], nil, spellIcons[spell] or "Interface\\Icons\\S", 0, false, 0, castTimes[spell] or 0
 	end
 	if knownSpells[spell] then return spell, nil, "Interface\\Icons\\S" end
 	return nil
@@ -2111,6 +2114,9 @@ step("tabs: a full column stays inside the window", function ()
 
 	local all = column()
 	assert(#all == 16, "tabs with every profession: " .. #all)
+	local mining = find(function (f) return rawget(f, "profession") and f.profession.id == 186 and rawget(f, "icon") end)
+	assert(mining and mining.icon:GetTexture() == "Interface\\Icons\\Spell_Fire_FlameBlades",
+		"Mining's tab doesn't show Smelting: " .. tostring(mining and mining.icon:GetTexture()))
 	local size = all[1]:GetHeight()
 	assert(size < full and size >= 14, "a full column's tabs didn't shrink: " .. size)
 	local last

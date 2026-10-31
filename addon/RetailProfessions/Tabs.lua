@@ -302,7 +302,7 @@ local function refresh()
 			local p = known.profession
 			tab.profession, tab.rank, tab.maxRank = p, known.rank, known.maxRank
 			place(tab, top + i - 1, pitch, drop)
-			tab.icon:SetTexture(p.texture)
+			tab.icon:SetTexture(p.openTexture or p.texture)
 			local current = M.profession == p and not M.linked and RPF.IsOpen()
 			if p.archaeology then
 				setChecked(tab, page == "archaeology")

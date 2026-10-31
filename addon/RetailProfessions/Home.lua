@@ -44,7 +44,7 @@ H.VIEWS = {
 		tip = "What to do next: skill-ups, the leveling guide, the trainer and cooldowns, across every profession." },
 	profit = { title = "Profit", icon = "Interface\\Icons\\INV_Misc_Coin_02",
 		tip = "Your most profitable crafts at today's auction prices, across every profession." },
-	equipment = { title = "Equipment", icon = "Interface\\Icons\\INV_Pick_02", gear = true,
+	equipment = { title = "Equipment", icon = "Interface\\Icons\\Ability_Repair", gear = true,
 		tip = "Your profession tools and accessories, gathering and Fishing included: what's on and what it gives." },
 }
 H.ORDER = { "training", "profit", "equipment" }

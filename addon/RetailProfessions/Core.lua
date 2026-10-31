@@ -183,6 +183,8 @@ local function indexProfessions()
 		p.extraName = p.extra and GetSpellInfo(p.extra) or nil
 		local spellIcon = p.iconSpell and select(3, GetSpellInfo(p.iconSpell))
 		p.texture = spellIcon or ("Interface\\Icons\\" .. p.icon)
+		-- What its window's tab shows: the spell that opens it (Mining's is Smelting).
+		p.openTexture = p.open and select(3, GetSpellInfo(p.open)) or p.texture
 		byId[p.id] = p
 		byName[p.localName:lower()] = p
 	end
