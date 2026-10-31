@@ -601,7 +601,7 @@ local function sourceText(src, r)
 	elseif k == "T" then
 		local text = string.format("%sTrainer|r  %s%s - %s", GOLD, src.name, where(src), RPF.Money(src.a))
 		local skill = tonumber(src.b) or 0
-		if skill > (M.rank or 0) then text = text .. string.format(" |cffff4040(at %d)|r", skill) end
+		if skill > (M.baseRank or M.rank or 0) then text = text .. string.format(" |cffff4040(at %d)|r", skill) end
 		return text .. noted(src)
 	elseif k == "N" then
 		return string.format("%sTaught by|r  %s%s", GOLD, src.name, where(src)) .. noted(src)
@@ -850,7 +850,7 @@ local function draw(r)
 	end
 	if not r.learned then
 		local need = r.reqSkill or 0
-		sub = sub .. string.format("   %sNot learned - needs %d|r", need > (M.rank or 0) and "|cffff4040" or "|cffffd200", need)
+		sub = sub .. string.format("   %sNot learned - needs %d|r", need > (M.baseRank or M.rank or 0) and "|cffff4040" or "|cffffd200", need)
 	end
 	subText:SetText(sub)
 	description:SetText(r.description or "")

@@ -350,7 +350,7 @@ function RPF.CreateListHeader(parent, text)
 end
 
 -- DragonUI's profession skill bar (needs RPF.ProfArt): its frame round the profession's own
--- fill, which plays when the skill moves. bar:SetRank(name, rank, maxRank, key).
+-- fill, which plays when the skill moves. bar:SetRank(name, rank, maxRank, key, bonus).
 local RANK_BAR_W, RANK_FILL_W = 453, 441
 
 function RPF.CreateRankBar(parent)
@@ -373,11 +373,11 @@ function RPF.CreateRankBar(parent)
 	bar.rank = Art.RankText(top)
 	bar.rank:SetCenter(bar, "TOPLEFT", 5 + RANK_FILL_W / 2, -12)
 
-	function bar:SetRank(name, rank, maxRank, key)
+	function bar:SetRank(name, rank, maxRank, key, bonus)
 		rank, maxRank = rank or 0, maxRank or 0
 		local ratio = maxRank > 0 and math.min(rank / maxRank, 1) or 0
 		P.Fill.Update(self.fx, key, ratio, maxRank > 0 and rank >= maxRank)
-		self.rank:Set(string.format("%s %d", name or "", rank), maxRank)
+		self.rank:Set(string.format("%s %d%s", name or "", rank, RPF.BonusText(bonus)), maxRank)
 	end
 	return bar
 end

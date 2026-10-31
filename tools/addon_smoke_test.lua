@@ -264,7 +264,7 @@ local skillLines = {
 function GetNumSkillLines() return #skillLines end
 function GetSkillLineInfo(i)
 	local s = skillLines[i]
-	return s[1], s[2], true, s[3] or 0, 0, 0, s[4] or 0, not s[2]
+	return s[1], s[2], true, s[3] or 0, 0, s[5] or 0, s[4] or 0, not s[2]
 end
 
 -- The trade skill window: one header and two learned recipes.
@@ -860,6 +860,22 @@ step("open tailoring", function ()
 	for i = 1, 10 do local b = _G["RetailProfessionsTab" .. i] if b and b.__shown then tabs = tabs + 1 end end
 	assert(tabs == 2, "tabs shown: " .. tabs)
 	assert(RetailProfessionsTab1:GetAttribute("spell") == "Tailoring", "tab spell")
+end)
+
+step("a skill bonus shows next to the skill", function ()
+	-- +15 Tailoring from equipment: the Skills tab's modifier.
+	skillLines[2][5] = 15
+	fire("SKILL_LINES_CHANGED")
+	tick(0.5)
+	assert(M.baseRank == 120 and M.bonus == 15 and M.rank == 135,
+		"rank: " .. tostring(M.baseRank) .. " + " .. tostring(M.bonus) .. " = " .. tostring(M.rank))
+	assert(RPF.SkillRankText(120, 15, 150) == "120 (|cff20ff20+15|r)/150", RPF.SkillRankText(120, 15, 150))
+	if not DRAGON then assert(textShown("^Tailoring 120 %(.*%+15.*%)/150$"), "skill bar doesn't show the bonus") end
+	skillLines[2][5] = nil
+	fire("SKILL_LINES_CHANGED")
+	tick(0.5)
+	assert(M.bonus == 0 and M.rank == 120, "bonus didn't go")
+	if not DRAGON then assert(textShown("^Tailoring 120/150$"), "skill bar still shows a bonus") end
 end)
 
 if DRAGON == "2" then

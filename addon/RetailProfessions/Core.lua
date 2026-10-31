@@ -229,6 +229,28 @@ function RPF.RankTitle(maxRank)
 	return RANKS[#RANKS][2]
 end
 
+-- A skill as the character window's Skills tab writes it: "300 (+15)/300", what equipment,
+-- racials and lures add in green (a malus in red). sep stands for the slash.
+function RPF.BonusText(bonus)
+	if not bonus or bonus == 0 then return "" end
+	return string.format(" (%s%+d|r)", bonus > 0 and "|cff20ff20" or "|cffff2020", bonus)
+end
+
+function RPF.SkillRankText(baseRank, bonus, maxRank, sep)
+	return string.format("%d%s%s%d", baseRank or 0, RPF.BonusText(bonus), sep or "/", maxRank or 0)
+end
+
+-- A skill's lines in a tooltip: the trained skill, and with a bonus the skill it makes.
+function RPF.AddSkillLines(tip, baseRank, bonus, maxRank)
+	baseRank, bonus = baseRank or 0, bonus or 0
+	tip:AddLine(string.format("Skill %d of %d", baseRank, maxRank or 0), 1, 1, 1)
+	if bonus ~= 0 then
+		tip:AddLine(string.format("%+d from equipment, racials and lures: you count as %d.", bonus, baseRank + bonus),
+			bonus > 0 and 0.13 or 1, bonus > 0 and 1 or 0.13, 0.13, true)
+		tip:AddLine("Skill-ups and trainers go by your skill without it.", 0.7, 0.7, 0.7, true)
+	end
+end
+
 -- The skill tier a requirement falls into, for grouping unlearned recipes.
 function RPF.TierOf(skill)
 	for _, r in ipairs(RANKS) do

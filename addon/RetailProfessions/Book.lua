@@ -248,8 +248,8 @@ local function refresh()
 		row.name:SetText(p.localName)
 		row.rank:SetText(RPF.RankTitle(k.maxRank))
 		row.bar:SetMinMaxValues(0, math.max(1, k.maxRank))
-		row.bar:SetValue(k.rank)
-		row.barText:SetText(k.rank .. " / " .. k.maxRank)
+		row.bar:SetValue(k.baseRank)
+		row.barText:SetText(RPF.SkillRankText(k.baseRank, k.rank - k.baseRank, k.maxRank, " / "))
 
 		local openName = p.openName and GetSpellInfo(p.openName) and p.openName or nil
 		row.open:SetText(p.id == 186 and (p.openName or "Smelting") or "Open")
