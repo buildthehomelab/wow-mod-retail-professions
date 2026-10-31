@@ -225,18 +225,18 @@ _ROWS = [
     (BLACKSMITHING, A2, BLUE, "Fireproof Smithing Apron", LEATHERWORKING, 260, 14042, [R, S],
      [(RUGGED_LEATHER, 8), (CURED_RUGGED_HIDE, 1), (RUNE_THREAD, 1), (ESSENCE_OF_FIRE, 1)]),
 
-    # Enchanting: Enchanting / Tailoring / Engineering
+    # Enchanting: Enchanting / Tailoring / Engineering. No Multicraft: an enchant makes no item.
     (ENCHANTING, TOOL, GREEN, "Enchanter's Runed Rod", ENCHANTING, 150, 11130, [S],
      [(GOLDEN_ROD, 1), (IRIDESCENT_PEARL, 1), (GREATER_ASTRAL_ESSENCE, 1), (SOUL_DUST, 2)]),
-    (ENCHANTING, A1, GREEN, "Silk Enchanter's Hood", TAILORING, 140, 3345, [M, S],
+    (ENCHANTING, A1, GREEN, "Silk Enchanter's Hood", TAILORING, 140, 3345, [R, S],
      [(BOLT_OF_SILK, 3), (FINE_THREAD, 2), (SOUL_DUST, 1)]),
-    (ENCHANTING, A2, GREEN, "Arcane Focusing Lens", ENGINEERING, 145, 5507, [M, R],
+    (ENCHANTING, A2, GREEN, "Arcane Focusing Lens", ENGINEERING, 145, 5507, [R, S],
      [(BRONZE_TUBE, 1), (JADE, 1), (SILVER_CONTACT, 2)]),
-    (ENCHANTING, TOOL, BLUE, "Grand Enchanter's Rod", ENCHANTING, 275, 16207, [M],
+    (ENCHANTING, TOOL, BLUE, "Grand Enchanter's Rod", ENCHANTING, 275, 16207, [R],
      [(TRUESILVER_ROD, 1), (GREATER_ETERNAL_ESSENCE, 1), (ILLUSION_DUST, 4), (LARGE_BRILLIANT_SHARD, 1)]),
     (ENCHANTING, A1, BLUE, "Mooncloth Enchanter's Hood", TAILORING, 265, 7470, [R, S],
      [(BOLT_OF_RUNECLOTH, 3), (MOONCLOTH, 1), (RUNE_THREAD, 1), (ILLUSION_DUST, 2)]),
-    (ENCHANTING, A2, BLUE, "Mithril Focusing Lens", ENGINEERING, 270, 3925, [M, S],
+    (ENCHANTING, A2, BLUE, "Mithril Focusing Lens", ENGINEERING, 270, 3925, [R, S],
      [(MITHRIL_CASING, 1), (THORIUM_WIDGET, 1), (AQUAMARINE, 2), (TRUESILVER_BAR, 1)]),
 
     # Engineering: Engineering / Engineering / Leatherworking
