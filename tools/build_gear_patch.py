@@ -19,13 +19,21 @@ What --out changes (every other file in the MPQ is copied unchanged):
   and clears the same fields on the same spells at startup and checks the tools itself, so tools
   in profession equipment slots count. Then appends the recipe spells (copies of a stock recipe
   of the crafter, see RECIPE_TEMPLATES in gear_data.py).
+  The rod in the Fishing slot: Fishing (spells needing exactly a fishing pole, with a Trans Door
+  effect) loses its rod requirement (fields 68-70), so it casts without one in the main hand;
+  lures and lines (the same requirement, an item target and an Enchant Item effect) lose it as
+  well as the item target: Targets (16) 0, and effect 0 a Dummy (3) on the caster (implicit
+  target 1), so the client casts them at once instead of asking for a rod to click. The server
+  (Gear::Build) takes the same rod requirement out of SpellInfo, makes the lures' effect a Dummy
+  there too, checks for a rod itself and puts the lure on the rod in the main hand or the slot.
 - SkillLineAbility.dbc: appends the recipes' rows (learned automatically at the recipe's level).
 - Item.dbc: appends a row per gear item, with the displayId (icon) of an existing item.
 
 Rows are appended in id order after the file's own rows, which keep their order: never re-sort a
 client DBC (an id-sorted SkillRaceClassInfo.dbc and Achievement.dbc broke the client before).
-The builder checks that the old rows come out as an in-order prefix of the new file. Running it
-again on its own output replaces its rows instead of adding them twice, and gives the same files.
+The builder checks that the other rows come out as an in-order prefix of the new file. Run on
+its own output, or on a patch built on top of it, it replaces its rows where they are instead of
+adding them twice, so the gear rows keep their place before rows added later.
 
 --sql writes data/sql/db-world/updates/mod_retail_professions_2026_10_30_01.sql (item_template,
 item_dbc, spell_dbc, skilllineability_dbc, mod_retail_professions_gear) and
@@ -80,6 +88,18 @@ F_DESCRIPTION = 170       # 16 + flags (186)
 F_TOOLTIP = 187           # 16 + flags (203)
 F_TOTEM_CATEGORY = (222, 223)
 TOOL_FIELDS = F_TOTEM + F_TOTEM_CATEGORY
+F_TARGETS = 16
+F_EQUIPPED_ITEM = (68, 69, 70)  # EquippedItemClass, SubClassMask, InventoryTypeMask
+F_IMPLICIT_TARGET_A = 86        # 3
+POLE_FIELDS = (F_TARGETS,) + F_EQUIPPED_ITEM + (F_EFFECT, F_IMPLICIT_TARGET_A)
+ITEM_CLASS_WEAPON = 2
+FISHING_POLE_MASK = 1 << 20     # ITEM_SUBCLASS_WEAPON_FISHING_POLE
+TARGET_FLAG_ITEM = 0x10
+SPELL_EFFECT_DUMMY = 3
+SPELL_EFFECT_TRANS_DOOR = 50
+SPELL_EFFECT_ENCHANT_ITEM = 53
+SPELL_EFFECT_ENCHANT_ITEM_TEMPORARY = 54
+TARGET_UNIT_CASTER = 1
 SPELL_ATTR0_IS_TRADESKILL = 0x20
 SPELL_EFFECT_CREATE_ITEM = 24
 
@@ -157,16 +177,22 @@ def our_ids():
     return ({i["spell"] for i in GD.ITEMS}, {i["entry"] for i in GD.ITEMS})
 
 
-def drop_ours(dbc, ids):
-    """Removes rows this builder appended before (re-run on its own output). Ids in our ranges
-    that aren't ours are refused: something else took them."""
+def place_ours(dbc, ids, new_rows):
+    """Puts our rows in: a row this builder made before (a re-run on its own output, or on a
+    patch built later on top of it) is replaced where it is, the others are appended. Ids in our
+    ranges that aren't ours are refused: something else took them. Returns how many replaced."""
     first, last = (GD.SPELL_FIRST, GD.SPELL_LAST) if dbc.name != "Item.dbc" else (GD.ITEM_FIRST, GD.ITEM_LAST)
     stray = [r[0] for r in dbc.rows if first <= r[0] <= last and r[0] not in ids]
     if stray:
         sys.exit("%s: rows %s are in our id range %d-%d but aren't ours" % (dbc.name, stray, first, last))
-    before = len(dbc.rows)
-    dbc.rows = [r for r in dbc.rows if r[0] not in ids]
-    return before - len(dbc.rows)
+    by_id = {r[0]: r for r in new_rows}
+    replaced = 0
+    for n, row in enumerate(dbc.rows):
+        if row[0] in by_id:
+            dbc.rows[n] = by_id.pop(row[0])
+            replaced += 1
+    dbc.rows += [r for r in new_rows if r[0] in by_id]
+    return replaced
 
 
 SPELL_EFFECT_CREATE_ITEM_2 = 157
@@ -196,6 +222,28 @@ def clear_tools(spell, abilities):
             for skill in sorted(skills.get(row[F_ID], {0})):
                 counts[skill] += 1
     return total, counts
+
+
+def free_fishing_pole(spell):
+    """Takes the main-hand rod out of Fishing, lures and lines (see the module docstring); the
+    same spells Gear::Build picks. Returns (casts, lures) changed: none on the builder's own
+    output, whose rows are rod-free already."""
+    casts = lures = 0
+    for row in spell.rows:
+        stock = s32(row[F_EQUIPPED_ITEM[0]]) == ITEM_CLASS_WEAPON and row[F_EQUIPPED_ITEM[1]] == FISHING_POLE_MASK
+        if stock and SPELL_EFFECT_TRANS_DOOR in row[F_EFFECT:F_EFFECT + 3]:
+            casts += 1
+        elif stock and row[F_TARGETS] & TARGET_FLAG_ITEM and row[F_EFFECT] in (SPELL_EFFECT_ENCHANT_ITEM, SPELL_EFFECT_ENCHANT_ITEM_TEMPORARY):
+            row[F_TARGETS] = 0
+            row[F_EFFECT] = SPELL_EFFECT_DUMMY
+            row[F_IMPLICIT_TARGET_A] = TARGET_UNIT_CASTER
+            lures += 1
+        else:
+            continue
+        row[F_EQUIPPED_ITEM[0]] = u32(-1)
+        row[F_EQUIPPED_ITEM[1]] = 0
+        row[F_EQUIPPED_ITEM[2]] = 0
+    return casts, lures
 
 
 def recipe_row(spell, item):
@@ -247,29 +295,32 @@ def build(folder):
     items = Dbc(os.path.join(folder, "Item.dbc"), ITEM_FIELDS, "Item.dbc")
     spells, entries = our_ids()
 
-    replaced = {d.name: drop_ours(d, ids) for d, ids in ((spell, spells), (abilities, spells), (items, entries))}
     old = {d.name: ([list(r) for r in d.rows], bytes(d.strings)) for d in (spell, abilities, items)}
 
     total, cleared = clear_tools(spell, abilities)
+    casts, lures = free_fishing_pole(spell)
 
     new_spells = [recipe_row(spell, i) for i in GD.ITEMS]
     new_abilities = [ability_row(i) for i in GD.ITEMS]
     new_items = [item_row(items, i) for i in GD.ITEMS]
-    spell.rows += new_spells
-    abilities.rows += new_abilities
-    items.rows += new_items
+    replaced = {d.name: place_ours(d, ids, rows) for d, ids, rows in
+                ((spell, spells, new_spells), (abilities, spells, new_abilities), (items, entries, new_items))}
 
-    for d, allowed in ((spell, TOOL_FIELDS), (abilities, ()), (items, ())):
+    # Everyone else's rows keep their order and content (ours are in place by construction).
+    for d, ids, allowed in ((spell, spells, TOOL_FIELDS + POLE_FIELDS), (abilities, spells, ()), (items, entries, ())):
         old_rows, old_strings = old[d.name]
-        check_prefix(d.name, old_rows, d.rows, old_strings, d.strings, allowed)
+        check_prefix(d.name, [r for r in old_rows if r[0] not in ids], [r for r in d.rows if r[0] not in ids],
+                     old_strings, d.strings, allowed)
         d.write(os.path.join(folder, d.name))
 
     per_skill = ", ".join("%s %d" % (GD.SKILL_NAMES.get(k, "skill %d" % k) if k else "no skill line", v)
                           for k, v in sorted(cleared.items(), key=lambda kv: -kv[1]))
-    print("Spell.dbc: tools cleared on %d trade skill spells%s; %d recipes appended (%d replaced)"
+    print("Spell.dbc: tools cleared on %d trade skill spells%s; %d recipes (%d replaced in place)"
           % (total, " (%s)" % per_skill if per_skill else "", len(new_spells), replaced["Spell.dbc"]))
-    print("SkillLineAbility.dbc: %d rows appended (%d replaced)" % (len(new_abilities), replaced["SkillLineAbility.dbc"]))
-    print("Item.dbc: %d rows appended (%d replaced)" % (len(new_items), replaced["Item.dbc"]))
+    if casts or lures:
+        print("Spell.dbc: rod requirement taken out of %d Fishing and %d lure/line spells" % (casts, lures))
+    print("SkillLineAbility.dbc: %d rows (%d replaced in place)" % (len(new_abilities), replaced["SkillLineAbility.dbc"]))
+    print("Item.dbc: %d rows (%d replaced in place)" % (len(new_items), replaced["Item.dbc"]))
     return dict(spells=new_spells, abilities=new_abilities, items=new_items, cleared=(total, cleared))
 
 

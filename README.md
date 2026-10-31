@@ -231,8 +231,9 @@ crafting speed**, earned by skill.
   crafting from the bank, Deposit leftovers and Add to Shopping List.
 
 **Profession equipment** (after retail's, from Dragonflight on)
-- Every profession has a **tool slot and two accessory slots** (Cooking: one accessory), at the
-  top of its window; gathering professions have theirs in the professions book (K). Drag an item
+- Every profession has a **tool slot and two accessory slots** (Cooking: one accessory; Fishing:
+  a rod slot), at the top of its window; gathering professions and Fishing have theirs in the
+  professions book (K). Drag an item
   from your bags onto a slot, or right-click a gear item in your bags; right-click a slot to take
   it off. What's slotted leaves your bags.
 - **Gear items** give skill and retail's stats in percentage points: Multicraft, Resourcefulness
@@ -249,6 +250,14 @@ crafting speed**, earned by skill.
   slots counts as carried, and so do the stat tools that stand in for them. A recipe that needs
   two tools takes the second from an accessory slot or from the bags. Tools in the bags still
   count as before.
+- **Gathering tools**: a Mining Pick or Skinning Knife goes in a Mining or Skinning slot, so it
+  needs no bag space. With mod-gathering-tools installed it gives what carrying one does (faster
+  gathering, and skill if that's set).
+- **Fishing rod**, as retail has it: a rod in the Fishing slot fishes without being equipped, so
+  the weapon stays on; the rod shows in the hands while the line is out. Lures and fishing lines
+  go on it (no rod to click: using one applies it), its fishing skill and its lure's count, and
+  the lure runs out as usual. A rod in the main hand still works and comes first. Druids' Salmon
+  Run (mod-druid-swipe-fishing) is its own thing and doesn't change.
 - Gear needs the skill it lists (without bonuses), so individual progression's era skill cap
   gates it like everything else. Unlearn a profession and its gear comes back to your bags.
 
@@ -304,7 +313,7 @@ and took 25. The module casts at the time the client shows; the speed perk comes
 Profession equipment lives on the server. A slotted item keeps its `item_instance` row; a
 `mod_retail_professions_gear_slot` row replaces its `character_inventory` row, the way mail holds
 items. Slots are read at login. The skill bonus is a hidden Mod Skill aura per profession
-(spells 90800-90811), and the stats feed the perks above and three gathering hooks: Deftness
+(spells 90800-90812), and the stats feed the perks above and three gathering hooks: Deftness
 shortens herb, ore and skinning casts after `Spell::prepare`, Finesse adds an item when a
 primary herb, ore or hide is looted (`OnPlayerLootItem`), Perception raises the other items'
 chances while a node's or skinned corpse's loot is rolled (`OnItemRoll`). The client checks a
@@ -312,6 +321,16 @@ recipe's tools itself, so at startup the module takes the tools out of every tra
 the client patch does the same in `Spell.dbc` (`tools/build_gear_patch.py`), and the module
 checks them before each cast: bags, worn or slots. A missing tool gets the client's own
 "Requires ..." message.
+
+The Fishing slot works the same way: the client patch and the module take the main-hand rod out
+of Fishing and of every lure and fishing line (and the lure's item target, so the client casts it
+without asking for a rod), and the module checks for a rod in the main hand or the slot. The core's
+Enchant Item effects need an item target, so on the server lures and lines become a Dummy and
+the module puts each on the rod after the cast (`OnSpellCast`): the one used on, the main hand's,
+or the slotted one; its time left is kept
+on the item and counted down while the player is online. During the Fishing channel the hands
+show the slotted rod; mod-transmog-plus leaves the hands alone while someone fishes without a rod
+in the main hand.
 
 The profit view asks mod-retail-ah's server for prices under that module's `RAH` prefix (its `K`
 request, which needs no auctioneer). Without it, or with `RetailAH.CraftPrices = 0`, the view
@@ -339,9 +358,10 @@ items and their recipes) is applied by the core's database updater.
 
 Profession equipment needs the client patch: `tools/build_gear_patch.py --from-mpq <your
 spells-and-items patch> --out <new patch>` takes the tools out of every trade skill spell in
-`Spell.dbc` and adds the gear items (`Item.dbc`) and their recipes (`Spell.dbc`,
-`SkillLineAbility.dbc`). Without it everything works except tools counting from the slots, and
-the new items show question-mark icons and their recipes don't show in the window.
+`Spell.dbc`, the rod requirement out of Fishing, lures and lines, and adds the gear items
+(`Item.dbc`) and their recipes (`Spell.dbc`, `SkillLineAbility.dbc`). Without it everything
+works except tools counting from the slots and fishing or luring with the slotted rod, and the
+new items show question-mark icons and their recipes don't show in the window.
 To remove the module, run `data/sql/uninstall/` by hand: the characters script mails slotted
 gear back to its owners first.
 
