@@ -9,19 +9,46 @@ leave the bags), give skill and crafting/gathering stats, and the tools that rec
 
 | Skill line | Slots |
 |---|---|
-| Alchemy 171, Blacksmithing 164, Enchanting 333, Engineering 202, Herbalism 182, Inscription 773, Jewelcrafting 755, Leatherworking 165, Mining 186, Skinning 393, Tailoring 197 | 0 = tool, 1 and 2 = accessories |
-| Cooking 185 | 0 = tool, 1 = accessory |
-| Fishing 356 | 0 = rod |
+| Alchemy 171, Blacksmithing 164, Enchanting 333, Engineering 202, Herbalism 182, Inscription 773, Jewelcrafting 755, Leatherworking 165, Mining 186, Skinning 393, Tailoring 197, Cooking 185 | 0 = tool, 1 and 2 = accessories, one kind each |
+| Fishing 356 | 0 = rod, 1 = lures (a stack) |
+
+Each accessory slot takes one kind of accessory, the same in both tiers (green 75, blue 225), so
+two of a kind (two pairs of gloves, a green and a blue apron) never count together:
+
+| Profession | Slot 1 | Slot 2 |
+|---|---|---|
+| Alchemy | Gloves | Apron |
+| Blacksmithing | Whetstone Kit | Apron |
+| Enchanting | Hood | Focusing Lens |
+| Engineering | Headgear (goggles, helmet) | Gloves |
+| Herbalism | Gloves | Satchel |
+| Inscription | Scroll Case | Robe |
+| Jewelcrafting | Loupe | Gem Pouch |
+| Leatherworking | Mallet | Gloves |
+| Mining | Headlamp | Satchel |
+| Skinning | Gloves | Pack |
+| Tailoring | Needles | Apron / Robe |
+| Cooking | Hat | Apron |
 
 What may go in a slot of skill S:
-- a **gear item** (row in `mod_retail_professions_gear` with `skill = S`): `kind 0` (tool) only in slot 0,
-  `kind 1` (accessory) only in slots 1/2;
+- a **gear item** (row in `mod_retail_professions_gear` with `skill = S`): only in the slot its
+  `kind` names (0 the tool, 1 or 2 the accessory slot of its kind);
 - a **plain tool** of S: an item that meets one of S's recipe tool requirements (the recipe's
   exact Totem item, or an item whose TotemCategory is compatible with the recipe's category).
   Any slot of S. That is how a recipe needing two tools (Engineering: spanner + hammer or
   micro-adjustor) gets its second one: from an accessory slot, or from the bags as before.
   Also plain tools: a **gathering tool** of Mining (TotemCategory compatible with 165 Mining Pick)
-  or Skinning (166 Skinning Knife), and for Fishing a **fishing pole** (weapon subclass 20).
+  or Skinning (166 Skinning Knife), and for Fishing a **fishing pole** (weapon subclass 20), in
+  slot 0 only.
+- in Fishing's slot 1, a **stack of lures**: items whose use spell (charges -1, used up) puts a
+  temporary enchantment on a rod (the lure spells below; not the fishing hats, which keep theirs).
+  A stack of the same lure on top of it fills the slot's stack; the rest stays in the bags. When
+  a cast of Fishing starts and the rod it uses (main hand, else the slot) has no lure, the module
+  puts one from the slot on that rod and uses it up.
+
+At login (`PlaceOnLoad`) an item keeps its slot while it still fits there, else moves to the slot
+of its kind (rows saved before each accessory had its slot), else goes back to the bags (by mail
+when full), as does a second copy of an item in one profession's slots.
 
 Rules: the player must know the profession. The item's `RequiredSkill`/`RequiredSkillRank`
 must be met (pure skill, without gear bonuses). This is how gear is gated by era: IP caps skill
@@ -36,15 +63,45 @@ World, `mod_retail_professions_gear` (created by the module's world SQL; the con
 |---|---|---|
 | entry | INT UNSIGNED PK | item_template entry |
 | skill | SMALLINT UNSIGNED | skill line it serves |
-| kind | TINYINT UNSIGNED | 0 tool, 1 accessory |
+| kind | TINYINT UNSIGNED | the slot it goes in: 0 tool, 1 or 2 the accessory slot of its kind |
 | skill_bonus | SMALLINT UNSIGNED | + skill while slotted |
 | multicraft, resourcefulness, speed | TINYINT UNSIGNED | crafting stats, percentage points |
 | finesse, perception, deftness | TINYINT UNSIGNED | gathering stats, percentage points |
 | counts_as | INT UNSIGNED | an item entry this one stands in for as an exact Totem requirement (Jeweler's Kit 20815, Simple Grinder 20824), 0 = none |
 
-Characters, `mod_retail_professions_gear_slot`: `owner_guid, skill, slot, item_guid (PK)`,
-unique `(owner_guid, skill, slot)`. The item keeps its `item_instance` row; this row replaces its
+Characters, `mod_retail_professions_gear_slot`: `owner_guid, account, skill, slot, item_guid (PK)`,
+unique `(owner_guid, account, skill, slot)`. The item keeps its `item_instance` row; this row replaces its
 `character_inventory` row (mail-style, as mod-gear-vault does).
+
+## Account-wide slots
+
+`RetailProfessions.Gear.AccountWide` (default 1): the slots belong to the account. Its rows have
+`owner_guid 0, account <id>`, and the slotted items' `item_instance.owner_guid` is 0 too (as guild
+bank items have), because the core deletes `item_instance` rows by owner before the module's
+delete hook runs: deleting a character must not take the account's gear with it. In memory the
+logged-in character owns them; every save of a slotted item writes `owner_guid 0` back.
+
+A character running a challenge of `RetailProfessions.Gear.PersonalChallenges` (mod-challenges
+bits, default 15: Hardcore 1, Iron Man 2, Self-Found 4, Self-Crafted 8; read with `Challenges::Running`, or
+`IsSelfFound` from an older mod-challenges) has slots of its own: rows `owner_guid <guid>,
+account 0`, as all rows were before. When it reads the account's slots (the challenge ended, or
+AccountWide was just turned on), its own rows move there where the slot is free; the rest go to
+its bags. The account's slots never go back to the bags for a profession the character doesn't
+know (another character may): they just give nothing there. Each item counts only for a character
+that meets its RequiredSkill/RequiredSkillRank (pure skill) and RequiredLevel (`Usable`: skill
+aura, stats, recipe tools, the rod, the lure slot), so the account's slots don't get around the
+skill gate or individual progression's era caps. Soulbound items (not account-bound) never go in
+the account's slots (`soulbound`; a character's own one stays behind when its rows move). A
+challenge taken after login (they start at level 1, in game) is noticed within 5 s, or at the
+next change: the slots are read again, the character's own ones. With AccountWide off, the first
+character of the account to log in takes the account's rows as its own.
+
+One set, never two: an account has one player session at a time, and bots (an alt played by a
+bot) never read the slots. A character logging in right after another of the account logged out
+reads the slots after that one's last writes as long as the characters database runs one async
+worker (`CharacterDatabase.WorkerThreads 1`, the default); a row whose item is also in an
+inventory or mailbox is dropped at login either way. An account deleted with gear in its slots
+leaves its rows behind (the core has no account-delete hook); nothing reads them.
 
 ## Stats
 
@@ -115,7 +172,7 @@ in any slot of the recipe's profession; a gear item with counts_as counts in the
 Another profession's gear can sit in a slot as a plain tool but gives no stats there. A missing tool fails the cast with the client's own
 "Requires X" message (an SMSG_CAST_FAILED carrying the recorded ids), then SPELL_FAILED_DONT_REPORT.
 
-## Addon messages (RPR transport, HELLO flag 0x20 = HELLO_GEAR; 0x40 = HELLO_GEAR_GATHER: the Fishing rod slot and gathering tools)
+## Addon messages (RPR transport, HELLO flag 0x20 = HELLO_GEAR; 0x40 = HELLO_GEAR_GATHER: the Fishing rod slot and gathering tools; 0x80 = HELLO_GEAR_TYPED: one kind per accessory slot, GC's kind is the slot, Cooking 3 slots, Fishing a lure slot; 0x100 = HELLO_GEAR_ACCOUNT: this character's slots are the account's)
 
 Wire format as in RetailProfessions.cpp: `<CMD>:<req>:<fields>`; list answers come as rows
 `;`-separated, values `,`-separated, names `Escape()`d.
@@ -123,7 +180,7 @@ Wire format as in RetailProfessions.cpp: `<CMD>:<req>:<fields>`; list answers co
 | request | answer |
 |---|---|
 | `GC:<req>` gear catalog | `GCD:<req>:<rows>` (any number), then `GCE:<req>:<count>`. Row: `entry,skill,kind,skillBonus,multicraft,resourcefulness,speed,finesse,perception,deftness,reqSkill,reqRank` |
-| `G:<req>` slotted gear | `GD:<req>:<rows>` (any number), then `GE:<req>:<count>`. Row: `skill,slot,entry,itemGuid` |
+| `G:<req>` slotted gear | `GD:<req>:<rows>` (any number), then `GE:<req>:<count>`. Row: `skill,slot,entry,itemGuid,count` |
 | `GQ:<req>:<bag>:<bagSlot>:<skill>:<slot>` equip | `GQ:<req>:ok:<skill>:<slot>` or `ERR:<req>:<code>`. bag 0 = backpack, 1-4 = bags; bagSlot counts from 1 (as GetContainerItemInfo). skill 0 = the item's own profession; slot 9 = first free fitting slot (tool slot for a tool/plain tool, else an empty accessory slot; a full set swaps the tool slot or the first accessory slot) |
 | `GU:<req>:<skill>:<slot>` unequip to bags | `GU:<req>:ok` or `ERR:<req>:<code>` |
 | `GT:<req>:<skill>` tool requirements (none for the gathering professions and Fishing) | `GTD:<req>:<rows>`, then `GTE:<req>:<count>`. Rows `T,<key>,<name>,<entry>/<entry>/...` define a tool: key `c<category>` or `i<item>`, name escaped, entries = items that meet it (gear items with counts_as included), at most 30. Rows `S,<spell>,<key>[/<key>]` give a recipe's tools. All T rows come before the S rows that use them |
@@ -134,12 +191,13 @@ Unasked, after any change (equip, unequip, a profession unlearned, login): `GD:0
 Error codes: `off` (gear disabled), `loading` (slots not read yet), `combat`, `casting`,
 `trade`, `bot`, `noitem` (nothing at that bag slot), `notgear` (not gear or a tool of that
 profession), `unlearned`, `rank` (skill too low), `slot` (wrong slot for this item),
-`dup` (already in another slot of this profession), `bags` (no room to take an item off),
+`dup` (already in another slot of this profession), `full` (the lure slot's stack of that lure is full), `soulbound` (soulbound, and the slots are the account's), `bags` (no room to take an item off),
 `empty` (nothing in that slot), `busy` (rate limit, retried by the addon).
 
 ## IDs (checked free on the live z80 and in every module, 2026-10-30)
 
 - spell_dbc 90800-90811: server-only skill auras (one per profession, in the order of the table above);
   90812 the Fishing aura (SQL _02, checked free on the boaring z80 4b68c47a and in every module, 2026-10-30)
-- items 90800-90879: gear items (item_template + Item.dbc via z80)
+- items 90800-90879: gear items (item_template + Item.dbc via z80); 90870-90871 Cooking's second
+  accessories (2026-10-30, z80 rebuilt on 1c57cff3)
 - spells + SkillLineAbility 90820-90899: the recipes that craft them (Spell.dbc via z80 + spell_dbc + skilllineability_dbc)

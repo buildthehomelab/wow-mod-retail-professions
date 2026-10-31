@@ -2403,6 +2403,41 @@ step("gear: the Equipment tab has a card per profession that takes gear", functi
 	tick(0.3)
 end)
 
+step("gear: each accessory slot takes one kind, Fishing has a lure slot, the slots are the account's", function ()
+	helloFlags = 511
+	gearSlots = { { 197, 0, 90800, 5001 }, { 356, 1, 6529, 5002, 18 } }
+	RPF.SayHello()
+	tick(1)
+	local G = RPF.Gear
+	assert(G.SlotCount(185) == 3 and G.SlotCount(356) == 2 and G.SlotCount(197) == 3, "slot counts")
+	assert(G.KindName(185, 1) == "Hat" and G.KindName(185, 2) == "Apron" and G.KindName(356, 1) == "Lures"
+		and G.KindName(197, 0) == nil, "slot kinds")
+	assert(G.AccountWide(), "HELLO_GEAR_ACCOUNT not read")
+	assert(RPF.gear.slots[356][1].count == 18, "the lure count isn't read")
+	local strip = RPF.gearStrip
+	strip:SetSkill(185)
+	assert(strip.buttons[3]:IsShown(), "Cooking has no third slot")
+	strip.buttons[2].__scripts.OnEnter(strip.buttons[2])
+	assert(GameTooltip.__text == "Hat slot", "a kind's slot tooltip: " .. tostring(GameTooltip.__text))
+	assert(table.concat(tipLines, "\n"):find("Shared by every character on your account"), "no account line")
+	RPF.HideItemTooltip()
+	strip:SetSkill(356)
+	local lure = strip.buttons[2]
+	assert(lure:IsShown() and lure.entry == 6529 and tostring(lure.count.__text) == "18", "the lure slot")
+	lure.__scripts.OnEnter(lure)
+	assert(table.concat(tipLines, "\n"):find("one goes on it from here"), "lure slot tooltip: " .. table.concat(tipLines, " | "))
+	RPF.HideItemTooltip()
+	GameTooltip:SetOwner(UIParent)
+	GameTooltip:SetHyperlink("item:90801")
+	assert(countOf(tipLines, "Tailoring Accessory: Needles") == 1, "accessory kind in the tooltip: " .. table.concat(tipLines, " | "))
+	GameTooltip:Hide()
+	strip:SetSkill(M.skill)
+	gearSlots = { { 197, 0, 90800, 5001 } }
+	helloFlags = 63
+	RPF.SayHello()
+	tick(1)
+end)
+
 step("gear: Finesse procs go in the proc log", function ()
 	local L = RPF.ProcLog
 	L.Clear()

@@ -419,7 +419,8 @@ def write_sql(built):
         "--   Leatherworking, Tailoring, Engineering and Enchanting. AcquireMethod 1: learned when the",
         "--   crafter's skill is at least the recipe level (Player::learnSkillRewardedSpells runs at login,",
         "--   when a rank is trained, and the module adds the moment a skill-up reaches a recipe level).",
-        "-- - mod_retail_professions_gear: what each item gives in a slot (table from _00.sql).",
+        "-- - mod_retail_professions_gear: what each item gives in a slot (table from _00.sql); kind is",
+        "--   the slot it goes in: 0 the tool, 1 or 2 the accessory slot of its kind.",
         "--",
         "-- Idempotent: deletes the whole id ranges first.",
         "",
@@ -442,7 +443,7 @@ def write_sql(built):
         "DELETE FROM `mod_retail_professions_gear` WHERE %s;" % between("entry", first_item, last_item),
         "INSERT INTO `mod_retail_professions_gear` (`entry`, `skill`, `kind`, `skill_bonus`, %s, `counts_as`) VALUES"
         % ", ".join("`%s`" % c for c in GD.STAT_COLUMNS),
-        ",\n".join("(%d, %d, %d, %d, %s, %d)" % (i["entry"], i["skill"], i["kind"], i["skill_bonus"],
+        ",\n".join("(%d, %d, %d, %d, %s, %d)" % (i["entry"], i["skill"], i["slot"], i["skill_bonus"],
                                                  ", ".join(str(i["stats"][c]) for c in GD.STAT_COLUMNS),
                                                  i["counts_as"]) for i in items) + ";",
         "",

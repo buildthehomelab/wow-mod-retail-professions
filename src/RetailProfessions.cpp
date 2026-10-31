@@ -182,6 +182,8 @@ namespace RetailProfessions
             sConfig.speedMax = percent("RetailProfessions.Perks.Speed.Max", 50, 90);
             sConfig.speedMin = percent("RetailProfessions.Perks.Speed.Min", 0, sConfig.speedMax);
             sConfig.gear = sConfigMgr->GetOption<bool>("RetailProfessions.Gear.Enable", true);
+            sConfig.gearAccountWide = sConfigMgr->GetOption<bool>("RetailProfessions.Gear.AccountWide", true);
+            sConfig.gearPersonalChallenges = sConfigMgr->GetOption<uint32>("RetailProfessions.Gear.PersonalChallenges", 15);
             sConfig.gatherToolSkill = sConfigMgr->GetOption<int32>("GatheringTools.ToolSkillBonus", 0, false);
             sConfig.gatherToolSpeed = std::clamp(sConfigMgr->GetOption<int32>("GatheringTools.ToolGatherSpeed", 25, false), 0, 100);
             sConfig.progressionEnabled = sConfigMgr->GetOption<bool>("IndividualProgression.Enable", false, false);
@@ -208,7 +210,8 @@ namespace RetailProfessions
             uint32 grey = sWorld->getIntConfig(CONFIG_SKILL_CHANCE_GREY);
             uint32 gain = sWorld->getIntConfig(CONFIG_SKILL_GAIN_CRAFTING);
             uint32 flags = HELLO_RECIPES | HELLO_MAP_PINS | HELLO_GUIDE | (sConfig.refine ? HELLO_REFINE : 0)
-                | (sConfig.perks ? HELLO_PERKS : 0) | (sConfig.gear ? HELLO_GEAR | HELLO_GEAR_GATHER : 0);
+                | (sConfig.perks ? HELLO_PERKS : 0) | (sConfig.gear ? HELLO_GEAR | HELLO_GEAR_GATHER | HELLO_GEAR_TYPED : 0)
+                | (sConfig.gear && Gear::AccountWide(player) ? HELLO_GEAR_ACCOUNT : 0);
             Send(player, "HELLO:" + req + ":" + std::to_string(PROTOCOL_VERSION) + ":"
                 + std::to_string(flags) + ":" + std::to_string(Index::Stamp())
                 + ":" + std::to_string(SkillCap(player)) + ":" + std::to_string(orange) + ":" + std::to_string(grey)
