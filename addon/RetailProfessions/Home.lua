@@ -1356,10 +1356,15 @@ for i = 1, CARD_ROWS do cardRows[i] = cardRow(i) end
 
 -- What a card says under its bar: what the slots give, or that they hold only tools or nothing.
 local function givesText(skill)
+	if skill == RPF.Gear.FISHING then
+		local rod, lures = RPF.Gear.Slotted(skill, RPF.Gear.TOOL), RPF.Gear.Slotted(skill, RPF.Gear.LURE)
+		local text = rod and "Fishing from the rod slot." or "No rod in the slot."
+		if lures then text = text .. string.format(" %d |4lure:lures; ready.", lures.count or 1) end
+		return text
+	end
 	local text = RPF.Gear.TotalsText(skill)
 	if text then return "|cff4fc3f7" .. text .. "|r" end
 	if next(RPF.gear.slots[skill] or {}) then return "Tools only: they count, but give nothing more." end
-	if skill == RPF.Gear.FISHING then return "No rod in the slot." end
 	return "Nothing on."
 end
 
@@ -1402,6 +1407,8 @@ function drawEquipment()
 	else
 		equipEmpty:Hide()
 	end
+	equipHint:SetText(RPF.Gear.AccountWide() and "Shared by your account. Drag gear onto a slot, right-click a slot to take it off."
+		or "Drag gear onto a slot or right-click it in your bags. Right-click a slot to take it off.")
 end
 
 local function refresh()

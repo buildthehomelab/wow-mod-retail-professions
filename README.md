@@ -232,8 +232,13 @@ crafting speed**, earned by skill.
   crafting from the bank, Deposit leftovers and Add to Shopping List.
 
 **Profession equipment** (after retail's, from Dragonflight on)
-- Every profession has a **tool slot and two accessory slots** (Cooking: one accessory; Fishing:
-  a rod slot), at the top of its window. The **Equipment** tab shows every profession's slots
+- Every profession has a **tool slot and two accessory slots** (Fishing: a rod slot and a lure
+  slot), at the top of its window. Each accessory slot takes one kind of accessory (Alchemy:
+  gloves and an apron; Cooking: a hat and an apron), so two of a kind never count together, and
+  an item can't go in two slots. The slots are **shared by the whole account**
+  (`RetailProfessions.Gear.AccountWide`), except for characters running a challenge that keeps
+  gear to the character (Hardcore, Iron Man, Self-Found, Self-Crafted by default). Gear only
+  counts for a character with the skill (and level) it asks for, and soulbound items can't go in. The **Equipment** tab shows every profession's slots
   as cards, gathering professions and Fishing included, with what each set gives; the
   professions book (K) has them too. Drag an item
   from your bags onto a slot, or right-click a gear item in your bags; right-click a slot to take
@@ -243,7 +248,7 @@ crafting speed**, earned by skill.
   **Finesse** (a chance of an extra herb, ore or hide), **Perception** (better odds on the rare
   things a node or corpse gives) and **Deftness** (faster gathering). Their tooltips say what
   they give, and the recipe odds count them.
-- 70 gear items (a tool and two accessories per profession, green from skill 75 and blue from
+- 72 gear items (a tool and two accessories per profession, green from skill 75 and blue from
   225) are **crafted by other professions**: Blacksmiths make hammers and picks, Engineers
   spanners and loupes, Leatherworkers gloves and aprons, Tailors hats and robes. Their recipes
   come by themselves when the crafter's skill gets there.
@@ -258,7 +263,8 @@ crafting speed**, earned by skill.
 - **Fishing rod**, as retail has it: a rod in the Fishing slot fishes without being equipped, so
   the weapon stays on; the rod shows in the hands while the line is out. Lures and fishing lines
   go on it (no rod to click: using one applies it), its fishing skill and its lure's count, and
-  the lure runs out as usual. A rod in the main hand still works and comes first. Druids' Salmon
+  the lure runs out as usual. A rod in the main hand still works and comes first. Put a stack of
+  lures in the **lure slot** and a cast of Fishing with no lure on the rod puts one on by itself. Druids' Salmon
   Run (mod-druid-swipe-fishing) is its own thing and doesn't change.
 - Gear needs the skill it lists (without bonuses), so individual progression's era skill cap
   gates it like everything else. Unlearn a profession and its gear comes back to your bags.

@@ -1,11 +1,22 @@
 /*
  * mod-retail-professions: profession equipment, after retail's (Dragonflight on).
  *
- * Each profession has a tool slot and two accessory slots (Cooking one), filled from the
- * profession window. What goes in a slot leaves the bags: like mail, the item keeps its
- * item_instance row and a mod_retail_professions_gear_slot row stands in for its
- * character_inventory row. Slotted items are read at login and live in the player's CustomData
- * until logout.
+ * Each profession has a tool slot and two accessory slots, filled from the profession window.
+ * Each accessory slot takes one kind of accessory (Cooking: hat, apron), as mod_retail_professions_gear's
+ * kind (the slot) says, so two of a kind (two pairs of gloves, a green and a blue apron) never
+ * count together, and no item goes in two slots of a profession. What goes in a slot leaves the
+ * bags: like mail, the item keeps its item_instance row and a mod_retail_professions_gear_slot row
+ * stands in for its character_inventory row. Slotted items are read at login and live in the
+ * player's CustomData until logout.
+ *
+ * The slots belong to the account (RetailProfessions.Gear.AccountWide): each of its characters
+ * logs in to the same slotted items. Their rows have owner_guid 0 and the account, and their
+ * item_instance rows owner_guid 0 too (as guild bank items have), so deleting the character that
+ * last held them doesn't delete them. A character running a challenge of
+ * RetailProfessions.Gear.PersonalChallenges (mod-challenges: Iron Man, Self-Found, Self-Crafted)
+ * has slots of its own instead: rows with its guid and account 0. A character that turns
+ * account-wide (a challenge ended) has its own rows moved to the account's slots at login, where
+ * they are free. Bots never read the slots, so an alt played by a bot can't hold them twice.
  *
  * What a slot gives:
  *   - gear items (mod_retail_professions_gear) give skill, through a hidden aura per profession,
@@ -26,19 +37,21 @@
  *     its profession as a plain tool. mod-gathering-tools makes the tool optional and gives
  *     whoever carries one faster gathering (and skill, if set); one in a slot gives the same, so
  *     it needn't take bag space;
- *   - Fishing has one slot, for a rod, as retail has. Fishing works with the rod there instead of
+ *   - Fishing has a rod slot and a lure slot. Fishing works with the rod there instead of
  *     in the main hand, and lures and fishing lines go on it: the client patch takes the rod
  *     requirement (and the lure's item target) out of Spell.dbc, the server takes the rod
  *     requirement out of SpellInfo and checks it itself. A rod in the main hand still comes first.
  *     The slotted rod's fishing skill (its own and its lure's or line's) comes through the
- *     Fishing skill aura; the module counts its lure down itself.
+ *     Fishing skill aura; the module counts its lure down itself. The lure slot holds a stack of
+ *     lures (HELLO_GEAR_TYPED): a cast of Fishing with no lure on the rod it uses (main hand or
+ *     slot) puts one from there on that rod, using it up as using it by hand would.
  *
  * Gear is gated by skill alone: an item's RequiredSkill/RequiredSkillRank must be met, without
  * bonuses. Individual progression caps skill per era, so that is the era gate as well.
  *
  * Messages (see RetailProfessions.cpp for the wire format):
  *   GC:<req>                         -> GCD:<req>:<rows>..., GCE:<req>:<count>   the gear items
- *   G:<req>                          -> GD:<req>:<rows>..., GE:<req>:<count>     what is slotted
+ *   G:<req>                          -> GD:<req>:<rows>..., GE:<req>:<count>     what is slotted (skill,slot,entry,guid,count)
  *   GQ:<req>:<bag>:<slot>:<skill>:<s> -> GQ:<req>:ok:<skill>:<s>                 slot an item from the bags
  *   GU:<req>:<skill>:<s>             -> GU:<req>:ok                             take one off
  *   GT:<req>:<skill>                 -> GTD:<req>:<rows>..., GTE:<req>:<count>   recipe tools
@@ -79,6 +92,10 @@
 #include <set>
 #include <unordered_map>
 
+#if __has_include("ChallengesApi.h")
+#include "ChallengesApi.h"
+#endif
+
 namespace RetailProfessions::Gear
 {
     namespace
@@ -102,12 +119,13 @@ namespace RetailProfessions::Gear
             { SKILL_MINING,         3, 90808 },
             { SKILL_SKINNING,       3, 90809 },
             { SKILL_TAILORING,      3, 90810 },
-            { SKILL_COOKING,        2, 90811 },
-            { SKILL_FISHING,        1, 90812 },
+            { SKILL_COOKING,        3, 90811 },
+            { SKILL_FISHING,        2, 90812 },
         }};
 
         constexpr uint8 MAX_SLOTS = 3;
         constexpr uint8 TOOL_SLOT = 0;
+        constexpr uint8 LURE_SLOT = 1; // Fishing's second slot: a stack of lures, not gear
         constexpr uint8 ANY_SLOT = 9;          // GQ: the first slot that fits
         constexpr uint32 MAX_TOOL_ENTRIES = 30; // items listed per tool in GT
         constexpr uint32 CHECK_INTERVAL = 5000;
@@ -129,16 +147,10 @@ namespace RetailProfessions::Gear
 
         constexpr uint32 FISHING_POLE_MASK = 1 << ITEM_SUBCLASS_WEAPON_FISHING_POLE;
 
-        enum Kind : uint8
-        {
-            KIND_TOOL      = 0,
-            KIND_ACCESSORY = 1,
-        };
-
         struct GearRow
         {
             uint32 skill = 0;
-            uint8 kind = KIND_TOOL;
+            uint8 slot = TOOL_SLOT; // the column kind: 0 the tool, 1 or 2 the accessory slot it goes in
             uint16 skillBonus = 0;
             std::array<uint8, STAT_COUNT> stats{};
             uint32 countsAs = 0;
@@ -187,6 +199,10 @@ namespace RetailProfessions::Gear
         std::map<uint32, PoleEnchant> sPoleEnchants; // by spell
         bool sPoleCleared = false;
 
+        // Lures for the lure slot: items used up putting a lure (a temporary one) on the rod, with
+        // that spell. Not the fishing hats' lure, which the hat keeps.
+        std::unordered_map<uint32, uint32> sLureItems; // item entry -> lure spell
+
         Layout const* LayoutOf(uint32 skill)
         {
             for (Layout const& layout : LAYOUTS)
@@ -206,6 +222,12 @@ namespace RetailProfessions::Gear
         bool IsFishingPole(ItemTemplate const* proto)
         {
             return proto->Class == ITEM_CLASS_WEAPON && proto->SubClass == ITEM_SUBCLASS_WEAPON_FISHING_POLE;
+        }
+
+        uint32 LureSpellOf(uint32 entry)
+        {
+            auto itr = sLureItems.find(entry);
+            return itr != sLureItems.end() ? itr->second : 0;
         }
 
         GearRow const* GearOf(uint32 entry)
@@ -233,6 +255,8 @@ namespace RetailProfessions::Gear
             uint32 sinceCheck = 0;
             bool lureTicked = false; // a slotted rod's lure time went down since it was saved
             bool rodShown = false;   // the hands show the slotted rod for a cast of Fishing
+            bool shared = false;     // the slots are the account's, not the character's own
+            uint32 account = 0;
             std::map<uint32, Slots> skills; // by skill line
 
             ~Data() override
@@ -258,6 +282,48 @@ namespace RetailProfessions::Gear
         bool IsBot(Player const* player)
         {
             return !player->GetSession() || player->GetSession()->IsHeadless();
+        }
+
+        // Whether the character runs a challenge that keeps its gear to itself (with an older
+        // mod-challenges, Self-Found).
+        bool KeepsOwnSlots(Player const* player)
+        {
+#if defined(CHALLENGES_API_HAS_RUNNING)
+            return (Challenges::Running(player->GetGUID().GetCounter()) & GetConfig().gearPersonalChallenges) != 0;
+#elif __has_include("ChallengesApi.h")
+            return Challenges::IsSelfFound(player->GetGUID().GetCounter());
+#else
+            return false;
+#endif
+        }
+
+        // Whether the character gets the account's slots.
+        bool UsesAccountSlots(Player const* player)
+        {
+            return GetConfig().gearAccountWide && !KeepsOwnSlots(player);
+        }
+
+        // Whether the character may use a slotted item: the account's slots hold what another
+        // character put in, so the item's skill (pure) and level requirements count for whoever
+        // uses it. One it can't use stays slotted and gives nothing, as for an unlearned profession.
+        bool Usable(Player const* player, Item const* item)
+        {
+            ItemTemplate const* proto = item->GetTemplate();
+            if (proto->RequiredSkill && player->GetPureSkillValue(proto->RequiredSkill) < proto->RequiredSkillRank)
+                return false;
+            return player->GetLevel() >= proto->RequiredLevel;
+        }
+
+        // Soulbound items stay with their character: never in the account's slots.
+        bool BoundToCharacter(Item const* item)
+        {
+            return item->IsSoulBound() && !item->IsBoundAccountWide();
+        }
+
+        // The slot row's owner columns: (0, account) for the account's, (guid, 0) for the character's.
+        std::string SlotOwner(Player const* player, Data const* data)
+        {
+            return data->shared ? Acore::StringFormat("0, {}", data->account) : Acore::StringFormat("{}, 0", player->GetGUID().GetCounter());
         }
 
         // Whether an item sitting in one of a profession's slots meets a tool requirement.
@@ -296,7 +362,7 @@ namespace RetailProfessions::Gear
                 if (skill && slotSkill != skill)
                     continue;
                 for (Item const* item : slots)
-                    if (item && pred(item))
+                    if (item && Usable(player, item) && pred(item))
                         return true;
             }
             return false;
@@ -336,7 +402,7 @@ namespace RetailProfessions::Gear
             if (itr == data->skills.end())
                 return nullptr;
             for (Item* item : itr->second)
-                if (item && IsFishingPole(item->GetTemplate()) && !item->IsBroken())
+                if (item && IsFishingPole(item->GetTemplate()) && !item->IsBroken() && Usable(player, item))
                     return item;
             return nullptr;
         }
@@ -402,11 +468,27 @@ namespace RetailProfessions::Gear
             return spell && sPoleCasts.count(spell->GetSpellInfo()->Id);
         }
 
-        void SaveSlotted(Item* item, CharacterDatabaseTransaction trans)
+        // The account's items have no owner in item_instance, as guild bank items have: deleting
+        // the character holding them then leaves them be. In memory the player owns them.
+        void KeepOwnerless(Data const* data, Item const* item, CharacterDatabaseTransaction trans)
+        {
+            if (data->shared)
+                trans->Append("UPDATE item_instance SET owner_guid = 0 WHERE guid = {}", item->GetGUID().GetCounter());
+        }
+
+        // A slotted item's owner in item_instance: none for the account's, else the character.
+        void SetDbOwner(Player const* player, Data const* data, Item const* item, CharacterDatabaseTransaction trans)
+        {
+            trans->Append("UPDATE item_instance SET owner_guid = {} WHERE guid = {}", data->shared ? 0 : player->GetGUID().GetCounter(),
+                item->GetGUID().GetCounter());
+        }
+
+        void SaveSlotted(Data const* data, Item* item, CharacterDatabaseTransaction trans)
         {
             if (item->GetState() == ITEM_UNCHANGED)
                 item->FSetState(ITEM_CHANGED);
             item->SaveToDB(trans);
+            KeepOwnerless(data, item, trans);
         }
 
         // ---- the skill auras --------------------------------------------------------------------
@@ -417,7 +499,7 @@ namespace RetailProfessions::Gear
             if (slots && player->HasSkill(layout.skill))
             {
                 for (Item const* item : *slots)
-                    if (item)
+                    if (item && Usable(player, item))
                         if (GearRow const* row = GearFor(item->GetEntry(), layout.skill))
                             bonus += row->skillBonus;
                 if (layout.skill == SKILL_FISHING)
@@ -480,7 +562,7 @@ namespace RetailProfessions::Gear
                 for (auto const& [skill, slots] : data->skills)
                     for (uint8 slot = 0; slot < MAX_SLOTS; ++slot)
                         if (Item const* item = slots[slot])
-                            rows.push_back(Acore::StringFormat("{},{},{},{}", skill, slot, item->GetEntry(), item->GetGUID().GetCounter()));
+                            rows.push_back(Acore::StringFormat("{},{},{},{},{}", skill, slot, item->GetEntry(), item->GetGUID().GetCounter(), item->GetCount()));
             SendRows(player, "GD:" + req, rows);
             Send(player, Acore::StringFormat("GE:{}:{}", req, rows.size()));
         }
@@ -530,9 +612,12 @@ namespace RetailProfessions::Gear
             data->skills.erase(itr);
         }
 
-        // Takes back slotted gear of professions the player no longer knows.
+        // Takes back slotted gear of professions the player no longer knows. Not the account's:
+        // another character may know the profession; it just gives nothing here.
         void CheckSkills(Player* player, Data* data)
         {
+            if (data->shared)
+                return;
             std::vector<uint32> forgotten;
             for (auto const& [skill, slots] : data->skills)
                 if (!player->HasSkill(skill) && std::any_of(slots.begin(), slots.end(), [](Item* item) { return item != nullptr; }))
@@ -551,9 +636,37 @@ namespace RetailProfessions::Gear
             SendState(player, "0");
         }
 
+        // ---- which slot ---------------------------------------------------------------------------
+
+        // The slots an item may go in: a profession's own gear the slot of its kind (the tool, one
+        // accessory slot each), a plain tool any of them. Fishing: a rod the first, lures the second.
+        bool Fits(Item const* item, uint32 skill, uint8 slot)
+        {
+            if (skill == SKILL_FISHING)
+                return slot == LURE_SLOT ? LureSpellOf(item->GetEntry()) != 0 : IsFishingPole(item->GetTemplate());
+            GearRow const* row = GearFor(item->GetEntry(), skill);
+            return !row || row->slot == slot;
+        }
+
+        // Where a slotted item goes at login: its own slot while it still fits there, else the
+        // slot of its kind (an accessory saved before each kind got its slot), else none (it goes
+        // back to the bags). None for a second one of an item, too.
+        uint8 PlaceOnLoad(Item const* item, Layout const& layout, Slots const& slots, uint8 saved)
+        {
+            for (Item const* other : slots)
+                if (other && other->GetEntry() == item->GetEntry())
+                    return MAX_SLOTS;
+            if (saved < layout.slots && !slots[saved] && Fits(item, layout.skill, saved))
+                return saved;
+            for (uint8 slot = 0; slot < layout.slots; ++slot)
+                if (!slots[slot] && Fits(item, layout.skill, slot))
+                    return slot;
+            return MAX_SLOTS;
+        }
+
         // ---- loading ----------------------------------------------------------------------------
 
-        void Loaded(WorldSession* session, ObjectGuid guid, QueryResult result)
+        void Loaded(WorldSession* session, ObjectGuid guid, bool shared, QueryResult result)
         {
             Player* player = session->GetPlayer();
             if (!player || player->GetGUID() != guid)
@@ -561,9 +674,14 @@ namespace RetailProfessions::Gear
             Data* data = player->CustomData.GetDefault<Data>(DATA_KEY);
             if (data->loaded)
                 return;
+            data->shared = shared;
+            data->account = session->GetAccountId();
 
             CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
             std::vector<Item*> homeless;
+            // Rows written again: in another slot, or the character's own moved to the account's.
+            // All are deleted before any is written back, so no two share a slot on the way.
+            std::vector<std::pair<Item*, uint32>> moved; // item, skill
             bool changed = false;
             if (result)
                 do
@@ -595,21 +713,42 @@ namespace RetailProfessions::Gear
                     item->SetState(ITEM_UNCHANGED);
 
                     uint32 skill = fields[13].Get<uint16>();
-                    uint8 slot = fields[14].Get<uint8>();
+                    uint8 saved = fields[14].Get<uint8>();
+                    // A row of the other kind (the character's own with the account's slots, or the
+                    // account's with AccountWide off) moves over.
+                    bool own = fields[16].Get<uint32>() != 0;
+                    bool otherOwner = shared == own;
                     Layout const* layout = LayoutOf(skill);
-                    if (!layout || slot >= layout->slots || data->skills[skill][slot])
+                    uint8 slot = layout ? PlaceOnLoad(item, *layout, data->skills[skill], saved) : MAX_SLOTS;
+                    if (slot >= MAX_SLOTS || (shared && own && BoundToCharacter(item)))
                     {
                         homeless.push_back(item);
                         continue;
                     }
                     data->skills[skill][slot] = item;
+                    if (slot != saved || otherOwner)
+                    {
+                        trans->Append("DELETE FROM mod_retail_professions_gear_slot WHERE item_guid = {}", itemGuid);
+                        moved.emplace_back(item, skill);
+                    }
                 } while (result->NextRow());
 
-            // Rows for a slot that no longer exists (or a slot taken twice) give their item back.
+            // Rows for a slot that no longer exists (or a second copy of an item) give their item
+            // back. Their rows go before the moved ones are written back into the slots they held.
             for (Item* item : homeless)
             {
                 DeleteSlotRow(item, trans);
                 Return(player, item, trans, true);
+                changed = true;
+            }
+
+            for (auto const& [item, skill] : moved)
+            {
+                Slots const& slots = data->skills[skill];
+                uint8 slot = uint8(std::find(slots.begin(), slots.end(), item) - slots.begin());
+                trans->Append("INSERT INTO mod_retail_professions_gear_slot (owner_guid, account, skill, slot, item_guid) VALUES ({}, {}, {}, {})",
+                    SlotOwner(player, data), skill, slot, item->GetGUID().GetCounter());
+                SetDbOwner(player, data, item, trans);
                 changed = true;
             }
             for (auto itr = data->skills.begin(); itr != data->skills.end();)
@@ -685,50 +824,57 @@ namespace RetailProfessions::Gear
         {
             ItemTemplate const* proto = item->GetTemplate();
             GearRow const* row = GearOf(proto->ItemId);
-            if (!(row && row->skill == skill) && !IsPlainTool(player, proto, skill))
+            // Lures go in Fishing's lure slot as a stack.
+            bool lure = skill == SKILL_FISHING && LureSpellOf(proto->ItemId);
+            if (!(row && row->skill == skill) && !lure && !IsPlainTool(player, proto, skill))
                 return "notgear";
             if (!player->HasSkill(skill))
                 return "unlearned";
             if (proto->RequiredSkill && player->GetPureSkillValue(proto->RequiredSkill) < proto->RequiredSkillRank)
                 return "rank";
-            if (item->GetCount() > 1 || proto->GetMaxStackSize() > 1 || item->IsInTrade() || item->IsRefundable() || item->IsBOPTradable() || item->IsWrapped()
-                || proto->Duration || item->GetUInt32Value(ITEM_FIELD_DURATION))
+            if ((!lure && (item->GetCount() > 1 || proto->GetMaxStackSize() > 1)) || item->IsInTrade() || item->IsRefundable() || item->IsBOPTradable()
+                || item->IsWrapped() || proto->Duration || item->GetUInt32Value(ITEM_FIELD_DURATION))
                 return "notgear";
             return nullptr;
         }
 
-        // The slots an item may go in: gear tools the tool slot, accessories the others, a plain
-        // tool any of them.
-        bool Fits(Item const* item, uint32 skill, uint8 slot)
-        {
-            GearRow const* row = GearOf(item->GetEntry());
-            if (!row || row->skill != skill)
-                return true;
-            return row->kind == KIND_TOOL ? slot == TOOL_SLOT : slot != TOOL_SLOT;
-        }
-
         uint8 PickSlot(Item const* item, Layout const& layout, Slots const& slots)
         {
-            GearRow const* row = GearOf(item->GetEntry());
-            bool tool = row && row->skill == layout.skill && row->kind == KIND_TOOL;
-            bool accessory = row && row->skill == layout.skill && row->kind == KIND_ACCESSORY;
-            if (tool)
-                return TOOL_SLOT;
-            for (uint8 slot = accessory ? 1 : 0; slot < layout.slots; ++slot)
+            if (GearRow const* row = GearFor(item->GetEntry(), layout.skill))
+                return row->slot;
+            if (layout.skill == SKILL_FISHING)
+                return LureSpellOf(item->GetEntry()) ? LURE_SLOT : TOOL_SLOT;
+            for (uint8 slot = 0; slot < layout.slots; ++slot)
                 if (!slots[slot])
                     return slot;
-            return accessory ? 1 : TOOL_SLOT;
+            return TOOL_SLOT;
+        }
+
+        // A challenge started (or ended) since the slots were read: read the right ones. Every
+        // change is written already; the lure time left is saved, then the objects go.
+        void Reload(Player* player)
+        {
+            OnLogout(player);
+            UpdateAuras(player);
+            SendState(player, "0");
+            OnLogin(player);
         }
 
         bool CanChange(Player* player, std::string const& req)
         {
             char const* why = nullptr;
+            Data* data = LoadedDataOf(player);
             if (!GetConfig().gear)
                 why = "off";
             else if (IsBot(player))
                 why = "bot";
-            else if (!LoadedDataOf(player))
+            else if (!data)
                 why = "loading";
+            else if (data->shared != UsesAccountSlots(player))
+            {
+                Reload(player);
+                why = "loading";
+            }
             else if (player->IsInCombat())
                 why = "combat";
             else if (player->IsNonMeleeSpellCast(false))
@@ -753,6 +899,7 @@ namespace RetailProfessions::Gear
         sPoleCasts.clear();
         sPoleEnchants.clear();
         sPoleCleared = false;
+        sLureItems.clear();
         sLearnLevels.clear();
         for (Layout const& layout : LAYOUTS)
             for (SkillLineAbilityEntry const* ability : GetSkillLineAbilitiesBySkillLine(layout.skill))
@@ -768,14 +915,15 @@ namespace RetailProfessions::Gear
                 uint32 entry = fields[0].Get<uint32>();
                 GearRow row;
                 row.skill = fields[1].Get<uint16>();
-                row.kind = fields[2].Get<uint8>();
+                row.slot = fields[2].Get<uint8>();
                 row.skillBonus = fields[3].Get<uint16>();
                 for (uint8 stat = 0; stat < STAT_COUNT; ++stat)
                     row.stats[stat] = fields[4 + stat].Get<uint8>();
                 row.countsAs = fields[10].Get<uint32>();
-                if (!sObjectMgr->GetItemTemplate(entry) || !LayoutOf(row.skill) || row.kind > KIND_ACCESSORY)
+                Layout const* layout = LayoutOf(row.skill);
+                if (!sObjectMgr->GetItemTemplate(entry) || !layout || row.skill == SKILL_FISHING || row.slot >= layout->slots)
                 {
-                    LOG_ERROR("sql.sql", "mod-retail-professions: mod_retail_professions_gear row {} has no item, an unsupported skill or a bad kind; skipped.", entry);
+                    LOG_ERROR("sql.sql", "mod-retail-professions: mod_retail_professions_gear row {} has no item, an unsupported skill or a bad kind (slot); skipped.", entry);
                     continue;
                 }
                 sGear.emplace(entry, row);
@@ -842,6 +990,16 @@ namespace RetailProfessions::Gear
                     effect.Effect = SPELL_EFFECT_DUMMY;
             }
         }
+
+        // Lures for the lure slot: used up (charges -1) putting a temporary enchantment on the rod.
+        for (auto const& [entry, proto] : *sObjectMgr->GetItemTemplateStore())
+            for (_Spell const& spell : proto.Spells)
+                if (spell.SpellId > 0 && spell.SpellTrigger == ITEM_SPELLTRIGGER_ON_USE && spell.SpellCharges < 0)
+                    if (auto lure = sPoleEnchants.find(uint32(spell.SpellId)); lure != sPoleEnchants.end() && lure->second.temporary)
+                    {
+                        sLureItems.emplace(entry, uint32(spell.SpellId));
+                        break;
+                    }
 
         // Each profession's tools, with the items that meet them, for the addon.
         std::map<uint32, std::vector<uint32>> categoryItems; // TotemCategory -> items with it
@@ -932,8 +1090,9 @@ namespace RetailProfessions::Gear
             LOG_ERROR("server.loading", "mod-retail-professions: only {} recipes have tools. Is the server's Spell.dbc the client patch's? "
                 "It must be the stock one: the module takes the tools out itself and checks them.", sNeeds.size());
 
-        LOG_INFO("server.loading", ">> mod-retail-professions: {} profession gear items, {} recipes with tools, {} fishing and {} lure spells{} in {} ms",
-            sGear.size(), sNeeds.size(), sPoleCasts.size(), sPoleEnchants.size(), clear ? " (checked by the module)" : "", GetMSTimeDiffToNow(oldMSTime));
+        LOG_INFO("server.loading", ">> mod-retail-professions: {} profession gear items, {} recipes with tools, {} fishing and {} lure spells, {} lures{} in {} ms",
+            sGear.size(), sNeeds.size(), sPoleCasts.size(), sPoleEnchants.size(), sLureItems.size(), clear ? " (checked by the module)" : "",
+            GetMSTimeDiffToNow(oldMSTime));
     }
 
     float Bonus(Player* player, uint32 skill, Stat stat)
@@ -948,7 +1107,7 @@ namespace RetailProfessions::Gear
             return 0.0f;
         uint32 total = 0;
         for (Item const* item : itr->second)
-            if (item)
+            if (item && Usable(player, item))
                 if (GearRow const* row = GearFor(item->GetEntry(), skill))
                     total += row->stats[stat];
         return float(total);
@@ -963,7 +1122,7 @@ namespace RetailProfessions::Gear
         for (auto const& [entry, row] : sGear)
         {
             ItemTemplate const* proto = sObjectMgr->GetItemTemplate(entry);
-            rows.push_back(Acore::StringFormat("{},{},{},{},{},{},{},{},{},{},{},{}", entry, row.skill, row.kind, row.skillBonus,
+            rows.push_back(Acore::StringFormat("{},{},{},{},{},{},{},{},{},{},{},{}", entry, row.skill, row.slot, row.skillBonus,
                 row.stats[STAT_MULTICRAFT], row.stats[STAT_RESOURCEFULNESS], row.stats[STAT_SPEED],
                 row.stats[STAT_FINESSE], row.stats[STAT_PERCEPTION], row.stats[STAT_DEFTNESS],
                 proto ? proto->RequiredSkill : 0, proto ? proto->RequiredSkillRank : 0));
@@ -1041,6 +1200,11 @@ namespace RetailProfessions::Gear
         }
 
         Data* data = LoadedDataOf(player);
+        if (data->shared && BoundToCharacter(item))
+        {
+            SendError(player, req, "soulbound");
+            return;
+        }
         Slots& slots = data->skills[skill];
         if (slot == ANY_SLOT)
             slot = PickSlot(item, *layout, slots);
@@ -1056,11 +1220,32 @@ namespace RetailProfessions::Gear
                 return;
             }
 
+        Item* previous = slots[slot];
+
+        // More of the lure already in the slot: the stack grows, what doesn't fit stays in the bags.
+        if (previous && previous->GetEntry() == item->GetEntry() && previous->GetMaxStackCount() > 1)
+        {
+            uint32 move = std::min(previous->GetMaxStackCount() - std::min(previous->GetCount(), previous->GetMaxStackCount()), item->GetCount());
+            if (!move)
+            {
+                SendError(player, req, "full");
+                return;
+            }
+            CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+            previous->SetCount(previous->GetCount() + move);
+            SaveSlotted(data, previous, trans);
+            player->DestroyItemCount(item, move, true);
+            player->SaveInventoryAndGoldToDB(trans);
+            CharacterDatabase.CommitTransaction(trans);
+            Send(player, Acore::StringFormat("GQ:{}:ok:{}:{}", req, skill, slot));
+            SendState(player, "0");
+            return;
+        }
+
         // Out of the bags first: whatever the slot held can then take its place there.
         uint8 fromBag = item->GetBagSlot(), fromSlot = item->GetSlot();
         player->MoveItemFromInventory(fromBag, fromSlot, true);
 
-        Item* previous = slots[slot];
         ItemPosCountVec dest;
         if (previous && player->CanStoreItem(NULL_BAG, NULL_SLOT, dest, previous, false) != EQUIP_ERR_OK)
         {
@@ -1088,11 +1273,9 @@ namespace RetailProfessions::Gear
             player->MoveItemToInventory(dest, previous, true);
         }
         item->DeleteFromInventoryDB(trans);
-        if (item->GetState() == ITEM_UNCHANGED)
-            item->FSetState(ITEM_CHANGED);
-        item->SaveToDB(trans);
-        trans->Append("INSERT INTO mod_retail_professions_gear_slot (owner_guid, skill, slot, item_guid) VALUES ({}, {}, {}, {})",
-            player->GetGUID().GetCounter(), skill, slot, item->GetGUID().GetCounter());
+        SaveSlotted(data, item, trans);
+        trans->Append("INSERT INTO mod_retail_professions_gear_slot (owner_guid, account, skill, slot, item_guid) VALUES ({}, {}, {}, {})",
+            SlotOwner(player, data), skill, slot, item->GetGUID().GetCounter());
         slots[slot] = item;
         player->SaveInventoryAndGoldToDB(trans);
         CharacterDatabase.CommitTransaction(trans);
@@ -1151,16 +1334,31 @@ namespace RetailProfessions::Gear
 
         WorldSession* session = player->GetSession();
         ObjectGuid guid = player->GetGUID();
+        // The account's rows and the character's own; with the account's slots, its own ones move
+        // there (the account's come first, so they keep their slots). With AccountWide off, the
+        // first character of the account to log in takes the account's rows as its own, so none
+        // are left where nobody reads them. A character keeping slots of its own reads only those.
+        bool shared = UsesAccountSlots(player);
+        std::string rows = KeepsOwnSlots(player)
+            ? Acore::StringFormat("g.owner_guid = {}", guid.GetCounter())
+            : Acore::StringFormat("(g.owner_guid = 0 AND g.account = {}) OR g.owner_guid = {}", session->GetAccountId(), guid.GetCounter());
         //                                                                    0               1                    2         3            4           5         6                7                    8              9              10
         session->GetQueryProcessor().AddCallback(CharacterDatabase.AsyncQuery(Acore::StringFormat("SELECT ii.creatorGuid, ii.giftCreatorGuid, ii.count, ii.duration, ii.charges, ii.flags, ii.enchantments, ii.randomPropertyId, ii.durability, ii.playedTime, ii.text, "
-            //  11            12            13       14       15
-            "g.item_guid, ii.itemEntry, g.skill, g.slot, CAST(ci.item IS NOT NULL OR mi.item_guid IS NOT NULL AS UNSIGNED) "
+            //  11            12            13       14       15                                                                  16
+            "g.item_guid, ii.itemEntry, g.skill, g.slot, CAST(ci.item IS NOT NULL OR mi.item_guid IS NOT NULL AS UNSIGNED), g.owner_guid "
             "FROM mod_retail_professions_gear_slot g "
             "LEFT JOIN item_instance ii ON ii.guid = g.item_guid "
             "LEFT JOIN character_inventory ci ON ci.item = g.item_guid "
             "LEFT JOIN mail_items mi ON mi.item_guid = g.item_guid "
-            "WHERE g.owner_guid = {}", guid.GetCounter()))
-            .WithCallback([session, guid](QueryResult result) { Loaded(session, guid, std::move(result)); }));
+            "WHERE {} ORDER BY g.owner_guid, g.skill, g.slot", rows))
+            .WithCallback([session, guid, shared](QueryResult result) { Loaded(session, guid, shared, std::move(result)); }));
+    }
+
+    bool AccountWide(Player* player)
+    {
+        if (Data* data = LoadedDataOf(player))
+            return data->shared;
+        return !IsBot(player) && UsesAccountSlots(player);
     }
 
     void OnLogout(Player* player)
@@ -1177,7 +1375,7 @@ namespace RetailProfessions::Gear
                 CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
                 for (Item* item : itr->second)
                     if (item && item->GetEnchantmentId(TEMP_ENCHANTMENT_SLOT))
-                        SaveSlotted(item, trans);
+                        SaveSlotted(data, item, trans);
                 CharacterDatabase.CommitTransaction(trans);
             }
         }
@@ -1211,7 +1409,7 @@ namespace RetailProfessions::Gear
                 }
                 SetSlottedEnchantment(item, TEMP_ENCHANTMENT_SLOT, 0, 0, 0);
                 CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
-                SaveSlotted(item, trans);
+                SaveSlotted(data, item, trans);
                 CharacterDatabase.CommitTransaction(trans);
                 Notify(player, Acore::StringFormat("the lure on your {} wore off.", item->GetTemplate()->Name1));
             }
@@ -1225,8 +1423,6 @@ namespace RetailProfessions::Gear
             return;
         if (data->rodShown && !Fishing(player))
             HideRod(player, data);
-        if (data->skills.empty())
-            return;
         data->sinceCheck += diff;
         if (data->checkTimer > diff)
         {
@@ -1234,6 +1430,17 @@ namespace RetailProfessions::Gear
             return;
         }
         data->checkTimer = CHECK_INTERVAL;
+        // A challenge taken at the start level, after login: its own slots from now on.
+        if (data->shared != UsesAccountSlots(player))
+        {
+            Reload(player);
+            return;
+        }
+        if (data->skills.empty())
+        {
+            data->sinceCheck = 0;
+            return;
+        }
         TickLures(player, data, data->sinceCheck);
         data->sinceCheck = 0;
         if (!player->IsInCombat())
@@ -1318,6 +1525,81 @@ namespace RetailProfessions::Gear
                     return 3600;
             }
         }
+
+        // Puts a lure or line on a rod: one in the bags, worn or in a trade window as
+        // Spell::EffectEnchantItemTmp and EffectEnchantItemPerm do it, the slotted one itself.
+        void PutOnRod(Player* player, Item* rod, uint32 spellId, PoleEnchant const& lure, SpellItemEnchantmentEntry const* enchant)
+        {
+            EnchantmentSlot slot = lure.temporary ? TEMP_ENCHANTMENT_SLOT : PERM_ENCHANTMENT_SLOT;
+            uint32 duration = lure.temporary ? LureSeconds(spellId) * IN_MILLISECONDS : 0;
+            uint32 charges = lure.temporary ? enchant->charges : 0;
+
+            Data* data = LoadedDataOf(player);
+            if (!data || rod != SlottedPole(player))
+            {
+                Player* owner = rod->GetOwner();
+                if (!owner)
+                    return;
+                owner->ApplyEnchantment(rod, slot, false);
+                rod->SetEnchantment(slot, enchant->ID, duration, charges, player->GetGUID());
+                owner->ApplyEnchantment(rod, slot, true);
+                owner->RemoveTradeableItem(rod);
+                rod->ClearSoulboundTradeable(owner);
+                return;
+            }
+
+            SetSlottedEnchantment(rod, slot, enchant->ID, duration, charges);
+            player->GetSession()->SendEnchantmentLog(player->GetGUID(), player->GetGUID(), rod->GetEntry(), enchant->ID);
+            CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+            SaveSlotted(data, rod, trans);
+            CharacterDatabase.CommitTransaction(trans);
+            UpdateSkillAura(player, SKILL_FISHING);
+        }
+
+        // A cast of Fishing with no lure on the rod it uses takes one from the lure slot.
+        void AutoLure(Player* player)
+        {
+            Data* data = LoadedDataOf(player);
+            if (!data)
+                return;
+            auto itr = data->skills.find(SKILL_FISHING);
+            if (itr == data->skills.end() || !itr->second[LURE_SLOT])
+                return;
+            Item* rod = MainHandPole(player);
+            if (!rod)
+                rod = SlottedPole(player);
+            if (!rod || rod->GetEnchantmentId(TEMP_ENCHANTMENT_SLOT))
+                return;
+
+            Item*& stack = itr->second[LURE_SLOT];
+            if (!Usable(player, stack))
+                return;
+            uint32 spellId = LureSpellOf(stack->GetEntry());
+            auto lure = sPoleEnchants.find(spellId);
+            SpellItemEnchantmentEntry const* enchant = lure != sPoleEnchants.end() ? sSpellItemEnchantmentStore.LookupEntry(lure->second.enchant) : nullptr;
+            if (!enchant)
+                return;
+            PutOnRod(player, rod, spellId, lure->second, enchant);
+
+            std::string name = stack->GetTemplate()->Name1;
+            uint32 left = stack->GetCount() - 1;
+            CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+            if (left)
+            {
+                stack->SetCount(left);
+                SaveSlotted(data, stack, trans);
+            }
+            else
+            {
+                DeleteSlotRow(stack, trans);
+                stack->DeleteFromDB(trans);
+                delete stack;
+                stack = nullptr;
+            }
+            CharacterDatabase.CommitTransaction(trans);
+            Notify(player, Acore::StringFormat("{} is on your {} ({} left in the lure slot).", name, rod->GetTemplate()->Name1, left));
+            SendState(player, "0");
+        }
     }
 
     void OnCheckCast(Spell* spell, SpellCastResult& res)
@@ -1387,48 +1669,28 @@ namespace RetailProfessions::Gear
             if (Item* rod = SlottedPole(player))
                 if (Data* data = LoadedDataOf(player))
                     ShowRod(player, data, rod);
+            AutoLure(player);
             return;
         }
         auto itr = sPoleEnchants.find(info->Id);
         if (itr == sPoleEnchants.end())
             return;
-        PoleEnchant const& lure = itr->second;
-        SpellItemEnchantmentEntry const* enchant = sSpellItemEnchantmentStore.LookupEntry(lure.enchant);
+        SpellItemEnchantmentEntry const* enchant = sSpellItemEnchantmentStore.LookupEntry(itr->second.enchant);
         if (!enchant)
             return;
-        EnchantmentSlot slot = lure.temporary ? TEMP_ENCHANTMENT_SLOT : PERM_ENCHANTMENT_SLOT;
-        uint32 duration = lure.temporary ? LureSeconds(info->Id) * IN_MILLISECONDS : 0;
-        uint32 charges = lure.temporary ? enchant->charges : 0;
 
-        // A rod in the bags, worn or in a trade window: as Spell::EffectEnchantItemTmp and
-        // EffectEnchantItemPerm do it.
-        Item* target = spell->m_targets.GetItemTarget();
-        if (!target)
-            target = MainHandPole(player);
-        if (target)
-        {
-            Player* owner = target->GetOwner();
-            if (!owner)
-                return;
-            owner->ApplyEnchantment(target, slot, false);
-            target->SetEnchantment(slot, enchant->ID, duration, charges, player->GetGUID());
-            owner->ApplyEnchantment(target, slot, true);
-            owner->RemoveTradeableItem(target);
-            target->ClearSoulboundTradeable(owner);
+        // The rod it was used on, else the one in the main hand, else the slotted one.
+        Item* rod = spell->m_targets.GetItemTarget();
+        if (!rod)
+            rod = MainHandPole(player);
+        bool slotted = !rod;
+        if (!rod)
+            rod = SlottedPole(player);
+        if (!rod)
             return;
-        }
-
-        Item* pole = SlottedPole(player);
-        if (!pole)
-            return;
-        SetSlottedEnchantment(pole, slot, enchant->ID, duration, charges);
-        player->GetSession()->SendEnchantmentLog(player->GetGUID(), player->GetGUID(), pole->GetEntry(), enchant->ID);
-
-        CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
-        SaveSlotted(pole, trans);
-        CharacterDatabase.CommitTransaction(trans);
-        UpdateSkillAura(player, SKILL_FISHING);
-        Notify(player, Acore::StringFormat("{} is on your {}.", info->SpellName[player->GetSession()->GetSessionDbcLocale()], pole->GetTemplate()->Name1));
+        PutOnRod(player, rod, info->Id, itr->second, enchant);
+        if (slotted)
+            Notify(player, Acore::StringFormat("{} is on your {}.", info->SpellName[player->GetSession()->GetSessionDbcLocale()], rod->GetTemplate()->Name1));
     }
 
     // ---- gathering ----------------------------------------------------------------------------

@@ -2,8 +2,9 @@
 -- characters database after removing the module; AzerothCore doesn't run it automatically.
 --
 -- Slotted profession equipment goes back to its owners by mail (from themselves, stationery
--- GM, 30 days), one mail per item, so nothing is lost; then the slot table goes. Run it with the
--- worldserver stopped. Idempotent: safe to run again.
+-- GM, 30 days), one mail per item, so nothing is lost; then the slot table goes. An account's
+-- slots go to its first character (the lowest guid). Run it with the worldserver stopped.
+-- Idempotent: safe to run again.
 
 DROP TEMPORARY TABLE IF EXISTS `tmp_rpr_gear`;
 CREATE TEMPORARY TABLE `tmp_rpr_gear` (
@@ -20,13 +21,22 @@ EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
 
 INSERT INTO `tmp_rpr_gear` (`owner_guid`, `item_guid`)
-SELECT g.`owner_guid`, g.`item_guid`
-FROM `mod_retail_professions_gear_slot` g
-JOIN `item_instance` ii ON ii.`guid` = g.`item_guid`
--- A row whose item is also in the bags or a mailbox lost a race; that copy is the real one.
-LEFT JOIN `character_inventory` ci ON ci.`item` = g.`item_guid`
-LEFT JOIN `mail_items` mi ON mi.`item_guid` = g.`item_guid`
-WHERE ci.`item` IS NULL AND mi.`item_guid` IS NULL;
+SELECT o.`owner_guid`, o.`item_guid`
+FROM (
+    SELECT g.`item_guid`, IF(g.`owner_guid` <> 0, g.`owner_guid`,
+        (SELECT MIN(c.`guid`) FROM `characters` c WHERE c.`account` = g.`account`)) AS `owner_guid`
+    FROM `mod_retail_professions_gear_slot` g
+    JOIN `item_instance` ii ON ii.`guid` = g.`item_guid`
+    -- A row whose item is also in the bags or a mailbox lost a race; that copy is the real one.
+    LEFT JOIN `character_inventory` ci ON ci.`item` = g.`item_guid`
+    LEFT JOIN `mail_items` mi ON mi.`item_guid` = g.`item_guid`
+    WHERE ci.`item` IS NULL AND mi.`item_guid` IS NULL
+) o
+-- An account with no character left has no one to get it.
+WHERE o.`owner_guid` IS NOT NULL;
+
+-- The account's items have no owner in item_instance while slotted.
+UPDATE `item_instance` ii JOIN `tmp_rpr_gear` t ON t.`item_guid` = ii.`guid` SET ii.`owner_guid` = t.`owner_guid`;
 
 INSERT INTO `mail` (`id`, `messageType`, `stationery`, `mailTemplateId`, `sender`, `receiver`, `subject`, `body`,
     `has_items`, `expire_time`, `deliver_time`, `money`, `cod`, `checked`)

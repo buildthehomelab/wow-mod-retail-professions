@@ -15,6 +15,8 @@ RPF.HELLO_PERKS = 8     -- crafts can make a second batch, give reagents back an
 RPF.HELLO_GUIDE = 16    -- W rows carry a note and tooltip details; M pins drops, objects and quest givers
 RPF.HELLO_GEAR = 32     -- profession equipment: GC, G, GQ, GU and GT (Gear.lua)
 RPF.HELLO_GEAR_GATHER = 64 -- picks and knives slot as tools; Fishing has a rod slot
+RPF.HELLO_GEAR_TYPED = 128 -- each accessory slot takes one kind; Cooking has 3 slots, Fishing a lure slot
+RPF.HELLO_GEAR_ACCOUNT = 256 -- this character's slots are the account's
 
 -- What a craft of a recipe can get on top (the perks field of an L row).
 RPF.PERK_MULTICRAFT = 1

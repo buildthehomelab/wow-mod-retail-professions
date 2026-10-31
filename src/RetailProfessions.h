@@ -59,6 +59,8 @@ namespace RetailProfessions
         HELLO_GUIDE    = 0x10, // W rows carry a note and details; M pins drops, objects and quest givers
         HELLO_GEAR     = 0x20, // profession equipment: GC, G, GQ, GU and GT
         HELLO_GEAR_GATHER = 0x40, // picks and knives slot as Mining/Skinning tools; Fishing has a rod slot
+        HELLO_GEAR_TYPED  = 0x80, // each accessory slot takes one kind (GC's kind is the slot); Cooking 3 slots, Fishing a lure slot
+        HELLO_GEAR_ACCOUNT = 0x100, // this character's slots are the account's
     };
 
     // What a craft of a recipe can get on top (the perks field of an L row).
@@ -103,6 +105,8 @@ namespace RetailProfessions
         uint32 resourcefulRefund = 30;  // percent of each reagent given back on a proc
         uint32 speedMin = 0, speedMax = 50;
         bool gear = true;               // profession equipment slots
+        bool gearAccountWide = true;    // the slots belong to the account
+        uint32 gearPersonalChallenges = 15; // mod-challenges bits whose characters keep slots of their own
         // mod-gathering-tools' GatheringTools.ToolSkillBonus and .ToolGatherSpeed: what carrying a
         // pick or knife gives, which one in a slot gives too (when that module is installed).
         int32 gatherToolSkill = 0;
@@ -206,6 +210,9 @@ namespace RetailProfessions
 
         // What the player's slotted gear of a profession adds to a stat; 0 when nothing.
         float Bonus(Player* player, uint32 skill, Stat stat);
+
+        // Whether the player's slots are the account's (once read: what was read).
+        bool AccountWide(Player* player);
 
         void HandleCatalog(Player* player, std::string const& req);
         void HandleState(Player* player, std::string const& req);
