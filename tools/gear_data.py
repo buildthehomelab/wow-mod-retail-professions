@@ -119,12 +119,18 @@ def skill_bonus_of(kind, tier):
 #   12 Philosopher's Stone (type 22, mask 1)     14 Arclight Spanner (24, 1)
 #   121 Virtuoso Inking Set (24, 0x80000000)     162 Blacksmith Hammer (24, 4)
 #   165 Mining Pick (24, 8)                      166 Skinning Knife (24, 16)
+#   15 Gyromatic Micro-Adjustor (24, 2)          169 Flint and Tinder (24, 32)
+#   161 Gnomish Army Knife (24, 63: every tool above but the inking set)
 #   Runed rods, type 3: 6 Copper (mask 1), 7 Silver (3), 8 Golden (7), 9 Truesilver (15),
 #   10 Arcanite (31), 41 Fel Iron (63), 62 Adamantite (127), 63 Eternium (255), 190 Titanium (1023)
 # Enchanting: the green rod is a Runed Golden Rod (mask 7 covers Copper, Silver and Golden rod
 # recipes, every rod requirement below skill 200), the best rod an enchanter of the green
 # recipe's level can make (Runed Golden Rod is learned at 150, Truesilver at 200). The blue rod is
 # a Runed Arcanite Rod (mask 31 covers every classic rod).
+# Engineering: recipes need up to three tools (spanner, micro-adjustor, hammer) and the profession
+# has one tool slot, so the spanners are multitools: a Gnomish Army Knife covers all three. Like
+# the stock knife it also counts as a pick, knife and flint; another profession's slot takes it
+# only as a plain tool, without its stats.
 # Jewelcrafting recipes need exact Totem items (Jeweler's Kit 20815, Simple Grinder 20824), not
 # categories, so the JC tools carry counts_as = 20815 in mod_retail_professions_gear instead.
 
@@ -132,14 +138,14 @@ TOOL_TOTEM_CATEGORY = {
     ALCHEMY: {GREEN: 12, BLUE: 12},
     BLACKSMITHING: {GREEN: 162, BLUE: 162},
     ENCHANTING: {GREEN: 8, BLUE: 10},
-    ENGINEERING: {GREEN: 14, BLUE: 14},
+    ENGINEERING: {GREEN: 161, BLUE: 161},
     INSCRIPTION: {GREEN: 121, BLUE: 121},
     MINING: {GREEN: 165, BLUE: 165},
     SKINNING: {GREEN: 166, BLUE: 166},
 }
 TOTEM_CATEGORY_NAMES = {12: "Philosopher's Stone", 14: "Arclight Spanner", 121: "Virtuoso Inking Set",
                         162: "Blacksmith Hammer", 165: "Mining Pick", 166: "Skinning Knife",
-                        8: "Runed Golden Rod", 10: "Runed Arcanite Rod"}
+                        8: "Runed Golden Rod", 10: "Runed Arcanite Rod", 161: "Gnomish Army Knife (spanner, micro-adjustor and hammer)"}
 TOOL_COUNTS_AS = {JEWELCRAFTING: 20815}  # Jeweler's Kit
 COUNTS_AS_NAMES = {20815: "Jeweler's Kit"}
 
