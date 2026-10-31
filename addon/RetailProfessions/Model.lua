@@ -185,9 +185,11 @@ local scanning = false
 local expandTries = 0
 
 -- Clears every stock filter, so the client lists every learned recipe and the indexes we keep
--- are the ones DoTradeSkill expects. Each call fires TRADE_SKILL_UPDATE.
+-- are the ones DoTradeSkill expects. A call that changes something fires TRADE_SKILL_FILTER_UPDATE.
+local lastReset = -10
 function M.ResetClientFilters()
 	expandTries = 0
+	lastReset = GetTime()
 	if SetTradeSkillItemNameFilter then SetTradeSkillItemNameFilter("") end
 	if SetTradeSkillItemLevelFilter then SetTradeSkillItemLevelFilter(0, 0) end
 	if SetTradeSkillSubClassFilter then SetTradeSkillSubClassFilter(0, 1, 1) end
@@ -247,6 +249,7 @@ function M.Scan()
 	end
 
 	scanning = true
+	M.count = count
 	M.skillName, M.rank, M.maxRank = name, rank or 0, maxRank or 0
 	M.profession = RPF.ProfessionByName(name)
 	M.skill = M.profession and M.profession.id or nil
@@ -332,6 +335,26 @@ function M.Scan()
 	scanning = false
 	if not M.linked then RPF.Fire("SCANNED") end
 	return true
+end
+
+-- The client's list no longer matches what we read: clear the filters again (once a second at
+-- most, should something keep setting them) and read it again.
+function M.Resync()
+	if not RPF.active then return end
+	if GetTime() - lastReset >= 1 then M.ResetClientFilters() end
+	RPF.Debounce("tradeskill", 0.05, function () RPF.Fire("TRADE_SKILL_UPDATE") end)
+end
+
+-- TRADE_SKILL_FILTER_UPDATE: a filter changed the client's list, ours or another window's (the
+-- stock window re-applies its Have Materials box on every open, DragonUI's filter sets it, a
+-- search box sets the name). A narrower list than the one we read is someone else's filter.
+function M.FilterChanged()
+	if not RPF.active then return end
+	if not M.linked and GetTradeSkillLine() == M.skillName and (GetNumTradeSkills() or 0) < (M.count or 0) then
+		M.Resync()
+	else
+		RPF.Fire("TRADE_SKILL_UPDATE")
+	end
 end
 
 -----------------------------------------
@@ -489,7 +512,14 @@ end
 
 function M.Details(recipe)
 	if not recipe.learned or not recipe.index then return recipe end
-	local i = recipe.index
+	-- Read only from the recipe's own row. With the client's list changed under us (another
+	-- window's filter, the trade skill closed behind the window) the old index is another row or
+	-- none, and what it reads would replace the recipe's reagents with nothing until a /reload.
+	local i = M.IndexOf(recipe)
+	if not i then
+		M.Resync()
+		return recipe
+	end
 	recipe.description = GetTradeSkillDescription and GetTradeSkillDescription(i) or nil
 	recipe.tools = {}
 	-- With profession equipment the client's tool fields are emptied (docs/profession-gear.md):
@@ -504,7 +534,9 @@ function M.Details(recipe)
 	recipe.cooldown = GetTradeSkillCooldown and GetTradeSkillCooldown(i) or nil
 	local minMade, maxMade = GetTradeSkillNumMade(i)
 	recipe.madeMin, recipe.madeMax = minMade or recipe.madeMin or 1, maxMade or recipe.madeMax or 1
-	recipe.reagents = readReagents(i)
+	-- None read keeps what the scan and the server's list gave.
+	local reagents = readReagents(i)
+	if #reagents > 0 then recipe.reagents = reagents end
 	local info = M.skill and RPF.RecipeList(M.skill)
 	info = info and recipe.spell and info[recipe.spell]
 	if info then
@@ -528,7 +560,7 @@ function M.IndexOf(recipe)
 	if not recipe.learned then return nil end
 	local i = recipe.index
 	if i and GetTradeSkillInfo(i) == recipe.name then return i end
-	for k = 1, GetNumTradeSkills() do
+	for k = 1, GetNumTradeSkills() or 0 do
 		local name, kind = GetTradeSkillInfo(k)
 		if kind ~= "header" and name == recipe.name then
 			recipe.index = k

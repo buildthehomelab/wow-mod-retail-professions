@@ -863,6 +863,7 @@ events:RegisterEvent("PLAYER_ENTERING_WORLD")
 events:RegisterEvent("TRADE_SKILL_SHOW")
 events:RegisterEvent("TRADE_SKILL_CLOSE")
 events:RegisterEvent("TRADE_SKILL_UPDATE")
+events:RegisterEvent("TRADE_SKILL_FILTER_UPDATE")
 events:RegisterEvent("CHAT_MSG_ADDON")
 events:RegisterEvent("BAG_UPDATE")
 events:RegisterEvent("SKILL_LINES_CHANGED")
@@ -904,6 +905,8 @@ events:SetScript("OnEvent", function (self, event, ...)
 		onTradeSkillClose()
 	elseif event == "TRADE_SKILL_UPDATE" then
 		if RPF.active then RPF.Debounce("tradeskill", 0.05, function () RPF.Fire("TRADE_SKILL_UPDATE") end) end
+	elseif event == "TRADE_SKILL_FILTER_UPDATE" then
+		if RPF.active then RPF.Debounce("tradeskill", 0.05, RPF.Model.FilterChanged) end
 	elseif event == "CHAT_MSG_ADDON" then
 		local prefix, message, _, sender = ...
 		if prefix == RPF.PREFIX and sender == UnitName("player") then onAddonMessage(message) end

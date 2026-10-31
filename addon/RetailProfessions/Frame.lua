@@ -889,7 +889,7 @@ craftNow = function (r, count, noConfirm)
 	local index = M.IndexOf(r)
 	if not index then
 		RPF.Status("That recipe moved in the list; try again.", true)
-		Rebuild()
+		M.Resync()
 		return
 	end
 	if r.isEnchant then

@@ -283,7 +283,8 @@ end
 function GetTradeSkillRecipeLink(i) local t = tradeSkill[i] return t.spell and ("|cffffd000|Henchant:" .. t.spell .. "|h[" .. t[1] .. "]|h|r") end
 function GetTradeSkillItemLink(i) local t = tradeSkill[i] return t.item and itemLink(t.item) end
 function GetTradeSkillIcon() return "Interface\\Icons\\T" end
-function GetTradeSkillNumReagents(i) return #(tradeSkill[i].reagents or {}) end
+-- A row that isn't there (a stale index) has no reagents, as in the client.
+function GetTradeSkillNumReagents(i) return #((tradeSkill[i] or {}).reagents or {}) end
 function GetTradeSkillReagentInfo(i, r) local rg = tradeSkill[i].reagents[r] return items[rg[1]][1], "Interface\\Icons\\R", rg[2], bags[rg[1]] or 0 end
 function GetTradeSkillReagentItemLink(i, r) return itemLink(tradeSkill[i].reagents[r][1]) end
 function GetTradeSkillDescription() return "" end
@@ -951,6 +952,59 @@ step("create and create all", function ()
 	assert(crafted[#crafted][2] == 2, "Create All count: " .. tostring(crafted[#crafted][2]))
 	local name, list = provider.GetRecipe()
 	assert(name == "Bolt of Linen Cloth" and list[1].itemEntry == 2589 and list[1].requiredPerCraft == 2, "provider recipe")
+end)
+
+-- The stock window's Have Materials (Blizzard re-applies its hidden checkbox on every open, and
+-- DragonUI's filter clicks it) narrows the client's list after our scan, and the client says so
+-- with TRADE_SKILL_FILTER_UPDATE only. The Vest's old index then reads no row at all.
+step("another window's filter doesn't empty a recipe's reagents", function ()
+	local full
+	function TradeSkillOnlyShowMakeable(on)
+		if on and not full then
+			full = {}
+			for i, t in ipairs(tradeSkill) do full[i] = t end
+			for i = #tradeSkill, 1, -1 do
+				if tradeSkill[i][2] ~= "header" and (tradeSkill[i][3] or 0) == 0 then table.remove(tradeSkill, i) end
+			end
+			fire("TRADE_SKILL_FILTER_UPDATE")
+		elseif not on and full then
+			for i = 1, math.max(#full, #tradeSkill) do tradeSkill[i] = full[i] end
+			full = nil
+			fire("TRADE_SKILL_FILTER_UPDATE")
+		end
+	end
+	local vest = M.bySpell[2385]
+	assert(#vest.reagents == 2, "the vest's reagents before: " .. #vest.reagents)
+
+	-- The filter event alone puts the whole list back.
+	TradeSkillOnlyShowMakeable(true)
+	tick(1.5)
+	assert(GetNumTradeSkills() == 3 and #M.recipes == 2, "after the filter event: client " .. GetNumTradeSkills()
+		.. " rows, model " .. #M.recipes .. " recipes")
+
+	-- Selected before that event is handled: the old index reads no row.
+	vest = M.bySpell[2385]
+	TradeSkillOnlyShowMakeable(true)
+	RPF.Select(vest)
+	assert(#vest.reagents == 2, "selecting the vest emptied its reagents: " .. #vest.reagents)
+	assert(not textShown("No reagents"), "the recipe pane says No reagents")
+	tick(0.5)
+	assert(GetNumTradeSkills() == 3, "the client's list stayed filtered: " .. GetNumTradeSkills())
+	vest = M.bySpell[2385]
+	RPF.Select(vest)
+	assert(vest.index == 3 and #vest.reagents == 2, "the vest after the rescan: index " .. tostring(vest.index)
+		.. ", reagents " .. #vest.reagents)
+
+	-- The trade skill gone under the window (closed, or another one's list): nothing to read, and
+	-- the recipe keeps what it had.
+	local saved = {}
+	for i, t in ipairs(tradeSkill) do saved[i] = t; tradeSkill[i] = nil end
+	RPF.Select(M.bySpell[2963])
+	local bolt = M.bySpell[2963]
+	assert(#bolt.reagents == 1 and bolt.reagents[1].id == 2589, "the bolt lost its reagents with no list behind it")
+	for i, t in ipairs(saved) do tradeSkill[i] = t end
+	tick(0.5)
+	function TradeSkillOnlyShowMakeable() end
 end)
 
 step("the amount counts down as the crafts finish", function ()
