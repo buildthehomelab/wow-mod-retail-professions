@@ -317,6 +317,37 @@ function RPF.StockSkillBar(bar, height)
 	return bar
 end
 
+-- A skill bar as the character window's Skills tab draws one, its rank written inside (bar.Caption):
+-- DragonUI's own row bar (99 x 13, green, gold once capped; bar:SetShade; bar.fixedWidth) where
+-- DragonUI has it, else the stock skill bar 15 tall, as wide as it's anchored.
+local SHADE_CAPPED, SHADE_TRAINING = { 1.0, 0.94, 0.1 }, { 0.2, 0.85, 0.2 }
+
+function RPF.SkillTabBar(parent)
+	local _, CP = RPF.Dragon()
+	local bar
+	if CP and CP.BuildRowBar then
+		bar = CP.BuildRowBar(parent, parent, "RIGHT", 0, {
+			width = 99, height = 13,
+			fill = "Interface\\PaperDollInfoFrame\\UI-Character-Skills-Bar",
+			frame = "Interface\\PaperDollInfoFrame\\UI-Character-ReputationBar",
+			capWidth = 60, frameHeight = 15,
+		})
+		bar:ClearAllPoints()
+		bar.fixedWidth = true
+		function bar:SetShade(capped)
+			local c = capped and SHADE_CAPPED or SHADE_TRAINING
+			self:SetStatusBarColor(c[1], c[2], c[3])
+		end
+	else
+		bar = RPF.StockSkillBar(CreateFrame("StatusBar", nil, parent), 15)
+		bar:SetHeight(15)
+		bar.Caption = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		bar.Caption:SetPoint("CENTER", bar, "CENTER", 0, 1)
+		function bar:SetShade() end
+	end
+	return bar
+end
+
 -- A category heading as the recipe list draws one (RecipeList.lua), for other addons' pages
 -- (Pages.lua): DragonUI's header bar with its professions art, retail's gold-edged band with
 -- DragonUI, the plain gold heading otherwise. h.label on the left, h.note on the right.
