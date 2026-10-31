@@ -1,5 +1,5 @@
 -- Profession equipment (docs/profession-gear.md): every profession has a tool slot and two
--- accessory slots (Cooking one), kept on the server, whose items give skill and Multicraft,
+-- accessory slots (Cooking one, Fishing a rod slot), kept on the server, whose items give skill and Multicraft,
 -- Resourcefulness and crafting speed (or Finesse, Perception and Deftness for gathering), and
 -- count as the tools recipes need. With HELLO_GEAR this keeps what the gear items give (the
 -- catalog), what sits in the slots and the tools each recipe needs, asks the server to put
@@ -11,11 +11,21 @@ local RPF = RetailProfessions
 local G = {}
 RPF.Gear = G
 
--- How many slots each skill line has: slot 0 is the tool, the rest accessories.
+-- How many slots each skill line has: slot 0 is the tool, the rest accessories. Fishing's one
+-- slot is for a rod, on a server with HELLO_GEAR_GATHER (G.SlotCount).
 G.SLOTS = {
 	[171] = 3, [164] = 3, [333] = 3, [202] = 3, [182] = 3, [773] = 3, [755] = 3, [165] = 3, [186] = 3,
-	[393] = 3, [197] = 3, [185] = 2,
+	[393] = 3, [197] = 3, [185] = 2, [356] = 1,
 }
+G.FISHING = 356
+-- The gathering tools a slot takes as well (and mod-gathering-tools rewards carrying).
+G.GATHER_TOOL = { [186] = "Mining Pick", [393] = "Skinning Knife" }
+
+-- A skill line's slots on this realm, nil for none.
+function G.SlotCount(skill)
+	if skill == G.FISHING and not RPF.Has(RPF.HELLO_GEAR_GATHER) then return nil end
+	return skill and G.SLOTS[skill]
+end
 G.TOOL = 0
 G.ANY = 9 -- "the first free slot that fits" in an equip request
 
@@ -321,7 +331,7 @@ local function readSkills()
 	skillCache, gearProfessions = {}, {}
 	for _, known in ipairs(RPF.KnownProfessions()) do
 		skillCache[known.profession.id] = known
-		if G.SLOTS[known.profession.id] then table.insert(gearProfessions, known) end
+		if G.SlotCount(known.profession.id) then table.insert(gearProfessions, known) end
 	end
 end
 
@@ -479,16 +489,27 @@ local function slotEnter(self)
 	if self.entry then
 		-- The tooltip hook above adds what a gear item gives.
 		GameTooltip:SetHyperlink("item:" .. self.entry)
-		if not RPF.gear.catalog[self.entry] then
-			GameTooltip:AddLine(pname .. " tool: it counts for the recipes that need it.", 1, 0.82, 0, true)
+		if self.skill == G.FISHING then
+			GameTooltip:AddLine("Your rod: you fish with it from here, and lures and lines go on it.", 1, 0.82, 0, true)
+		elseif not RPF.gear.catalog[self.entry] then
+			GameTooltip:AddLine(G.GATHER_TOOL[self.skill] and pname .. " tool: it counts as carried, without taking bag space."
+				or pname .. " tool: it counts for the recipes that need it.", 1, 0.82, 0, true)
 		end
 		GameTooltip:AddLine("Right-click to put it back in your bags.", 0.5, 0.5, 0.5)
+	elseif self.skill == G.FISHING then
+		GameTooltip:SetText("Fishing rod slot")
+		GameTooltip:AddLine("Drag a fishing pole here. You fish with it from this slot, keeping your weapon on, "
+			.. "and lures and lines go on it.", 1, 1, 1, true)
 	else
 		GameTooltip:SetText(self.slot == G.TOOL and "Tool slot" or "Accessory slot")
 		GameTooltip:AddLine(string.format(self.slot == G.TOOL and "Drag a %s tool here." or "Drag a %s accessory here.", pname),
 			1, 1, 1, true)
 		GameTooltip:AddLine("A tool a recipe needs (a second one, say) fits in any slot and counts from there. "
 			.. "Right-click profession equipment in your bags to put it on.", 0.7, 0.7, 0.7, true)
+		if G.GATHER_TOOL[self.skill] and RPF.Has(RPF.HELLO_GEAR_GATHER) then
+			GameTooltip:AddLine(string.format("A %s goes in any slot too: it counts as carried.", G.GATHER_TOOL[self.skill]),
+				0.7, 0.7, 0.7, true)
+		end
 	end
 	local total = G.TotalsText(self.skill)
 	if total then GameTooltip:AddLine("Your " .. pname .. " equipment: " .. total, 0.31, 0.76, 0.97, true) end
@@ -538,7 +559,7 @@ function G.CreateStrip(parent, size, gap)
 		self:Refresh()
 	end
 	function strip:Refresh()
-		local n = self.skill and G.SLOTS[self.skill]
+		local n = G.SlotCount(self.skill)
 		if not (n and G.Enabled()) then
 			self:Hide()
 			return

@@ -58,6 +58,7 @@ namespace RetailProfessions
         HELLO_PERKS    = 0x8, // crafts can proc; HELLO carries the odds, L rows say which recipes
         HELLO_GUIDE    = 0x10, // W rows carry a note and details; M pins drops, objects and quest givers
         HELLO_GEAR     = 0x20, // profession equipment: GC, G, GQ, GU and GT
+        HELLO_GEAR_GATHER = 0x40, // picks and knives slot as Mining/Skinning tools; Fishing has a rod slot
     };
 
     // What a craft of a recipe can get on top (the perks field of an L row).
@@ -102,6 +103,10 @@ namespace RetailProfessions
         uint32 resourcefulRefund = 30;  // percent of each reagent given back on a proc
         uint32 speedMin = 0, speedMax = 50;
         bool gear = true;               // profession equipment slots
+        // mod-gathering-tools' GatheringTools.ToolSkillBonus and .ToolGatherSpeed: what carrying a
+        // pick or knife gives, which one in a slot gives too (when that module is installed).
+        int32 gatherToolSkill = 0;
+        uint32 gatherToolSpeed = 25;
     };
 
     // Crafting speed never goes past this, gear included.
@@ -217,8 +222,12 @@ namespace RetailProfessions
         // skill gets there, not only when it crosses a rank.
         void OnUpdateSkill(Player* player, uint32 skill, uint32 value, uint32 newValue);
 
-        // A recipe's tools: in the bags, worn, or in one of its profession's slots.
+        // A recipe's tools: in the bags, worn, or in one of its profession's slots. Fishing and
+        // lures: a rod in the main hand or in the Fishing slot.
         void OnCheckCast(Spell* spell, SpellCastResult& res);
+
+        // A lure or fishing line used with the rod in the Fishing slot goes on that rod.
+        void OnCast(Spell* spell, Unit* caster, SpellInfo const* info);
 
         // Deftness, Finesse and Perception.
         void OnPrepare(Spell* spell, Unit* caster, SpellInfo const* info);
