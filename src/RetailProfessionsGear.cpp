@@ -17,6 +17,9 @@
  * has slots of its own instead: rows with its guid and account 0. A character that turns
  * account-wide (a challenge ended) has its own rows moved to the account's slots at login, where
  * they are free. Bots never read the slots, so an alt played by a bot can't hold them twice.
+ * Soulbound items go in the account's slots too, as heirlooms would: the best rods, the runed
+ * enchanting rods and the alchemist's stones all bind on pickup. A character that takes one off
+ * gets it bound to itself.
  *
  * What a slot gives:
  *   - gear items (mod_retail_professions_gear) give skill, through a hidden aura per profession,
@@ -312,12 +315,6 @@ namespace RetailProfessions::Gear
             if (proto->RequiredSkill && player->GetPureSkillValue(proto->RequiredSkill) < proto->RequiredSkillRank)
                 return false;
             return player->GetLevel() >= proto->RequiredLevel;
-        }
-
-        // Soulbound items stay with their character: never in the account's slots.
-        bool BoundToCharacter(Item const* item)
-        {
-            return item->IsSoulBound() && !item->IsBoundAccountWide();
         }
 
         // The slot row's owner columns: (0, account) for the account's, (guid, 0) for the character's.
@@ -720,7 +717,7 @@ namespace RetailProfessions::Gear
                     bool otherOwner = shared == own;
                     Layout const* layout = LayoutOf(skill);
                     uint8 slot = layout ? PlaceOnLoad(item, *layout, data->skills[skill], saved) : MAX_SLOTS;
-                    if (slot >= MAX_SLOTS || (shared && own && BoundToCharacter(item)))
+                    if (slot >= MAX_SLOTS)
                     {
                         homeless.push_back(item);
                         continue;
@@ -1200,11 +1197,6 @@ namespace RetailProfessions::Gear
         }
 
         Data* data = LoadedDataOf(player);
-        if (data->shared && BoundToCharacter(item))
-        {
-            SendError(player, req, "soulbound");
-            return;
-        }
         Slots& slots = data->skills[skill];
         if (slot == ANY_SLOT)
             slot = PickSlot(item, *layout, slots);

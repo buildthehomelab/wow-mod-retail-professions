@@ -93,8 +93,9 @@ its bags. The account's slots never go back to the bags for a profession the cha
 know (another character may): they just give nothing there. Each item counts only for a character
 that meets its RequiredSkill/RequiredSkillRank (pure skill) and RequiredLevel (`Usable`: skill
 aura, stats, recipe tools, the rod, the lure slot), so the account's slots don't get around the
-skill gate or individual progression's era caps. Soulbound items (not account-bound) never go in
-the account's slots (`soulbound`; a character's own one stays behind when its rows move). A
+skill gate or individual progression's era caps. Soulbound items go in the account's slots too, as
+heirlooms (the good rods, runed enchanting rods and alchemist's stones bind on pickup); a character
+that takes one off gets it bound to itself. A
 challenge taken after login (they start at level 1, in game) is noticed within 5 s, or at the
 next change: the slots are read again, the character's own ones. With AccountWide off, the first
 character of the account to log in takes the account's rows as its own.
@@ -194,7 +195,7 @@ Unasked, after any change (equip, unequip, a profession unlearned, login): `GD:0
 Error codes: `off` (gear disabled), `loading` (slots not read yet), `combat`, `casting`,
 `trade`, `bot`, `noitem` (nothing at that bag slot), `notgear` (not gear or a tool of that
 profession), `unlearned`, `rank` (skill too low), `slot` (wrong slot for this item),
-`dup` (already in another slot of this profession), `full` (the lure slot's stack of that lure is full), `soulbound` (soulbound, and the slots are the account's), `bags` (no room to take an item off),
+`dup` (already in another slot of this profession), `full` (the lure slot's stack of that lure is full), `soulbound` (older servers only: soulbound, and the slots are the account's), `bags` (no room to take an item off),
 `empty` (nothing in that slot), `busy` (rate limit, retried by the addon).
 
 ## IDs (checked free on the live z80 and in every module, 2026-10-30)
