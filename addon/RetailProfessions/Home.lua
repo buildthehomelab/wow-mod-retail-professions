@@ -1312,31 +1312,15 @@ local function equipCard(parent)
 	card.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
 	card.gear = RPF.Gear.CreateStrip(card, 34, 5)
 	card.gear:SetPoint("RIGHT", card, "RIGHT", -10, 0)
+	-- The name over the Skills tab's bar with the rank inside it; the slots say the rest.
 	card.name = card:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-	card.name:SetPoint("TOPLEFT", card.icon, "TOPRIGHT", 10, 0)
+	card.name:SetPoint("TOPLEFT", card.icon, "TOPRIGHT", 10, -1)
+	card.name:SetPoint("RIGHT", card.gear, "LEFT", -12, 0)
 	card.name:SetJustifyH("LEFT")
 	card.name:SetWordWrap(false)
-	card.rank = card:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	card.rank:SetPoint("LEFT", card.name, "RIGHT", 6, 0)
-	card.rank:SetTextColor(0.7, 0.7, 0.7)
-	card.bar = CreateFrame("StatusBar", nil, card)
-	card.bar:SetHeight(8)
-	card.bar:SetPoint("LEFT", card.icon, "RIGHT", 10, 0)
-	card.bar:SetPoint("RIGHT", card.gear, "LEFT", -12, 0)
-	if RPF.Dragon() then
-		card.bar:SetStatusBarTexture("Interface\\PaperDollInfoFrame\\UI-Character-Skills-Bar")
-		card.bar:SetStatusBarColor(0.95, 0.6, 0.1)
-		local bg = card.bar:CreateTexture(nil, "BACKGROUND")
-		bg:SetAllPoints(card.bar)
-		bg:SetTexture(0, 0, 0, 0.65)
-	else
-		RPF.StockSkillBar(card.bar, 8)
-	end
-	card.gives = card:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-	card.gives:SetPoint("BOTTOMLEFT", card.icon, "BOTTOMRIGHT", 10, 0)
-	card.gives:SetPoint("RIGHT", card.gear, "LEFT", -12, 0)
-	card.gives:SetJustifyH("LEFT")
-	card.gives:SetWordWrap(false)
+	card.bar = RPF.SkillTabBar(card)
+	card.bar:SetPoint("BOTTOMLEFT", card.icon, "BOTTOMRIGHT", 12, 2)
+	if not card.bar.fixedWidth then card.bar:SetPoint("RIGHT", card.gear, "LEFT", -16, 0) end
 	card:Hide()
 	return card
 end
@@ -1354,20 +1338,6 @@ local function cardRow(i)
 end
 for i = 1, CARD_ROWS do cardRows[i] = cardRow(i) end
 
--- What a card says under its bar: what the slots give, or that they hold only tools or nothing.
-local function givesText(skill)
-	if skill == RPF.Gear.FISHING then
-		local rod, lures = RPF.Gear.Slotted(skill, RPF.Gear.TOOL), RPF.Gear.Slotted(skill, RPF.Gear.LURE)
-		local text = rod and "Fishing from the rod slot." or "No rod in the slot."
-		if lures then text = text .. string.format(" %d |4lure:lures; ready.", lures.count or 1) end
-		return text
-	end
-	local text = RPF.Gear.TotalsText(skill)
-	if text then return "|cff4fc3f7" .. text .. "|r" end
-	if next(RPF.gear.slots[skill] or {}) then return "Tools only: they count, but give nothing more." end
-	return "Nothing on."
-end
-
 local function drawCard(card, known)
 	card.known = known
 	if not known then
@@ -1378,11 +1348,11 @@ local function drawCard(card, known)
 	local p = known.profession
 	card.icon:SetTexture(p.texture)
 	card.name:SetText(p.localName)
-	card.rank:SetText(RPF.SkillRankText(known.baseRank, known.rank - known.baseRank, known.maxRank))
 	card.bar:SetMinMaxValues(0, math.max(1, known.maxRank))
 	card.bar:SetValue(known.baseRank)
+	card.bar:SetShade(known.baseRank >= known.maxRank)
+	card.bar.Caption:SetText(RPF.SkillRankText(known.baseRank, known.rank - known.baseRank, known.maxRank))
 	card.gear:SetSkill(p.id)
-	card.gives:SetText(givesText(p.id))
 	card:Show()
 end
 
