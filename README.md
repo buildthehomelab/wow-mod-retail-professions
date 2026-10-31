@@ -249,10 +249,15 @@ crafting speed**, earned by skill.
   **Finesse** (a chance of an extra herb, ore or hide), **Perception** (better odds on the rare
   things a node or corpse gives) and **Deftness** (faster gathering). Their tooltips say what
   they give, and the recipe odds count them.
-- 72 gear items (a tool and two accessories per profession, green from skill 75 and blue from
+- 73 gear items (a tool and two accessories per profession, green from skill 75 and blue from
   225) are **crafted by other professions**: Blacksmiths make hammers and picks, Engineers
   spanners and loupes, Leatherworkers gloves and aprons, Tailors hats and robes. Their recipes
   come by themselves when the crafter's skill gets there.
+- **Enchanting's rods** come in three steps, one per rod its recipes ask for: Enchanter's Runed
+  Rod (learned at 150, counts as a Runed Golden Rod), Truesilver Enchanter's Rod (200, Runed
+  Truesilver Rod) and Grand Enchanter's Rod (275, Runed Arcanite Rod). Enchanters make them
+  from a Blacksmith's plain rod, and none of them uses up the rod before it, so there's no need
+  to work through the stock runed rods.
 - **Recipe tools count from the slots**: a Blacksmith Hammer, Arclight Spanner, Gyromatic
   Micro-Adjustor, Jeweler's Kit, Virtuoso Inking Set or runed rod in one of its profession's
   slots counts as carried, and so do the stat tools that stand in for them. A recipe that needs

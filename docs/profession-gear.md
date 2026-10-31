@@ -12,6 +12,9 @@ leave the bags), give skill and crafting/gathering stats, and the tools that rec
 | Alchemy 171, Blacksmithing 164, Enchanting 333, Engineering 202, Herbalism 182, Inscription 773, Jewelcrafting 755, Leatherworking 165, Mining 186, Skinning 393, Tailoring 197, Cooking 185 | 0 = tool, 1 and 2 = accessories, one kind each |
 | Fishing 356 | 0 = rod, 1 = lures (a stack) |
 
+Enchanting's tool comes in three tiers, one per stock rod its recipes ask for: Runed Golden (green,
+learned at 150), Runed Truesilver (expert, 200, usable at 150) and Runed Arcanite (blue, 275).
+
 Each accessory slot takes one kind of accessory, the same in both tiers (green 75, blue 225), so
 two of a kind (two pairs of gloves, a green and a blue apron) never count together:
 
@@ -203,5 +206,6 @@ profession), `unlearned`, `rank` (skill too low), `slot` (wrong slot for this it
 - spell_dbc 90800-90811: server-only skill auras (one per profession, in the order of the table above);
   90812 the Fishing aura (SQL _02, checked free on the boaring z80 4b68c47a and in every module, 2026-10-30)
 - items 90800-90879: gear items (item_template + Item.dbc via z80); 90870-90871 Cooking's second
-  accessories (2026-10-30, z80 rebuilt on 1c57cff3)
+  accessories (2026-10-30, z80 rebuilt on 1c57cff3); 90872 Enchanting's expert Truesilver rod,
+  recipe 90892 (2026-10-31, z80 rebuilt on b6e4c4ec)
 - spells + SkillLineAbility 90820-90899: the recipes that craft them (Spell.dbc via z80 + spell_dbc + skilllineability_dbc)
