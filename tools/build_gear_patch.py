@@ -412,8 +412,9 @@ def write_sql(built):
         "-- - item_template + item_dbc %d-%d: %d gear items for the profession equipment slots. Not"
         % (items[0]["entry"], items[-1]["entry"], len(items)),
         "--   equippable (class 15/4, no inventory type), not bound, RequiredSkill/RequiredSkillRank =",
-        "--   the profession they serve at 75 (green) or 225 (blue). Stat tools carry the TotemCategory of",
-        "--   the recipe tool they stand in for (Blacksmith Hammer, Arclight Spanner, runed rods, ...).",
+        "--   the profession they serve at 75 (green), 150 (Enchanting's expert rod) or 225 (blue). Stat",
+        "--   tools carry the TotemCategory of the recipe tool they stand in for (Blacksmith Hammer,",
+        "--   Arclight Spanner, runed rods, ...).",
         "-- - spell_dbc + skilllineability_dbc %d-%d: the recipes, crafted by Blacksmithing,"
         % (items[0]["spell"], items[-1]["spell"]),
         "--   Leatherworking, Tailoring, Engineering and Enchanting. AcquireMethod 1: learned when the",
