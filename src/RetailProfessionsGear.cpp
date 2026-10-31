@@ -21,6 +21,18 @@
  * spells: every trade skill spell with a tool. A player without the patch still has the
  * client's own check, which only looks in the bags: nothing breaks, the slots just don't count.
  *
+ * Gathering tools and fishing rods (HELLO_GEAR_GATHER):
+ *   - a Mining Pick or Skinning Knife (anything with a compatible tool category) goes in a slot of
+ *     its profession as a plain tool. mod-gathering-tools makes the tool optional and gives
+ *     whoever carries one faster gathering (and skill, if set); one in a slot gives the same, so
+ *     it needn't take bag space;
+ *   - Fishing has one slot, for a rod, as retail has. Fishing works with the rod there instead of
+ *     in the main hand, and lures and fishing lines go on it: the client patch takes the rod
+ *     requirement (and the lure's item target) out of Spell.dbc, the server takes the rod
+ *     requirement out of SpellInfo and checks it itself. A rod in the main hand still comes first.
+ *     The slotted rod's fishing skill (its own and its lure's or line's) comes through the
+ *     Fishing skill aura; the module counts its lure down itself.
+ *
  * Gear is gated by skill alone: an item's RequiredSkill/RequiredSkillRank must be met, without
  * bonuses. Individual progression caps skill per era, so that is the era gate as well.
  *
@@ -78,7 +90,7 @@ namespace RetailProfessions::Gear
             uint32 aura; // server-only Mod Skill aura carrying the skill bonus
         };
 
-        constexpr std::array<Layout, 12> LAYOUTS = {{
+        constexpr std::array<Layout, 13> LAYOUTS = {{
             { SKILL_ALCHEMY,        3, 90800 },
             { SKILL_BLACKSMITHING,  3, 90801 },
             { SKILL_ENCHANTING,     3, 90802 },
@@ -91,6 +103,7 @@ namespace RetailProfessions::Gear
             { SKILL_SKINNING,       3, 90809 },
             { SKILL_TAILORING,      3, 90810 },
             { SKILL_COOKING,        2, 90811 },
+            { SKILL_FISHING,        1, 90812 },
         }};
 
         constexpr uint8 MAX_SLOTS = 3;
@@ -99,6 +112,22 @@ namespace RetailProfessions::Gear
         constexpr uint32 MAX_TOOL_ENTRIES = 30; // items listed per tool in GT
         constexpr uint32 CHECK_INTERVAL = 5000;
         constexpr char const* DATA_KEY = "RetailProfessionsGear";
+
+        // The tools mod-gathering-tools rewards carrying, and its aura for carrying one (90130,
+        // 90131: when it's up, a tool in the bags already gives what a slotted one would).
+        struct GatherTool
+        {
+            uint32 skill;
+            uint32 category; // TotemCategory
+            uint32 aura;
+        };
+
+        constexpr std::array<GatherTool, 2> GATHER_TOOLS = {{
+            { SKILL_MINING,   165, 90130 }, // Mining Pick
+            { SKILL_SKINNING, 166, 90131 }, // Skinning Knife
+        }};
+
+        constexpr uint32 FISHING_POLE_MASK = 1 << ITEM_SUBCLASS_WEAPON_FISHING_POLE;
 
         enum Kind : uint8
         {
@@ -144,12 +173,39 @@ namespace RetailProfessions::Gear
         // Whether the spells' tools were taken out at startup (a config reload doesn't change it).
         bool sToolsCleared = false;
 
+        // Spells that need a rod in the main hand: Fishing (casts), and lures and lines (put on
+        // the rod). Their rod requirement is taken out at startup when sPoleCleared, and a lure's
+        // or line's effect becomes a Dummy: the core's Enchant Item needs an item target, which a
+        // rod in the Fishing slot can't be, so the module puts every lure and line on itself.
+        struct PoleEnchant
+        {
+            bool temporary = false; // Enchant Item Temporary (lures), else Enchant Item (lines)
+            uint32 enchant = 0;
+        };
+
+        std::set<uint32> sPoleCasts;
+        std::map<uint32, PoleEnchant> sPoleEnchants; // by spell
+        bool sPoleCleared = false;
+
         Layout const* LayoutOf(uint32 skill)
         {
             for (Layout const& layout : LAYOUTS)
                 if (layout.skill == skill)
                     return &layout;
             return nullptr;
+        }
+
+        GatherTool const* GatherToolOf(uint32 skill)
+        {
+            for (GatherTool const& tool : GATHER_TOOLS)
+                if (tool.skill == skill)
+                    return &tool;
+            return nullptr;
+        }
+
+        bool IsFishingPole(ItemTemplate const* proto)
+        {
+            return proto->Class == ITEM_CLASS_WEAPON && proto->SubClass == ITEM_SUBCLASS_WEAPON_FISHING_POLE;
         }
 
         GearRow const* GearOf(uint32 entry)
@@ -174,6 +230,9 @@ namespace RetailProfessions::Gear
         {
             bool loaded = false;
             uint32 checkTimer = CHECK_INTERVAL;
+            uint32 sinceCheck = 0;
+            bool lureTicked = false; // a slotted rod's lure time went down since it was saved
+            bool rodShown = false;   // the hands show the slotted rod for a cast of Fishing
             std::map<uint32, Slots> skills; // by skill line
 
             ~Data() override
@@ -248,16 +307,128 @@ namespace RetailProfessions::Gear
             ChatHandler(player->GetSession()).SendSysMessage("|cffffd200Profession equipment:|r " + text);
         }
 
+        // ---- gathering tools and the rod --------------------------------------------------------
+
+        // A slotted pick or knife counts while mod-gathering-tools is installed (its aura spell
+        // exists) and the player doesn't carry one already (its aura is up then).
+        bool SlottedGatherTool(Player* player, GatherTool const& tool)
+        {
+            if (!sSpellMgr->GetSpellInfo(tool.aura) || player->HasAura(tool.aura) || !player->HasSkill(tool.skill))
+                return false;
+            return AnySlotted(player, tool.skill, [player, &tool](Item const* item) { return MeetsCategory(player, item, tool.category); });
+        }
+
+        Item* MainHandPole(Player* player)
+        {
+            Item* item = player->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_MAINHAND);
+            return item && IsFishingPole(item->GetTemplate()) && !item->IsBroken() ? item : nullptr;
+        }
+
+        // The rod in the Fishing slot when it's the one fishing uses: one in the main hand goes first.
+        Item* SlottedPole(Player* player)
+        {
+            if (MainHandPole(player))
+                return nullptr;
+            Data* data = LoadedDataOf(player);
+            if (!data)
+                return nullptr;
+            auto itr = data->skills.find(SKILL_FISHING);
+            if (itr == data->skills.end())
+                return nullptr;
+            for (Item* item : itr->second)
+                if (item && IsFishingPole(item->GetTemplate()) && !item->IsBroken())
+                    return item;
+            return nullptr;
+        }
+
+        // The Fishing skill a rod gives when worn: its equip spells and those of its line (permanent
+        // enchantment) and lure (temporary).
+        int32 PoleSkill(Item const* pole)
+        {
+            int32 total = 0;
+            auto add = [&total](uint32 spellId)
+            {
+                if (SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId))
+                    for (SpellEffectInfo const& effect : info->GetEffects())
+                        if ((effect.IsAura(SPELL_AURA_MOD_SKILL) || effect.IsAura(SPELL_AURA_MOD_SKILL_TALENT)) && effect.MiscValue == SKILL_FISHING)
+                            total += effect.CalcValue();
+            };
+            for (_Spell const& spell : pole->GetTemplate()->Spells)
+                if (spell.SpellId > 0 && spell.SpellTrigger == ITEM_SPELLTRIGGER_ON_EQUIP)
+                    add(spell.SpellId);
+            for (EnchantmentSlot slot : { PERM_ENCHANTMENT_SLOT, TEMP_ENCHANTMENT_SLOT })
+                if (SpellItemEnchantmentEntry const* enchant = sSpellItemEnchantmentStore.LookupEntry(pole->GetEnchantmentId(slot)))
+                    for (uint8 i = 0; i < MAX_SPELL_ITEM_ENCHANTMENT_EFFECTS; ++i)
+                        if (enchant->type[i] == ITEM_ENCHANTMENT_TYPE_EQUIP_SPELL && enchant->spellid[i])
+                            add(enchant->spellid[i]);
+            return total;
+        }
+
+        // Sets an enchantment on a slotted item. Not Item::SetEnchantment: that queues the item
+        // for its owner's inventory save, which drops items it can't find in the bags.
+        void SetSlottedEnchantment(Item* item, EnchantmentSlot slot, uint32 id, uint32 duration, uint32 charges)
+        {
+            uint16 field = ITEM_FIELD_ENCHANTMENT_1_1 + slot * MAX_ENCHANTMENT_OFFSET;
+            item->SetUInt32Value(field + ENCHANTMENT_ID_OFFSET, id);
+            item->SetUInt32Value(field + ENCHANTMENT_DURATION_OFFSET, duration);
+            item->SetUInt32Value(field + ENCHANTMENT_CHARGES_OFFSET, charges);
+        }
+
+        // While fishing with the slotted rod the hands show it (and its lure's glow) instead of
+        // what is equipped; the weapons stay equipped. mod-transmog-plus leaves the hands alone
+        // then (FishingWithoutRodInHand).
+        void ShowRod(Player* player, Data* data, Item const* rod)
+        {
+            uint16 mainHand = PLAYER_VISIBLE_ITEM_1_ENTRYID + EQUIPMENT_SLOT_MAINHAND * 2;
+            uint16 offHand = PLAYER_VISIBLE_ITEM_1_ENTRYID + EQUIPMENT_SLOT_OFFHAND * 2;
+            player->SetUInt32Value(mainHand, rod->GetEntry());
+            player->SetUInt16Value(mainHand + 1, 0, rod->GetEnchantmentId(PERM_ENCHANTMENT_SLOT));
+            player->SetUInt16Value(mainHand + 1, 1, rod->GetEnchantmentId(TEMP_ENCHANTMENT_SLOT));
+            player->SetUInt32Value(offHand, 0);
+            player->SetUInt32Value(offHand + 1, 0);
+            data->rodShown = true;
+        }
+
+        void HideRod(Player* player, Data* data)
+        {
+            for (uint8 slot : { EQUIPMENT_SLOT_MAINHAND, EQUIPMENT_SLOT_OFFHAND })
+                player->SetVisibleItemSlot(slot, player->GetItemByPos(INVENTORY_SLOT_BAG_0, slot));
+            data->rodShown = false;
+        }
+
+        bool Fishing(Player const* player)
+        {
+            Spell const* spell = player->GetCurrentSpell(CURRENT_CHANNELED_SPELL);
+            return spell && sPoleCasts.count(spell->GetSpellInfo()->Id);
+        }
+
+        void SaveSlotted(Item* item, CharacterDatabaseTransaction trans)
+        {
+            if (item->GetState() == ITEM_UNCHANGED)
+                item->FSetState(ITEM_CHANGED);
+            item->SaveToDB(trans);
+        }
+
         // ---- the skill auras --------------------------------------------------------------------
 
         void UpdateAura(Player* player, Layout const& layout, Slots const* slots)
         {
             int32 bonus = 0;
             if (slots && player->HasSkill(layout.skill))
+            {
                 for (Item const* item : *slots)
                     if (item)
                         if (GearRow const* row = GearFor(item->GetEntry(), layout.skill))
                             bonus += row->skillBonus;
+                if (layout.skill == SKILL_FISHING)
+                {
+                    if (Item const* pole = SlottedPole(player))
+                        bonus += PoleSkill(pole);
+                }
+                else if (GatherTool const* tool = GatherToolOf(layout.skill))
+                    if (SlottedGatherTool(player, *tool))
+                        bonus += GetConfig().gatherToolSkill;
+            }
 
             Aura* aura = player->GetAura(layout.aura);
             if (!bonus)
@@ -272,6 +443,16 @@ namespace RetailProfessions::Gear
                 if (AuraEffect* effect = aura->GetEffect(EFFECT_0))
                     if (effect->GetAmount() != bonus)
                         effect->ChangeAmount(bonus);
+        }
+
+        void UpdateSkillAura(Player* player, uint32 skill)
+        {
+            Layout const* layout = LayoutOf(skill);
+            Data* data = LoadedDataOf(player);
+            if (!layout || !data)
+                return;
+            auto itr = data->skills.find(skill);
+            UpdateAura(player, *layout, itr != data->skills.end() ? &itr->second : nullptr);
         }
 
         void UpdateAuras(Player* player)
@@ -474,9 +655,15 @@ namespace RetailProfessions::Gear
             return nullptr;
         }
 
-        // Whether an item meets one of a profession's recipe tools.
+        // Whether an item meets one of a profession's recipe tools, is its gathering tool (pick,
+        // knife) or, for Fishing, a rod.
         bool IsPlainTool(Player const* player, ItemTemplate const* proto, uint32 skill)
         {
+            if (skill == SKILL_FISHING)
+                return IsFishingPole(proto);
+            if (GatherTool const* tool = GatherToolOf(skill))
+                if (proto->TotemCategory && player->IsTotemCategoryCompatiableWith(proto, tool->category))
+                    return true;
             auto itr = sTools.find(skill);
             if (itr == sTools.end())
                 return false;
@@ -563,6 +750,9 @@ namespace RetailProfessions::Gear
         sNeeds.clear();
         sTools.clear();
         sToolsCleared = false;
+        sPoleCasts.clear();
+        sPoleEnchants.clear();
+        sPoleCleared = false;
         sLearnLevels.clear();
         for (Layout const& layout : LAYOUTS)
             for (SkillLineAbilityEntry const* ability : GetSkillLineAbilitiesBySkillLine(layout.skill))
@@ -621,6 +811,35 @@ namespace RetailProfessions::Gear
                 sToolsCleared = true;
                 info->Totem = { 0, 0 };
                 info->TotemCategory = { 0, 0 };
+            }
+        }
+
+        // Fishing and the lures and lines put on the rod: the rod may sit in the Fishing slot
+        // instead of the main hand, so its requirement goes and the module checks it.
+        // tools/build_gear_patch.py picks the same spells (free_fishing_pole).
+        for (uint32 id = 0; id < sSpellMgr->GetSpellInfoStoreSize(); ++id)
+        {
+            SpellInfo* info = const_cast<SpellInfo*>(sSpellMgr->GetSpellInfo(id));
+            if (!info || info->EquippedItemClass != ITEM_CLASS_WEAPON || info->EquippedItemSubClassMask != int32(FISHING_POLE_MASK))
+                continue;
+            SpellEffectInfo& effect = info->_GetEffects()[EFFECT_0];
+            bool cast = info->HasEffect(SPELL_EFFECT_TRANS_DOOR);
+            bool enchant = (info->Targets & TARGET_FLAG_ITEM)
+                && (effect.Effect == SPELL_EFFECT_ENCHANT_ITEM || effect.Effect == SPELL_EFFECT_ENCHANT_ITEM_TEMPORARY);
+            if (cast)
+                sPoleCasts.insert(id);
+            else if (enchant)
+                sPoleEnchants[id] = { effect.Effect == SPELL_EFFECT_ENCHANT_ITEM_TEMPORARY, uint32(effect.MiscValue) };
+            else
+                continue;
+            if (clear)
+            {
+                sPoleCleared = true;
+                info->EquippedItemClass = -1;
+                info->EquippedItemSubClassMask = 0;
+                info->EquippedItemInventoryTypeMask = 0;
+                if (enchant)
+                    effect.Effect = SPELL_EFFECT_DUMMY;
             }
         }
 
@@ -713,8 +932,8 @@ namespace RetailProfessions::Gear
             LOG_ERROR("server.loading", "mod-retail-professions: only {} recipes have tools. Is the server's Spell.dbc the client patch's? "
                 "It must be the stock one: the module takes the tools out itself and checks them.", sNeeds.size());
 
-        LOG_INFO("server.loading", ">> mod-retail-professions: {} profession gear items, {} recipes with tools{} in {} ms",
-            sGear.size(), sNeeds.size(), clear ? " (checked by the module)" : "", GetMSTimeDiffToNow(oldMSTime));
+        LOG_INFO("server.loading", ">> mod-retail-professions: {} profession gear items, {} recipes with tools, {} fishing and {} lure spells{} in {} ms",
+            sGear.size(), sNeeds.size(), sPoleCasts.size(), sPoleEnchants.size(), clear ? " (checked by the module)" : "", GetMSTimeDiffToNow(oldMSTime));
     }
 
     float Bonus(Player* player, uint32 skill, Stat stat)
@@ -946,7 +1165,22 @@ namespace RetailProfessions::Gear
 
     void OnLogout(Player* player)
     {
-        // The items are saved; only the objects go.
+        Data* data = LoadedDataOf(player);
+        if (data && data->rodShown)
+            HideRod(player, data);
+        // The items are saved, but for the time left on a slotted rod's lure; only the objects go.
+        if (data && data->lureTicked)
+        {
+            auto itr = data->skills.find(SKILL_FISHING);
+            if (itr != data->skills.end())
+            {
+                CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+                for (Item* item : itr->second)
+                    if (item && item->GetEnchantmentId(TEMP_ENCHANTMENT_SLOT))
+                        SaveSlotted(item, trans);
+                CharacterDatabase.CommitTransaction(trans);
+            }
+        }
         player->CustomData.Erase(DATA_KEY);
     }
 
@@ -956,19 +1190,56 @@ namespace RetailProfessions::Gear
         trans->Append("DELETE FROM mod_retail_professions_gear_slot WHERE owner_guid = {}", guid);
     }
 
+    namespace
+    {
+        // A slotted rod's lure runs out as one on a rod in the bags does: while the player is online.
+        void TickLures(Player* player, Data* data, uint32 elapsed)
+        {
+            auto itr = data->skills.find(SKILL_FISHING);
+            if (itr == data->skills.end())
+                return;
+            for (Item* item : itr->second)
+            {
+                if (!item || !item->GetEnchantmentId(TEMP_ENCHANTMENT_SLOT) || !item->GetEnchantmentDuration(TEMP_ENCHANTMENT_SLOT))
+                    continue;
+                uint32 left = item->GetEnchantmentDuration(TEMP_ENCHANTMENT_SLOT);
+                if (left > elapsed)
+                {
+                    item->SetUInt32Value(ITEM_FIELD_ENCHANTMENT_1_1 + TEMP_ENCHANTMENT_SLOT * MAX_ENCHANTMENT_OFFSET + ENCHANTMENT_DURATION_OFFSET, left - elapsed);
+                    data->lureTicked = true;
+                    continue;
+                }
+                SetSlottedEnchantment(item, TEMP_ENCHANTMENT_SLOT, 0, 0, 0);
+                CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+                SaveSlotted(item, trans);
+                CharacterDatabase.CommitTransaction(trans);
+                Notify(player, Acore::StringFormat("the lure on your {} wore off.", item->GetTemplate()->Name1));
+            }
+        }
+    }
+
     void Update(Player* player, uint32 diff)
     {
         Data* data = LoadedDataOf(player);
-        if (!data || data->skills.empty())
+        if (!data)
             return;
+        if (data->rodShown && !Fishing(player))
+            HideRod(player, data);
+        if (data->skills.empty())
+            return;
+        data->sinceCheck += diff;
         if (data->checkTimer > diff)
         {
             data->checkTimer -= diff;
             return;
         }
         data->checkTimer = CHECK_INTERVAL;
+        TickLures(player, data, data->sinceCheck);
+        data->sinceCheck = 0;
         if (!player->IsInCombat())
             CheckSkills(player, data);
+        // A rod put in the main hand, a pick picked up: what the slots give changes with them.
+        UpdateAuras(player);
     }
 
     void OnUpdateSkill(Player* player, uint32 skill, uint32 value, uint32 newValue)
@@ -983,10 +1254,82 @@ namespace RetailProfessions::Gear
 
     // ---- recipe tools -------------------------------------------------------------------------
 
+    namespace
+    {
+        // The client's own "Requires Fishing Pole".
+        void SendNeedsPole(Player* player, Spell const* spell)
+        {
+            WorldPacket data(SMSG_CAST_FAILED, 1 + 4 + 1 + 4 + 4);
+            data << uint8(spell->m_cast_count);
+            data << uint32(spell->GetSpellInfo()->Id);
+            data << uint8(SPELL_FAILED_EQUIPPED_ITEM_CLASS);
+            data << uint32(ITEM_CLASS_WEAPON);
+            data << uint32(FISHING_POLE_MASK);
+            player->SendDirectMessage(&data);
+        }
+
+        // Fishing needs a rod in the main hand or the Fishing slot. A lure or line goes on the rod
+        // it was used on (an unpatched client still asks for one; it must be a rod), else on the
+        // one in the main hand, else on the slotted one (OnCast).
+        void CheckPole(Spell* spell, Player* player, SpellCastResult& res)
+        {
+            if (auto lure = sPoleEnchants.find(spell->GetSpellInfo()->Id); lure != sPoleEnchants.end())
+            {
+                if (Item* target = spell->m_targets.GetItemTarget())
+                {
+                    if (IsFishingPole(target->GetTemplate()))
+                    {
+                        // As Spell::CheckItems: no soulbound enchantment on a trade partner's item.
+                        SpellItemEnchantmentEntry const* enchant = sSpellItemEnchantmentStore.LookupEntry(lure->second.enchant);
+                        if (target->GetOwner() != player && (!enchant || (enchant->slot & ENCHANTMENT_CAN_SOULBOUND)))
+                            res = SPELL_FAILED_NOT_TRADEABLE;
+                        return;
+                    }
+                }
+                else if (MainHandPole(player) || SlottedPole(player))
+                    return;
+            }
+            else if (MainHandPole(player) || SlottedPole(player))
+            {
+                // A rod just put in the main hand: the slotted one's skill no longer counts.
+                UpdateSkillAura(player, SKILL_FISHING);
+                return;
+            }
+
+            SendNeedsPole(player, spell);
+            res = SPELL_FAILED_DONT_REPORT;
+        }
+
+        // How long a lure lasts, as Spell::EffectEnchantItemTmp has it.
+        uint32 LureSeconds(uint32 spellId)
+        {
+            switch (spellId)
+            {
+                case 8087:  // Shiny Bauble
+                case 8088:  // Nightcrawlers
+                case 8089:  // Aquadynamic Fish Attractor
+                case 8090:  // Bright Baubles
+                case 8532:  // Aquadynamic Fish Lens
+                case 9092:  // Flesh Eating Worm
+                case 43699: // Fishing Hat Lure
+                case 45731: // Sharpened Fish Hook
+                    return 600;
+                default:
+                    return 3600;
+            }
+        }
+    }
+
     void OnCheckCast(Spell* spell, SpellCastResult& res)
     {
         if (res != SPELL_CAST_OK)
             return;
+        if (sPoleCleared && (sPoleCasts.count(spell->GetSpellInfo()->Id) || sPoleEnchants.count(spell->GetSpellInfo()->Id)))
+        {
+            if (Player* player = spell->GetCaster() ? spell->GetCaster()->ToPlayer() : nullptr)
+                CheckPole(spell, player, res);
+            return;
+        }
         // As the core: an item that pays the reagents (an enchanting scroll casting its recipe)
         // needs no tools either.
         if (spell->m_CastItem && spell->m_CastItem->GetTemplate()->HasFlag(ITEM_FLAG_NO_REAGENT_COST))
@@ -1032,6 +1375,60 @@ namespace RetailProfessions::Gear
         player->SendDirectMessage(&data);
 
         res = SPELL_FAILED_DONT_REPORT;
+    }
+
+    void OnCast(Spell* spell, Unit* caster, SpellInfo const* info)
+    {
+        if (!sPoleCleared || !caster || !caster->IsPlayer())
+            return;
+        Player* player = caster->ToPlayer();
+        if (sPoleCasts.count(info->Id))
+        {
+            if (Item* rod = SlottedPole(player))
+                if (Data* data = LoadedDataOf(player))
+                    ShowRod(player, data, rod);
+            return;
+        }
+        auto itr = sPoleEnchants.find(info->Id);
+        if (itr == sPoleEnchants.end())
+            return;
+        PoleEnchant const& lure = itr->second;
+        SpellItemEnchantmentEntry const* enchant = sSpellItemEnchantmentStore.LookupEntry(lure.enchant);
+        if (!enchant)
+            return;
+        EnchantmentSlot slot = lure.temporary ? TEMP_ENCHANTMENT_SLOT : PERM_ENCHANTMENT_SLOT;
+        uint32 duration = lure.temporary ? LureSeconds(info->Id) * IN_MILLISECONDS : 0;
+        uint32 charges = lure.temporary ? enchant->charges : 0;
+
+        // A rod in the bags, worn or in a trade window: as Spell::EffectEnchantItemTmp and
+        // EffectEnchantItemPerm do it.
+        Item* target = spell->m_targets.GetItemTarget();
+        if (!target)
+            target = MainHandPole(player);
+        if (target)
+        {
+            Player* owner = target->GetOwner();
+            if (!owner)
+                return;
+            owner->ApplyEnchantment(target, slot, false);
+            target->SetEnchantment(slot, enchant->ID, duration, charges, player->GetGUID());
+            owner->ApplyEnchantment(target, slot, true);
+            owner->RemoveTradeableItem(target);
+            target->ClearSoulboundTradeable(owner);
+            return;
+        }
+
+        Item* pole = SlottedPole(player);
+        if (!pole)
+            return;
+        SetSlottedEnchantment(pole, slot, enchant->ID, duration, charges);
+        player->GetSession()->SendEnchantmentLog(player->GetGUID(), player->GetGUID(), pole->GetEntry(), enchant->ID);
+
+        CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+        SaveSlotted(pole, trans);
+        CharacterDatabase.CommitTransaction(trans);
+        UpdateSkillAura(player, SKILL_FISHING);
+        Notify(player, Acore::StringFormat("{} is on your {}.", info->SpellName[player->GetSession()->GetSessionDbcLocale()], pole->GetTemplate()->Name1));
     }
 
     // ---- gathering ----------------------------------------------------------------------------
@@ -1117,13 +1514,19 @@ namespace RetailProfessions::Gear
         if (!skill)
             return;
         float deftness = std::min(Bonus(caster->ToPlayer(), skill, STAT_DEFTNESS), 90.0f);
+        // mod-gathering-tools' speed for a pick or knife in a slot, as it gives one in the bags.
+        float toolSpeed = 0.0f;
+        if (GatherTool const* tool = GatherToolOf(skill))
+            if (SlottedGatherTool(caster->ToPlayer(), *tool))
+                toolSpeed = float(GetConfig().gatherToolSpeed);
         int32 full = spell->GetCastTime();
-        if (deftness <= 0.0f || full <= 0)
+        if ((deftness <= 0.0f && toolSpeed <= 0.0f) || full <= 0)
             return;
 
         // As the Perks code does it: m_casttime is protected, a derived class may name it.
         struct Access : Spell { using Spell::m_casttime; };
-        spell->*(&Access::m_casttime) = std::max<int32>(int32(float(full) * (100.0f - deftness) / 100.0f), 1);
+        float factor = (100.0f - deftness) / 100.0f * (100.0f - toolSpeed) / 100.0f;
+        spell->*(&Access::m_casttime) = std::max<int32>(int32(float(full) * factor), 1);
         spell->ReSetTimer();
         spell->SendSpellStart();
     }

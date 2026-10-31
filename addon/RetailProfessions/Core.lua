@@ -14,6 +14,7 @@ RPF.HELLO_REFINE = 4    -- Y and X: what herbs and ore give, and milling or pros
 RPF.HELLO_PERKS = 8     -- crafts can make a second batch, give reagents back and cast faster
 RPF.HELLO_GUIDE = 16    -- W rows carry a note and tooltip details; M pins drops, objects and quest givers
 RPF.HELLO_GEAR = 32     -- profession equipment: GC, G, GQ, GU and GT (Gear.lua)
+RPF.HELLO_GEAR_GATHER = 64 -- picks and knives slot as tools; Fishing has a rod slot
 
 -- What a craft of a recipe can get on top (the perks field of an L row).
 RPF.PERK_MULTICRAFT = 1
