@@ -1,7 +1,8 @@
 /*
  * mod-retail-professions: what knowing a recipe well gives you, after retail's crafting stats.
  *
- *   Multicraft       a chance that a craft makes a second batch (things that stack only)
+ *   Multicraft       a chance that a craft makes a second batch (things that stack only, and
+ *                    never Enchanting)
  *   Resourcefulness  a chance that a craft gives back part of its reagents
  *   Crafting speed   a shorter cast
  *
@@ -269,7 +270,7 @@ namespace RetailProfessions::Perks
             if (mastered.count(spell))
                 continue;
 
-            if (config.multicraftMax && product->GetMaxStackSize() > 1)
+            if (config.multicraftMax && craft.skill != SKILL_ENCHANTING && product->GetMaxStackSize() > 1)
             {
                 craft.flags |= PERK_MULTICRAFT;
                 ++multicraft;

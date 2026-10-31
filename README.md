@@ -102,8 +102,8 @@ crafting speed**, earned by skill.
   orange, more from where it turns yellow to where it turns grey, and the most from then on: a
   recipe that still teaches you is slow and single, one you've outgrown is quick to make in bulk.
   - **Multicraft**: a chance that a craft makes a second batch (up to 25%). Only for things that
-    stack: bars, bolts, leather, inks, bandages, food, scopes and powders. Not gear, and not cut
-    gems (they don't stack).
+    stack: bars, bolts, leather, inks, bandages, food, scopes and powders. Not gear, not cut
+    gems (they don't stack), and nothing in Enchanting.
   - **Resourcefulness**: a chance (up to 20%) to get 30% of the reagents back. A fraction of a
     unit is a roll, so it is 30% on average, and a proc on a recipe that uses one of each can
     give nothing.
