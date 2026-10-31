@@ -1,15 +1,16 @@
--- Training and Profit: the two tabs at the top of the column on the right, in the spirit of
--- TradeSkillMaster's crafting overview. They look across every profession the character has,
+-- Training, Profit and Equipment: the tabs at the top of the column on the right, in the spirit
+-- of TradeSkillMaster's crafting overview. They look across every profession the character has,
 -- not just the open one:
 --
---   * Training: your professions with their skill bars, their equipment slots (Gear.lua: every
---     profession that takes gear, gathering ones too), and next to them what to do: what to
+--   * Training: your professions with their skill bars, and next to them what to do: what to
 --     make next for skill (the leveling guide's recipe, Guides.lua, else the best skill-up you
 --     know), recipes waiting at the trainer, the next rank to train, cooldowns that are ready,
 --     tracked recipes you now have the materials for, and herbs or ore to mill or prospect,
 --   * Profit: every recipe you know that makes money at today's auction prices (Profit.lua),
 --     sortable by profit, by what your materials make in all, by how many you can make and by
---     how well it sells.
+--     how well it sells,
+--   * Equipment: a card for every profession you know that takes gear (Gear.lua), gathering ones
+--     and Fishing too, with its slots and what they give. Only on a realm with HELLO_GEAR.
 --
 -- The client only lists the recipes of the profession that's open, so each visit to a profession
 -- leaves a note of the recipes you know (and their cooldowns) per character; the server's recipe
@@ -33,34 +34,43 @@ local PROF_WIDTH = 220
 local PROF_ROWS, PROF_HEIGHT = 12, 32
 local TODO_ROWS, TODO_HEIGHT = 11, 36
 local CRAFT_ROWS, CRAFT_HEIGHT = 20, 18
-local GEAR_ROWS, GEAR_HEIGHT = 5, 28
+-- Equipment's cards: two to a row, each a profession's slots.
+local CARD_ROWS, CARD_HEIGHT, CARD_GAP = 6, 60, 6
 
--- The two views, as their tabs, pages and titles show them.
+-- The views, as their tabs, pages and titles show them. `gear`: only while the realm has
+-- profession equipment.
 H.VIEWS = {
 	training = { title = "Training", icon = "Interface\\Icons\\INV_Misc_Book_09",
 		tip = "What to do next: skill-ups, the leveling guide, the trainer and cooldowns, across every profession." },
 	profit = { title = "Profit", icon = "Interface\\Icons\\INV_Misc_Coin_02",
 		tip = "Your most profitable crafts at today's auction prices, across every profession." },
+	equipment = { title = "Equipment", icon = "Interface\\Icons\\INV_Pick_02", gear = true,
+		tip = "Your profession tools and accessories, gathering and Fishing included: what's on and what it gives." },
 }
-H.ORDER = { "training", "profit" }
+H.ORDER = { "training", "profit", "equipment" }
 local HOME_ICON = H.VIEWS.training.icon
+
+-- Whether a view has a tab on this realm.
+function H.Shown(key)
+	local view = H.VIEWS[key or ""]
+	return view and (not view.gear or RPF.Gear.Enabled()) or false
+end
 
 -- The level each rank's trainer asks for (Journeyman ... Grand Master).
 local TRAIN_LEVEL = { [150] = 10, [225] = 20, [300] = 35, [375] = 50, [450] = 65 }
 
--- "training", "profit" or nil (the recipes).
+-- "training", "profit", "equipment" or nil (the recipes).
 H.view = nil
 
--- The view the window shows ("training" or "profit"), or nil: your own professions only, not
--- someone's linked one.
+-- The view the window shows, or nil: your own professions only, not someone's linked one.
 function H.Active()
 	return H.view and RPF.WindowOpen() and not M.linked and H.view or nil
 end
 
--- "training" or "profit" (true: Training), or false for the recipes.
+-- A view's key (true: Training), or false for the recipes.
 function H.SetActive(view)
 	if view == true then view = "training" end
-	view = H.VIEWS[view or ""] and view or nil
+	view = H.Shown(view) and view or nil
 	if H.view == view then return end
 	H.view = view
 	RPF.Fire("VIEW")
@@ -682,8 +692,8 @@ local function newPanel()
 	return panel
 end
 
-local trainingPanel, profitPanel = newPanel(), newPanel()
-H.panels = { training = trainingPanel, profit = profitPanel }
+local trainingPanel, profitPanel, equipmentPanel = newPanel(), newPanel(), newPanel()
+H.panels = { training = trainingPanel, profit = profitPanel, equipment = equipmentPanel }
 
 local function showPanel(view)
 	-- In DragonUI's window each view is one of its pages (Host.lua).
@@ -821,7 +831,22 @@ local function profEnter(row, owner)
 end
 
 local profRows = {}
-for i = 1, PROF_ROWS do
+local profList = {}
+local profScrollName = RPF.UniqueName("HomeProfScroll")
+local profScroll = CreateFrame("ScrollFrame", profScrollName, profPane, "FauxScrollFrameTemplate")
+profScroll:SetPoint("TOPLEFT", profPane, "TOPLEFT", 4, -28)
+profScroll:SetPoint("BOTTOMRIGHT", profPane, "BOTTOMRIGHT", -26, 6)
+local drawProfs
+-- Before the bar is skinned, as the list of next steps does.
+profScroll:SetScript("OnVerticalScroll", function (self, offset)
+	FauxScrollFrame_OnVerticalScroll(self, offset, PROF_HEIGHT, function ()
+		drawProfs(profList)
+		RPF.SyncSpellButtons()
+	end)
+end)
+RPF.SkinScrollBar(profScroll, profScrollName)
+
+local function profRow(i)
 	local row = CreateFrame("Button", nil, profPane)
 	row:SetHeight(PROF_HEIGHT)
 	row:SetPoint("TOPLEFT", profPane, "TOPLEFT", 6, -28 - (i - 1) * PROF_HEIGHT)
@@ -860,13 +885,25 @@ for i = 1, PROF_ROWS do
 	rowHighlight(row)
 	withSecure(row, "RetailProfessionsHomeProf" .. i, profEnter)
 	row:Hide()
-	profRows[i] = row
+	return row
 end
+for i = 1, PROF_ROWS do profRows[i] = profRow(i) end
 
-local function drawProfs(profs)
+-- Every profession you know, scrolling when they don't all fit (a character can know them all).
+function drawProfs(profs)
+	profList = profs
+	local shown = fitRows(profScroll, profRows, PROF_ROWS, PROF_HEIGHT, profRow)
+	FauxScrollFrame_Update(profScroll, #profs, shown, PROF_HEIGHT)
+	local offset = FauxScrollFrame_GetOffset(profScroll)
+	local scrolling = #profs > shown
 	for i, row in ipairs(profRows) do
-		local known = profs[i]
+		local known = i <= shown and profs[offset + i] or nil
 		row.known = known
+		if scrolling then
+			row:SetPoint("RIGHT", profScroll, "RIGHT", 0, 0)
+		else
+			row:SetPoint("RIGHT", profPane, "RIGHT", -6, 0)
+		end
 		if known then
 			local p = known.profession
 			row.icon:SetTexture(p.texture)
@@ -882,55 +919,6 @@ local function drawProfs(profs)
 			bindAction(row, nil)
 		end
 	end
-end
-
--- Profession equipment (Gear.lua) at the bottom of the column: a row of slots for every
--- profession you know that takes it. Herbalism and Skinning have no window, so in DragonUI's
--- (where K opens Training) this is where their gear goes on.
-local gearTitle = profPane:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-gearTitle:SetText("Equipment")
-gearTitle:Hide()
-
-local gearRows = {}
-for i = 1, GEAR_ROWS do
-	local row = CreateFrame("Frame", nil, profPane)
-	row:SetHeight(GEAR_HEIGHT)
-	row.icon = row:CreateTexture(nil, "ARTWORK")
-	row.icon:SetSize(20, 20)
-	row.icon:SetPoint("LEFT", row, "LEFT", 4, 0)
-	row.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-	row.gear = RPF.Gear.CreateStrip(row, 22, 3)
-	row.gear:SetPoint("RIGHT", row, "RIGHT", -4, 0)
-	row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	row.name:SetPoint("LEFT", row.icon, "RIGHT", 6, 0)
-	row.name:SetPoint("RIGHT", row.gear, "LEFT", -4, 0)
-	row.name:SetJustifyH("LEFT")
-	row.name:SetWordWrap(false)
-	row:Hide()
-	gearRows[i] = row
-end
-
-local function drawGear()
-	local list = RPF.Gear.Enabled() and RPF.Gear.Known() or {}
-	local n = math.min(#list, GEAR_ROWS)
-	for i, row in ipairs(gearRows) do
-		local known = i <= n and list[i]
-		if known then
-			row:ClearAllPoints()
-			row:SetPoint("BOTTOMLEFT", profPane, "BOTTOMLEFT", 6, 8 + (n - i) * GEAR_HEIGHT)
-			row:SetPoint("RIGHT", profPane, "RIGHT", -6, 0)
-			row.icon:SetTexture(known.profession.texture)
-			row.name:SetText(known.profession.localName)
-			row.gear:SetSkill(known.profession.id)
-			row:Show()
-		else
-			row.gear:SetSkill(nil)
-			row:Hide()
-		end
-	end
-	gearTitle:ClearAllPoints()
-	gearTitle:SetPoint("BOTTOMLEFT", profPane, "BOTTOMLEFT", 10, 12 + n * GEAR_HEIGHT)
-	if n > 0 then gearTitle:Show() else gearTitle:Hide() end
 end
 
 local todoPane = RPF.CreateInset(trainingPanel)
@@ -1277,6 +1265,145 @@ local function refreshProfit(rows, entries)
 	end
 end
 
+-----------------------------------------
+-- Equipment: a card for every profession you know that takes gear (Gear.lua), two to a row:
+-- its rank, its slots and what they give. Herbalism, Skinning and Fishing have no window of
+-- their own, so this is where theirs go on.
+
+local equipPane = RPF.CreateInset(equipmentPanel)
+equipPane:SetAllPoints(equipmentPanel)
+paneTitle(equipPane, "Profession Equipment")
+
+local equipHint = equipPane:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+equipHint:SetPoint("TOPRIGHT", equipPane, "TOPRIGHT", -12, -11)
+equipHint:SetText("Drag gear onto a slot or right-click it in your bags. Right-click a slot to take it off.")
+
+local equipEmpty = equipPane:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+equipEmpty:SetPoint("TOP", equipPane, "TOP", 0, -60)
+equipEmpty:SetWidth(320)
+
+local CARD_BACKDROP = {
+	bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+	edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+	tile = true, tileSize = 16, edgeSize = 12,
+	insets = { left = 3, right = 3, top = 3, bottom = 3 },
+}
+
+local equipList = {}
+local equipScrollName = RPF.UniqueName("HomeEquipScroll")
+local equipScroll = CreateFrame("ScrollFrame", equipScrollName, equipPane, "FauxScrollFrameTemplate")
+equipScroll:SetPoint("TOPLEFT", equipPane, "TOPLEFT", 4, -30)
+equipScroll:SetPoint("BOTTOMRIGHT", equipPane, "BOTTOMRIGHT", -26, 6)
+local drawEquipment
+equipScroll:SetScript("OnVerticalScroll", function (self, offset)
+	FauxScrollFrame_OnVerticalScroll(self, offset, CARD_HEIGHT + CARD_GAP, function () drawEquipment() end)
+end)
+RPF.SkinScrollBar(equipScroll, equipScrollName)
+
+local function equipCard(parent)
+	local card = CreateFrame("Frame", nil, parent)
+	card:SetHeight(CARD_HEIGHT)
+	card:SetBackdrop(CARD_BACKDROP)
+	card:SetBackdropColor(0, 0, 0, 0.45)
+	card:SetBackdropBorderColor(0.6, 0.5, 0.3, 0.9)
+	card.icon = card:CreateTexture(nil, "ARTWORK")
+	card.icon:SetSize(38, 38)
+	card.icon:SetPoint("LEFT", card, "LEFT", 10, 0)
+	card.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+	card.gear = RPF.Gear.CreateStrip(card, 34, 5)
+	card.gear:SetPoint("RIGHT", card, "RIGHT", -10, 0)
+	card.name = card:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	card.name:SetPoint("TOPLEFT", card.icon, "TOPRIGHT", 10, 0)
+	card.name:SetJustifyH("LEFT")
+	card.name:SetWordWrap(false)
+	card.rank = card:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	card.rank:SetPoint("LEFT", card.name, "RIGHT", 6, 0)
+	card.rank:SetTextColor(0.7, 0.7, 0.7)
+	card.bar = CreateFrame("StatusBar", nil, card)
+	card.bar:SetHeight(8)
+	card.bar:SetPoint("LEFT", card.icon, "RIGHT", 10, 0)
+	card.bar:SetPoint("RIGHT", card.gear, "LEFT", -12, 0)
+	if RPF.Dragon() then
+		card.bar:SetStatusBarTexture("Interface\\PaperDollInfoFrame\\UI-Character-Skills-Bar")
+		card.bar:SetStatusBarColor(0.95, 0.6, 0.1)
+		local bg = card.bar:CreateTexture(nil, "BACKGROUND")
+		bg:SetAllPoints(card.bar)
+		bg:SetTexture(0, 0, 0, 0.65)
+	else
+		RPF.StockSkillBar(card.bar, 8)
+	end
+	card.gives = card:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+	card.gives:SetPoint("BOTTOMLEFT", card.icon, "BOTTOMRIGHT", 10, 0)
+	card.gives:SetPoint("RIGHT", card.gear, "LEFT", -12, 0)
+	card.gives:SetJustifyH("LEFT")
+	card.gives:SetWordWrap(false)
+	card:Hide()
+	return card
+end
+
+-- A row of two cards, the left one to the middle of the pane and the right one from it.
+local cardRows = {}
+local function cardRow(i)
+	local y = -(i - 1) * (CARD_HEIGHT + CARD_GAP)
+	local row = { equipCard(equipPane), equipCard(equipPane) }
+	row[1]:SetPoint("TOPLEFT", equipScroll, "TOPLEFT", 4, y)
+	row[1]:SetPoint("RIGHT", equipScroll, "CENTER", -CARD_GAP / 2, 0)
+	row[2]:SetPoint("TOPLEFT", equipScroll, "TOP", CARD_GAP / 2, y)
+	row[2]:SetPoint("RIGHT", equipScroll, "RIGHT", -2, 0)
+	return row
+end
+for i = 1, CARD_ROWS do cardRows[i] = cardRow(i) end
+
+-- What a card says under its bar: what the slots give, or that they hold only tools or nothing.
+local function givesText(skill)
+	local text = RPF.Gear.TotalsText(skill)
+	if text then return "|cff4fc3f7" .. text .. "|r" end
+	if next(RPF.gear.slots[skill] or {}) then return "Tools only: they count, but give nothing more." end
+	if skill == RPF.Gear.FISHING then return "No rod in the slot." end
+	return "Nothing on."
+end
+
+local function drawCard(card, known)
+	card.known = known
+	if not known then
+		card.gear:SetSkill(nil)
+		card:Hide()
+		return
+	end
+	local p = known.profession
+	card.icon:SetTexture(p.texture)
+	card.name:SetText(p.localName)
+	card.rank:SetText(known.rank .. "/" .. known.maxRank)
+	card.bar:SetMinMaxValues(0, math.max(1, known.maxRank))
+	card.bar:SetValue(known.rank)
+	card.gear:SetSkill(p.id)
+	card.gives:SetText(givesText(p.id))
+	card:Show()
+end
+
+function drawEquipment()
+	equipList = RPF.Gear.Enabled() and RPF.Gear.Known() or {}
+	local rows = math.ceil(#equipList / 2)
+	local shown = fitRows(equipScroll, cardRows, CARD_ROWS, CARD_HEIGHT + CARD_GAP, cardRow)
+	FauxScrollFrame_Update(equipScroll, rows, shown, CARD_HEIGHT + CARD_GAP)
+	local offset = FauxScrollFrame_GetOffset(equipScroll)
+	for i, row in ipairs(cardRows) do
+		local first = (offset + i - 1) * 2 + 1
+		local on = i <= shown
+		drawCard(row[1], on and equipList[first] or nil)
+		drawCard(row[2], on and equipList[first + 1] or nil)
+	end
+	if not RPF.Gear.Enabled() then
+		equipEmpty:SetText("Profession equipment is turned off on this realm.")
+		equipEmpty:Show()
+	elseif #equipList == 0 then
+		equipEmpty:SetText("You don't know a profession that takes equipment.")
+		equipEmpty:Show()
+	else
+		equipEmpty:Hide()
+	end
+end
+
 local function refresh()
 	local view = H.Active()
 	if not view then return end
@@ -1287,8 +1414,9 @@ local function refresh()
 	if view == "training" then
 		todoItems = todo(profs)
 		drawProfs(column)
-		drawGear()
 		drawTodo()
+	elseif view == "equipment" then
+		drawEquipment()
 	else
 		refreshProfit(rows, entries)
 	end
@@ -1296,8 +1424,8 @@ local function refresh()
 end
 H.Refresh = refresh
 -- For the smoke test.
-H.rows = { todo = todoRows, crafts = craftButtons, profs = profRows, gear = gearRows }
-H.scrolls = { todo = todoScroll, crafts = craftScroll }
+H.rows = { todo = todoRows, crafts = craftButtons, profs = profRows, cards = cardRows }
+H.scrolls = { todo = todoScroll, crafts = craftScroll, profs = profScroll, cards = equipScroll }
 
 refreshSoon = function ()
 	if H.Active() then RPF.Debounce("home", 0.1, refresh) end
@@ -1339,6 +1467,12 @@ end)
 for _, event in ipairs({ "PRICES", "BAGS", "RECIPES", "SKILLS", "TRACKED", "YIELDS", "ITEM_INFO", "REBUILT", "GEAR" }) do
 	RPF.On(event, refreshSoon)
 end
+
+-- Profession gear turned off (an older server, or the server said so): Equipment goes back to
+-- Training.
+RPF.On("GEAR", function ()
+	if H.view == "equipment" and not H.Shown("equipment") then H.SetActive("training") end
+end)
 
 -- The window opens on recipes next time.
 RPF.On("HIDDEN", function ()

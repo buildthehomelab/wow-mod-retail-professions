@@ -5,7 +5,7 @@
 -- catalog), what sits in the slots and the tools each recipe needs, asks the server to put
 -- items on and take them off, names gear items in item tooltips, puts a gear item on when it's
 -- right-clicked in the bags, and makes the slot buttons the profession window (Detail.lua), the
--- professions book (Book.lua) and Training (Home.lua) show.
+-- professions book (Book.lua) and the Equipment tab (Home.lua) show.
 
 local RPF = RetailProfessions
 local G = {}
@@ -349,6 +349,8 @@ function G.Known()
 end
 
 RPF.On("SKILLS", function () skillCache, gearProfessions = nil, nil end)
+-- Which professions take gear depends on what the server has too (Fishing's rod slot).
+RPF.On("READY", function () skillCache, gearProfessions = nil, nil end)
 
 -----------------------------------------
 -- item tooltips: what a gear item is and gives

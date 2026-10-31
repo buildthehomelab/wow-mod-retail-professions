@@ -272,15 +272,22 @@ local function refresh()
 		tab.kind = kind and shown[kind.skill] and kind or nil
 		if tab.kind then refining = refining + 1 end
 	end
-	-- Training and Profit sit over the professions, for your own only, with one open (not on a
-	-- page with none behind it).
+	-- Training, Profit and Equipment sit over the professions, for your own only, with one open
+	-- (not on a page with none behind it). Equipment only on a realm with profession gear.
 	local hasHome = windows > 0 and not M.linked and RPF.IsOpen()
-	local top = hasHome and #viewTabs or 0
+	local top = 0
+	if hasHome then
+		for _, tab in ipairs(viewTabs) do
+			if RPF.Home.Shown(tab.view) then top = top + 1 end
+		end
+	end
 	local drop = hasHome and HOME_GAP or 0
 	local pitch = pitchFor(top + #open + refining, drop + (refining > 0 and REFINE_GAP or 0))
-	for i, tab in ipairs(viewTabs) do
-		if hasHome then
-			place(tab, i - 1, pitch, 0)
+	local viewRow = 0
+	for _, tab in ipairs(viewTabs) do
+		if hasHome and RPF.Home.Shown(tab.view) then
+			place(tab, viewRow, pitch, 0)
+			viewRow = viewRow + 1
 			tab.icon:SetTexture(RPF.Home.VIEWS[tab.view].icon)
 			setChecked(tab, home == tab.view)
 			tab:Show()
@@ -361,6 +368,14 @@ RPF.On("SKILLS", function () if frame:IsShown() then refresh() end end)
 RPF.On("VIEW", function () if frame:IsShown() then refresh() end end)
 RPF.On("PAGE", function () if frame:IsShown() then refresh() end end)
 RPF.On("READY", function () if frame:IsShown() then refresh() end end)
+-- Equipment's tab comes and goes with the realm's profession gear.
+local gearShown
+RPF.On("GEAR", function ()
+	local shown = RPF.Home.Shown("equipment")
+	if shown == gearShown then return end
+	gearShown = shown
+	if frame:IsShown() then refresh() end
+end)
 RPF.On("MOVED", refresh)
 RPF.On("HIDDEN", RPF.SyncSpellButtons)
 RPF.On("SECURE_STATE", function (on)
