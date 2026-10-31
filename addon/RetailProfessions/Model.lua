@@ -80,7 +80,7 @@ local DIFFICULTY_TEXT = {
 function RPF.AddSkillUpLines(tip, r)
 	-- Herbs and ore (Refine.lua) aren't recipes: no colour, no thresholds.
 	if r.refine then return end
-	local rank = M.rank or 0
+	local rank = M.baseRank or M.rank or 0
 	local C = M.DIFFICULTY_COLOR
 	tip:AddLine(" ")
 	if not r.learned then
@@ -231,6 +231,22 @@ local function attachServerData(recipe, info)
 	end
 end
 
+-- The open profession's skill from the Skills tab: M.baseRank as trained, M.bonus what
+-- equipment, racials and lures add, M.rank the two together. The core rolls skill-ups and
+-- trainers check on the base; perks and gathering go by the sum. Someone else's linked
+-- profession only has GetTradeSkillLine's number (rank). Returns whether any of it changed.
+function M.ReadRank(rank)
+	local base, bonus = rank or 0, 0
+	if not M.linked and M.profession then
+		for _, k in ipairs(RPF.KnownProfessions()) do
+			if k.profession == M.profession then base, bonus = k.baseRank, k.rank - k.baseRank end
+		end
+	end
+	local changed = base ~= M.baseRank or bonus ~= M.bonus
+	M.baseRank, M.bonus, M.rank = base, bonus, base + bonus
+	return changed
+end
+
 -- Rebuilds the model from the client's list; returns false while the list isn't ready.
 function M.Scan()
 	if scanning then return false end
@@ -250,12 +266,13 @@ function M.Scan()
 
 	scanning = true
 	M.count = count
-	M.skillName, M.rank, M.maxRank = name, rank or 0, maxRank or 0
+	M.skillName, M.maxRank = name, maxRank or 0
 	M.profession = RPF.ProfessionByName(name)
 	M.skill = M.profession and M.profession.id or nil
 	local linked, linkedName = false, nil
 	if IsTradeSkillLinked then linked, linkedName = IsTradeSkillLinked() end
 	M.linked, M.linkedName = linked and true or false, linkedName
+	M.ReadRank(rank)
 
 	local recipes, bySpell, headers = {}, {}, {}
 	local header
@@ -393,7 +410,7 @@ end
 -- Whether a recipe passes the search and the filters in `state` (see M.Rows).
 function M.Matcher(state)
 	local text = state.text and state.text ~= "" and state.text:lower() or nil
-	local rank = M.rank or 0
+	local rank = M.baseRank or M.rank or 0
 	return function (r)
 		if state.slot and r.slot ~= state.slot then return false end
 		if state.skillUp and M.DifficultyAt(r, rank) == "trivial" then return false end
@@ -417,7 +434,7 @@ end
 -- rows = { { header = name, key, count, collapsed } | { recipe = r } }
 function M.Rows(state, collapsed)
 	local text = state.text and state.text ~= "" and state.text:lower() or nil
-	local rank = M.rank or 0
+	local rank = M.baseRank or M.rank or 0
 	local matches = M.Matcher(state)
 
 	-- A search lists the recipes it found by name before the ones it found by a reagent

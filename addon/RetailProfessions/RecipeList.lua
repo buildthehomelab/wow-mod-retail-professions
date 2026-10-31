@@ -221,7 +221,7 @@ function RPF.CreateRecipeList(parent, spec)
 		local rows = self.rows
 		FauxScrollFrame_Update(scroll, #rows, spec.rows, ROW_HEIGHT)
 		local offset = FauxScrollFrame_GetOffset(scroll)
-		local rank = M.rank or 0
+		local rank = M.baseRank or M.rank or 0
 		for i, b in ipairs(buttons) do
 			local row = rows[offset + i]
 			b.row = row

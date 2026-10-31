@@ -15,8 +15,9 @@ crafting speed**, earned by skill.
 
 **The profession window**
 - **Profession tabs** down the right edge, like the spellbook: switch between your professions without the spellbook. With ArchaeologyUI loaded, Archaeology has one too; it opens the research view as a page of this window (races in the list column, the project on the card, your skill on the bar), as DragonUI's window does, the profession staying open behind it. An ArchaeologyUI older than 0.4.0 opens its own research window in place of this one.
-- The profession's **portrait**, a **skill bar** across the window ("Blacksmithing 24/75"; hover it
-  for your rank) and a **chat link** button that shows everyone your recipes.
+- The profession's **portrait**, a **skill bar** across the window ("Blacksmithing 24/75", with a bonus
+  from equipment, racials or a lure in green as the Skills tab writes it: "300 (+15)/300"; hover
+  it for your rank and the skill you count as) and a **chat link** button that shows everyone your recipes.
 - **Search** (the box at the top of the list) matches recipe names and **reagents** ("silk" finds
   everything made from silk); recipes found by name come first, then the ones that use it. Hover
   the box for a reminder.

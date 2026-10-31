@@ -168,11 +168,11 @@ skillBar:EnableMouse(true)
 skillBar:SetScript("OnEnter", function (self)
 	-- Or another addon's page's skill (Pages.lua).
 	local page = RPF.Pages and RPF.Pages.Header()
-	local name, rank, maxRank = M.skillName, M.rank, M.maxRank
-	if page then name, rank, maxRank = page.skill, page.rank, page.maxRank end
+	local name, rank, bonus, maxRank = M.skillName, M.baseRank, M.bonus, M.maxRank
+	if page then name, rank, bonus, maxRank = page.skill, page.rank, 0, page.maxRank end
 	GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
 	GameTooltip:SetText((name or "") .. " - " .. RPF.RankTitle(maxRank))
-	GameTooltip:AddLine(string.format("Skill %d of %d", rank or 0, maxRank or 0), 1, 1, 1)
+	RPF.AddSkillLines(GameTooltip, rank, bonus, maxRank)
 	GameTooltip:Show()
 end)
 skillBar:SetScript("OnLeave", function () GameTooltip:Hide() end)
@@ -1043,14 +1043,14 @@ local function updateHeader()
 			skillBar:Hide()
 		else
 			skillBar:Show()
-			skillBar:SetRank(M.skillName, M.rank, M.maxRank, key)
+			skillBar:SetRank(M.skillName, M.baseRank, M.maxRank, key, M.bonus)
 		end
 		right:SetCardArt(key, texture)
 	else
 		skillBar:Show()
 		skillBar:SetMinMaxValues(0, math.max(1, M.maxRank or 1))
-		skillBar:SetValue(M.rank or 0)
-		skillText:SetText(string.format("%s %d/%d", M.skillName or "", M.rank or 0, M.maxRank or 0))
+		skillBar:SetValue(M.baseRank or 0)
+		skillText:SetText((M.skillName or "") .. " " .. RPF.SkillRankText(M.baseRank, M.bonus, M.maxRank))
 	end
 	if M.linked then linkButton:Hide() else linkButton:Show() end
 	local showLog = RPF.perks and not M.linked
@@ -1192,6 +1192,12 @@ end)
 -- needs follow.
 RPF.On("GEAR", function ()
 	if RPF.IsOpen() and RPF.selected then RPF.Fire("SELECTED", RPF.selected) end
+end)
+-- Equipment, a racial or a lure changed the skill bonus: the bar and the perk odds follow.
+RPF.On("SKILLS", function ()
+	if not (RPF.IsOpen() and M.skillName) or not M.ReadRank((select(2, GetTradeSkillLine()))) then return end
+	updateHeader()
+	if RPF.selected then RPF.Fire("SELECTED", RPF.selected) end
 end)
 -- The server's word on what the open profession's recipes need (Gear.lua) arrived.
 RPF.On("GEAR_TOOLS", function (skill)

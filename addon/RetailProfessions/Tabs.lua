@@ -179,7 +179,7 @@ for i = 1, MAX_TABS do
 		local p = tab.profession
 		if not p then return false end
 		GameTooltip:SetText(p.localName)
-		if tab.rank then GameTooltip:AddLine(tab.rank .. " / " .. tab.maxRank, 1, 1, 1) end
+		if tab.rank then GameTooltip:AddLine(RPF.SkillRankText(tab.baseRank, tab.rank - tab.baseRank, tab.maxRank, " / "), 1, 1, 1) end
 		return true
 	end)
 end
@@ -300,7 +300,7 @@ local function refresh()
 		local known = open[i]
 		if known then
 			local p = known.profession
-			tab.profession, tab.rank, tab.maxRank = p, known.rank, known.maxRank
+			tab.profession, tab.rank, tab.baseRank, tab.maxRank = p, known.rank, known.baseRank, known.maxRank
 			place(tab, top + i - 1, pitch, drop)
 			tab.icon:SetTexture(p.openTexture or p.texture)
 			local current = M.profession == p and not M.linked and RPF.IsOpen()
