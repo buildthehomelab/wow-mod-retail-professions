@@ -234,9 +234,10 @@ end
 -- The open profession's skill from the Skills tab: M.baseRank as trained, M.bonus what
 -- equipment, racials and lures add, M.rank the two together. The core rolls skill-ups and
 -- trainers check on the base; perks and gathering go by the sum. Someone else's linked
--- profession only has GetTradeSkillLine's number (rank). Returns whether any of it changed.
+-- profession only has GetTradeSkillLine's number (rank), less its racial (RPF.RacialBonus).
+-- Returns whether any of it changed.
 function M.ReadRank(rank)
-	local base, bonus = rank or 0, 0
+	local base, bonus = (rank or 0) - (M.racial or 0), M.racial or 0
 	if not M.linked and M.profession then
 		for _, k in ipairs(RPF.KnownProfessions()) do
 			if k.profession == M.profession then base, bonus = k.baseRank, k.rank - k.baseRank end
@@ -266,7 +267,8 @@ function M.Scan()
 
 	scanning = true
 	M.count = count
-	M.skillName, M.maxRank = name, maxRank or 0
+	M.racial = RPF.RacialBonus(maxRank)
+	M.skillName, M.maxRank = name, (maxRank or 0) - M.racial
 	M.profession = RPF.ProfessionByName(name)
 	M.skill = M.profession and M.profession.id or nil
 	local linked, linkedName = false, nil

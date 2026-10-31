@@ -240,6 +240,14 @@ function RPF.SkillRankText(baseRank, bonus, maxRank, sep)
 	return string.format("%d%s%s%d", baseRank or 0, RPF.BonusText(bonus), sep or "/", maxRank or 0)
 end
 
+-- A racial skill bonus (Tauren Herbalism, Gnome Engineering, Blood Elf Enchanting, Draenei
+-- Jewelcrafting) is permanent, and the client adds it to both the rank and the max: Herbalism
+-- 344/375 with Cultivation reads 359/390. Every max is a multiple of 75, so what's over it is
+-- the racial, which we take back out and show with the other bonuses: 344 (+15)/375.
+function RPF.RacialBonus(maxRank)
+	return (maxRank or 0) % 75
+end
+
 -- A skill's lines in a tooltip: the trained skill, and with a bonus the skill it makes.
 function RPF.AddSkillLines(tip, baseRank, bonus, maxRank)
 	baseRank, bonus = baseRank or 0, bonus or 0
@@ -285,8 +293,9 @@ function RPF.KnownProfessions()
 			if p and not (p.archaeology and not RPF.ArchaeologyUI()) then
 				-- Archaeology's progress lives in the module's own tables: unlearning the skill
 				-- line alone would leave them behind.
-				table.insert(known, { profession = p, rank = (rank or 0) + (modifier or 0), baseRank = rank or 0,
-					maxRank = maxRank or 0, skillIndex = i, abandonable = abandonable and not p.archaeology })
+				local racial = RPF.RacialBonus(maxRank)
+				table.insert(known, { profession = p, rank = (rank or 0) + (modifier or 0), baseRank = (rank or 0) - racial,
+					maxRank = (maxRank or 0) - racial, skillIndex = i, abandonable = abandonable and not p.archaeology })
 			end
 		end
 	end

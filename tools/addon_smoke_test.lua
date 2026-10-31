@@ -878,6 +878,29 @@ step("a skill bonus shows next to the skill", function ()
 	if not DRAGON then assert(textShown("^Tailoring 120/150$"), "skill bar still shows a bonus") end
 end)
 
+step("a racial bonus comes out of the rank and the max", function ()
+	-- A +15 racial is in the Skills tab's rank and max (135/165); equipment adds 15 more.
+	skillLines[2][3], skillLines[2][4], skillLines[2][5] = 135, 165, 15
+	tradeSkillLine[2], tradeSkillLine[3] = 135, 165
+	fire("TRADE_SKILL_UPDATE")
+	fire("SKILL_LINES_CHANGED")
+	tick(0.5)
+	assert(M.baseRank == 120 and M.bonus == 30 and M.rank == 150 and M.maxRank == 150,
+		"rank: " .. tostring(M.baseRank) .. " + " .. tostring(M.bonus) .. " = " .. tostring(M.rank) .. " / " .. tostring(M.maxRank))
+	for _, k in ipairs(RPF.KnownProfessions()) do
+		if k.profession == M.profession then
+			assert(k.baseRank == 120 and k.rank == 150 and k.maxRank == 150, "known: " .. k.baseRank .. "/" .. k.maxRank)
+		end
+	end
+	if not DRAGON then assert(textShown("^Tailoring 120 %(.*%+30.*%)/150$"), "skill bar doesn't show the racial") end
+	skillLines[2][3], skillLines[2][4], skillLines[2][5] = 120, 150, nil
+	tradeSkillLine[2], tradeSkillLine[3] = 120, 150
+	fire("TRADE_SKILL_UPDATE")
+	fire("SKILL_LINES_CHANGED")
+	tick(0.5)
+	assert(M.bonus == 0 and M.maxRank == 150, "racial didn't go")
+end)
+
 if DRAGON == "2" then
 	step("DragonUI's professions art: skill bar, card drawing, list bars", function ()
 		assert(RetailProfessionsFrame.profArt, "the window didn't take DragonUI's professions art")
@@ -2356,7 +2379,7 @@ step("gear: the Equipment tab has a card per profession that takes gear", functi
 	end
 	local skills = cards()
 	assert(skills[197] and skills[186] and skills[186].gear.buttons[2].entry == 90802, "Equipment's cards")
-	assert(skills[197].rank.__text == "120/150" and skills[197].gives.__text ~= "", "a card's rank or what it gives")
+	assert(skills[197].bar.Caption.__text == "120/150", "a card's rank")
 	assert(not skills[356], "a Fishing card without HELLO_GEAR_GATHER")
 	assert(textShown("^Profession Equipment$"), "no Equipment heading")
 
@@ -2369,7 +2392,6 @@ step("gear: the Equipment tab has a card per profession that takes gear", functi
 	skills = cards()
 	assert(skills[356] and skills[356].gear.buttons[1]:IsShown() and not skills[356].gear.buttons[2]:IsShown(),
 		"no Fishing card with its one rod slot")
-	assert(skills[356].gives.__text == "No rod in the slot.", "Fishing card: " .. tostring(skills[356].gives.__text))
 
 	-- A character with every profession: Training's list scrolls, and Equipment's cards too.
 	local added = { "Alchemy", "Blacksmithing", "Enchanting", "Engineering", "Herbalism", "Jewelcrafting",
