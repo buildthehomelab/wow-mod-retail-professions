@@ -186,7 +186,7 @@ local function addViews(H)
 		})
 		H.AddTab({
 			key = page, label = view.title, icon = view.icon, after = "overview", page = page,
-			shown = viewsShown,
+			shown = function () return viewsShown() and RPF.Home.Shown(key) end,
 		})
 	end
 end
@@ -405,4 +405,12 @@ RPF.On("HIDDEN", function ()
 end)
 RPF.On("SKILLS", function ()
 	if RPF.hosting and countKnown() then refreshHost() end
+end)
+-- The Equipment tab comes and goes with the realm's profession gear.
+local gearShown
+RPF.On("GEAR", function ()
+	local shown = RPF.Home.Shown("equipment")
+	if shown == gearShown then return end
+	gearShown = shown
+	refreshHost()
 end)

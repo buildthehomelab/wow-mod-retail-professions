@@ -119,9 +119,9 @@ function CreateFrame(kind, name, parent, template)
 	return f
 end
 
-function FauxScrollFrame_Update() end
-function FauxScrollFrame_GetOffset() return 0 end
-function FauxScrollFrame_SetOffset() end
+function FauxScrollFrame_Update(f, n, shown) if n > shown then f:Show() else f:Hide() end end
+function FauxScrollFrame_GetOffset(f) return f and f.__offset or 0 end
+function FauxScrollFrame_SetOffset(f, offset) f.__offset = offset end
 function FauxScrollFrame_OnVerticalScroll(self, offset, h, fn) fn() end
 function PlaySound() end
 function IsModifiedClick() return false end
@@ -238,7 +238,7 @@ function GetItemCount(id) return bags[id] or 0 end
 local spells = {
 	[3908] = "Tailoring", [2259] = "Alchemy", [2575] = "Mining", [2656] = "Smelting", [2580] = "Find Minerals",
 	[7620] = "Fishing", [2963] = "Bolt of Linen Cloth", [2385] = "Brown Linen Vest", [3914] = "Green Linen Bracers",
-	[45357] = "Inscription", [51005] = "Milling", [25229] = "Jewelcrafting", [31252] = "Prospecting",
+	[45357] = "Inscription", [8613] = "Skinning", [51005] = "Milling", [25229] = "Jewelcrafting", [31252] = "Prospecting",
 	[2018] = "Blacksmithing", [7411] = "Enchanting", [4036] = "Engineering", [2108] = "Leatherworking",
 	[2550] = "Cooking", [3273] = "First Aid", [53428] = "Runeforging",
 }
@@ -746,7 +746,7 @@ if DRAGON == "3" then
 			"tabs and title not read again after the scan")
 	end)
 
-	step("hosted: profession equipment on DragonUI's card and Training page", function ()
+	step("hosted: profession equipment on DragonUI's card and its Equipment page", function ()
 		helloFlags = 63
 		RPF.SayHello()
 		tick(1)
@@ -754,11 +754,14 @@ if DRAGON == "3" then
 		local strip = RPF.gearStrip
 		assert(strip:GetParent() == RPF.HostPieces().card and strip:IsVisible() and strip.buttons[1].entry == 90800,
 			"no slots on the card in DragonUI's window")
-		Host.SetPage("retailprofessions-training")
+		Host.SetPage("retailprofessions-equipment")
 		tick(0.3)
+		assert(RPF.Home.Active() == "equipment", "DragonUI's Equipment page didn't open Equipment")
 		local shown = 0
-		for _, row in ipairs(RPF.Home.rows.gear) do if row:IsVisible() then shown = shown + 1 end end
-		assert(shown == 2, "Training's equipment rows in DragonUI's window: " .. shown)
+		for _, row in ipairs(RPF.Home.rows.cards) do
+			for _, card in ipairs(row) do if card:IsVisible() then shown = shown + 1 end end
+		end
+		assert(shown == 2, "Equipment's cards in DragonUI's window: " .. shown)
 		Host.SetPage("crafting")
 		helloFlags = 31
 		RPF.SayHello()
@@ -2307,14 +2310,89 @@ step("gear: a refusal says why", function ()
 	end
 end)
 
-step("gear: Training has a row of slots per profession that takes gear", function ()
+step("gear: the Equipment tab has a card per profession that takes gear", function ()
 	RPF.Home.SetActive("training")
 	tick(0.3)
-	local rows, skills = RPF.Home.rows.gear, {}
-	for _, row in ipairs(rows) do if row:IsShown() then skills[row.gear.skill] = row end end
-	assert(skills[197] and skills[186] and skills[186].gear.buttons[2].entry == 90802, "Training's equipment rows")
-	assert(not skills[356], "a Fishing row")
-	assert(textShown("^Equipment$"), "no Equipment heading")
+	assert(not textShown("^Equipment$"), "Training still has an Equipment section")
+	RPF.Home.SetActive("equipment")
+	tick(0.3)
+	assert(RPF.Home.Active() == "equipment", "Equipment didn't open")
+	local function cards()
+		local skills = {}
+		for _, row in ipairs(RPF.Home.rows.cards) do
+			for _, card in ipairs(row) do
+				if card:IsVisible() then skills[card.gear.skill] = card end
+			end
+		end
+		return skills
+	end
+	local skills = cards()
+	assert(skills[197] and skills[186] and skills[186].gear.buttons[2].entry == 90802, "Equipment's cards")
+	assert(skills[197].rank.__text == "120/150" and skills[197].gives.__text ~= "", "a card's rank or what it gives")
+	assert(not skills[356], "a Fishing card without HELLO_GEAR_GATHER")
+	assert(textShown("^Profession Equipment$"), "no Equipment heading")
+
+	-- With the rod slot, Fishing gets a card of its own.
+	helloFlags = 127
+	RPF.SayHello()
+	tick(1)
+	RPF.Home.SetActive("equipment")
+	tick(0.3)
+	skills = cards()
+	assert(skills[356] and skills[356].gear.buttons[1]:IsShown() and not skills[356].gear.buttons[2]:IsShown(),
+		"no Fishing card with its one rod slot")
+	assert(skills[356].gives.__text == "No rod in the slot.", "Fishing card: " .. tostring(skills[356].gives.__text))
+
+	-- A character with every profession: Training's list scrolls, and Equipment's cards too.
+	local added = { "Alchemy", "Blacksmithing", "Enchanting", "Engineering", "Herbalism", "Jewelcrafting",
+		"Leatherworking", "Skinning", "Cooking", "First Aid", "Runeforging", "Archaeology" }
+	ArchaeologyUI = { skill = 60, maxSkill = 75, OpenWindow = function () end, ToggleWindow = function () end,
+		SurveyButtonClick = function () end }
+	for _, name in ipairs(added) do
+		table.insert(skillLines, { name, false, 10, 75 })
+		if name ~= "Herbalism" and name ~= "Skinning" then knownSpells[name] = true end
+	end
+	RPF.Fire("SKILLS")
+	tick(0.5)
+	assert(#RPF.KnownProfessions() > 12, "only " .. #RPF.KnownProfessions() .. " professions")
+	skills = cards()
+	RPF.Home.SetActive("equipment")
+	tick(0.3)
+	local cardScroll = RPF.Home.scrolls.cards
+	assert(cardScroll:IsShown(), "Equipment's cards don't scroll with " .. #RPF.Gear.Known())
+	local carded = {}
+	for offset = 0, #RPF.Gear.Known() do
+		FauxScrollFrame_SetOffset(cardScroll, offset)
+		RPF.Home.Refresh()
+		for skill in pairs(cards()) do carded[skill] = true end
+	end
+	FauxScrollFrame_SetOffset(cardScroll, 0)
+	assert(carded[393] and carded[182] and carded[356] and carded[185], "no Skinning, Herbalism, Fishing or Cooking card")
+	RPF.Home.SetActive("training")
+	tick(0.3)
+	local scroll = RPF.Home.scrolls.profs
+	assert(scroll:IsShown(), "Training's professions don't scroll with " .. #RPF.KnownProfessions())
+	local seen = {}
+	for offset = 0, #RPF.KnownProfessions() do
+		FauxScrollFrame_SetOffset(scroll, offset)
+		RPF.Home.Refresh()
+		for _, row in ipairs(RPF.Home.rows.profs) do
+			if row:IsShown() and row.known then seen[row.known.profession.id] = true end
+		end
+	end
+	-- Gathering ones and Fishing have no window, so no line: their slots are on Equipment.
+	assert(seen[171] and seen[185] and seen[129] and seen[186] and seen[197] and seen[794] and seen[776],
+		"a profession never shows in Training")
+	FauxScrollFrame_SetOffset(scroll, 0)
+	for _, name in ipairs(added) do
+		table.remove(skillLines)
+		knownSpells[name] = nil
+	end
+	ArchaeologyUI = nil
+	RPF.Fire("SKILLS")
+	helloFlags = 63
+	RPF.SayHello()
+	tick(1)
 	RPF.Home.SetActive(false)
 	tick(0.3)
 end)
@@ -2339,6 +2417,9 @@ step("gear: a realm without it hides the slots again", function ()
 	RPF.SayHello()
 	tick(1)
 	assert(not RPF.Gear.Enabled() and not RPF.gearStrip:IsShown() and next(RPF.gear.catalog) == nil, "gear stayed")
+	assert(not RPF.Home.Shown("equipment"), "the Equipment tab stays without gear")
+	RPF.Home.SetActive("equipment")
+	assert(RPF.Home.view ~= "equipment", "Equipment opens without gear")
 	RPF.Select(M.bySpell[2963])
 	assert(M.PerksOf(M.bySpell[2963]).multicraft == 25, "gear still counted in the perk odds")
 end)

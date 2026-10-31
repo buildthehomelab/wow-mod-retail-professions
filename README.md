@@ -133,10 +133,11 @@ crafting speed**, earned by skill.
 - Recipes at the very top of an era's skill cap never turn grey, so they get little or nothing.
   `RetailProfessions.Perks.*.Min` gives every recipe a base if you want one.
 
-**Training** and **Profit** (the book and coin tabs at the top of the column on the right)
-- Two pages that look across every profession you have, in the spirit of TradeSkillMaster's
+**Training**, **Profit** and **Equipment** (the book, coin and pick tabs at the top of the column on the right)
+- Pages that look across every profession you have, in the spirit of TradeSkillMaster's
   crafting overview, in place of the list and the recipe until you pick a profession tab again.
-- **Training**: your professions with their skill bars down the left, and **Next steps** beside
+- **Training**: your professions with their skill bars down the left (scrolling when you know
+  more than fit), and **Next steps** beside
   them, most urgent first:
   - cooldowns that are over (all transmutes on one line, since they share a timer),
   - tracked recipes you now have the materials for,
@@ -232,8 +233,9 @@ crafting speed**, earned by skill.
 
 **Profession equipment** (after retail's, from Dragonflight on)
 - Every profession has a **tool slot and two accessory slots** (Cooking: one accessory; Fishing:
-  a rod slot), at the top of its window; gathering professions and Fishing have theirs in the
-  professions book (K). Drag an item
+  a rod slot), at the top of its window. The **Equipment** tab shows every profession's slots
+  as cards, gathering professions and Fishing included, with what each set gives; the
+  professions book (K) has them too. Drag an item
   from your bags onto a slot, or right-click a gear item in your bags; right-click a slot to take
   it off. What's slotted leaves your bags.
 - **Gear items** give skill and retail's stats in percentage points: Multicraft, Resourcefulness
