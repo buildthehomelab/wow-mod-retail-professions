@@ -63,7 +63,7 @@ RetailProfessions.WorldDropThreshold = 25
 #        Description: Most creature and gameobject rows have no zoneId in the world database.
 #                     At startup the module works zones out from the map files for the spawns it
 #                     needs and, with 1, writes them back (creature.zoneId/areaId), so later
-#                     starts are faster. mod-npc-finder does the same.
+#                     starts are faster.
 #        Default:     1
 #
 
